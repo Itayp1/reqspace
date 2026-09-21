@@ -2,20 +2,14 @@ FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json ./
-COPY client/package.json ./client/
-COPY server/package.json ./server/
-
-# Install dependencies
-RUN npm install
-
-# Copy source code
+# Copy all source code
 COPY . .
 
-# Build both frontend and backend
-RUN npm run build --workspace=client
-RUN npm run build --workspace=server
+# Build frontend
+RUN cd client && npm install && npm run build
+
+# Build backend
+RUN cd server && npm install && npm run build
 
 # Production image
 FROM node:24-alpine
@@ -25,10 +19,9 @@ WORKDIR /app
 # Set production env
 ENV NODE_ENV=production
 
-# Copy package files and install only production dependencies for the server
-COPY package.json ./
+# Copy server package.json and install production dependencies
 COPY server/package.json ./server/
-RUN npm install --omit=dev --workspace=server
+RUN cd server && npm install --omit=dev
 
 # Copy built artifacts from builder
 COPY --from=builder /app/client/dist ./client/dist
