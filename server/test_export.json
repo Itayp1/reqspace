@@ -1,0 +1,88 @@
+{
+  "info": {
+    "name": "Test Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Folder 1",
+      "item": [
+        {
+          "name": "Request 1",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "https://api.example.com:8443/api/v1/users?test=1",
+              "protocol": "https",
+              "host": [
+                "api",
+                "example",
+                "com"
+              ],
+              "port": "8443",
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "test",
+                  "value": "1",
+                  "description": ""
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "description": ""
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"key\": \"val\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Request 2",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "https://itay-office.tail8a006d.ts.net:8443/",
+          "protocol": "https",
+          "host": [
+            "itay-office",
+            "tail8a006d",
+            "ts",
+            "net"
+          ],
+          "port": "8443",
+          "path": []
+        },
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Basic 123",
+            "description": ""
+          },
+          {
+            "key": "disabled-header",
+            "value": "123",
+            "description": "",
+            "disabled": true
+          }
+        ]
+      }
+    }
+  ]
+}

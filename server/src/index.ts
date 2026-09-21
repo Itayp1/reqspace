@@ -1,0 +1,187 @@
+import 'express-async-errors';
+import express from 'express';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import morgan from 'morgan';
+import path from 'path';
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+import authRouter from './routes/auth';
+import workspacesRouter from './routes/workspaces';
+import collectionsRouter from './routes/collections';
+import environmentsRouter from './routes/environments';
+import historyRouter from './routes/history';
+import proxyRouter from './routes/proxy';
+import captureRouter from './routes/capture';
+import adminRouter from './routes/admin';
+import usersRouter from './routes/users';
+import shareRouter from './routes/share';
+import shareProxyRouter from './routes/shareProxy';
+import importExportRouter from './routes/importExport';
+import runnerRouter from './routes/runner';
+import { SystemConfigRepository } from './repositories/SystemConfigRepository';
+import { UserRepository } from './repositories/UserRepository';
+import { WorkspaceRepository } from './repositories/WorkspaceRepository';
+import bcrypt from 'bcryptjs';
+
+const app = express();
+const server = http.createServer(app);
+
+// ── DB state (updated during bootstrap) ──────────────────────────────────────
+let dbStatus: 'starting' | 'ok' | 'error' = 'starting';
+let dbError: string | null = null;
+let dbType: string = 'unknown';
+
+// Socket.io
+export const io = new SocketIOServer(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  path: '/ws',
+});
+
+io.on('connection', (socket) => {
+  socket.on('join:workspace', (workspaceId: string) => {
+    socket.join('workspace:' + workspaceId);
+  });
+  socket.on('leave:workspace', (workspaceId: string) => {
+    socket.leave('workspace:' + workspaceId);
+  });
+  socket.on('presence:open', ({ workspaceId, requestId, user }) => {
+    socket.to('workspace:' + workspaceId).emit('presence:open', { requestId, user });
+  });
+  socket.on('presence:close', ({ workspaceId, requestId, user }) => {
+    socket.to('workspace:' + workspaceId).emit('presence:close', { requestId, user });
+  });
+});
+
+// Middleware
+app.use(morgan('dev'));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(cookieParser());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173',
+  credentials: true,
+}));
+
+// ── Health check — always responds, reports DB state ─────────────────────────
+app.get('/api/health', (_req, res) => {
+  const status = dbStatus === 'ok' ? 200 : (dbStatus === 'starting' ? 503 : 503);
+  res.status(status).json({
+    status: dbStatus,
+    dbType,
+    dbError: dbError || undefined,
+    uptime: process.uptime(),
+    mongoState: mongoose.connection.readyState,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Block API routes if DB is not ready ──────────────────────────────────────
+app.use('/api', (req, res, next) => {
+  // Always allow health check and dbConfig endpoints even if DB is down
+  if (req.path === '/health' || req.path.startsWith('/admin/db-config')) return next();
+  if (dbStatus !== 'ok') {
+    return res.status(503).json({
+      message: 'Database not available',
+      dbError: dbError || 'Database is not connected',
+      dbType,
+      dbStatus,
+    });
+  }
+  next();
+});
+
+// API Routes
+app.use('/api/auth', authRouter);
+app.use('/api/workspaces', workspacesRouter);
+app.use('/api', collectionsRouter);
+app.use('/api', environmentsRouter);
+app.use('/api', historyRouter);
+app.use('/api/proxy', proxyRouter);
+app.use('/api/capture', captureRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/share', shareRouter);
+app.use('/api/share', shareProxyRouter);
+app.use('/api', importExportRouter);
+app.use('/api', runnerRouter);
+
+// Serve client static files (production)
+const clientDistPath = process.env.CLIENT_DIST_PATH
+  ? path.resolve(__dirname, '..', process.env.CLIENT_DIST_PATH)
+  : path.resolve(__dirname, '../../client/dist');
+
+app.use(express.static(clientDistPath));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(clientDistPath, 'index.html'));
+});
+
+// Error handler
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(err);
+  res.status(500).json({ message: err.message ?? 'Internal server error' });
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+async function bootstrap() {
+  const { getDbConfig } = await import('./db/dbConfig');
+  const { connectDb } = await import('./db/connect');
+
+  const port = parseInt(process.env.PORT ?? '3000', 10);
+
+  // Start listening first — so the client can load and show errors
+  server.listen(port, () => {
+    console.log('🚀 Server running on http://localhost:' + port);
+  });
+
+  const dbConfig = getDbConfig();
+  dbType = dbConfig.type;
+  console.log(`🗄️  Connecting to DB: ${dbConfig.type}`);
+
+  try {
+    await connectDb(dbConfig);
+    console.log(`✅ DB connected (${dbConfig.type})`);
+
+    await SystemConfigRepository.ensure();
+    console.log('✅ SystemConfig initialized');
+
+    const adminCount = (await UserRepository.list({ isSuperAdmin: true })).length;
+    if (adminCount === 0) {
+      const passwordHash = await bcrypt.hash('admin', 10);
+      const adminUser = await UserRepository.create({
+        name: 'Admin',
+        email: 'admin',
+        passwordHash,
+        authType: 'password',
+        isSuperAdmin: true,
+        mustChangePassword: true
+      });
+      await WorkspaceRepository.create({
+        name: `Admin's Workspace`,
+        description: 'Personal workspace',
+        ownerId: adminUser.id,
+      });
+      console.log('✅ Default superadmin created (admin / admin) - password change required');
+    } else {
+      console.log('✅ Default admin ensured');
+    }
+
+    dbStatus = 'ok';
+  } catch (err: any) {
+    dbStatus = 'error';
+    dbError = err?.message ?? String(err);
+    console.error(`❌ DB connection failed (${dbConfig.type}):`, dbError);
+    console.error('Server is running but DB is unavailable. Check /api/health for details.');
+    // Don't exit — the UI will show the error so user can fix config via Admin panel
+  }
+}
+
+bootstrap().catch((err) => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
+});

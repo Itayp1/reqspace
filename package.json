@@ -1,0 +1,43 @@
+{
+  "name": "postman-clone",
+  "version": "1.0.0",
+  "description": "Postman Clone Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:client": "cd client && npm run build",
+    "build:server": "cd server && npm run build",
+    "pack": "npm run build:client && npm run build:server && electron-builder --dir",
+    "dist": "npm run build:client && npm run build:server && electron-builder"
+  },
+  "build": {
+    "appId": "com.postmanclone.app",
+    "productName": "Postman Clone",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "main.js",
+      "setup.html",
+      "loading.html",
+      "server/dist/**/*",
+      "server/package.json",
+      "client/dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.5.1",
+    "concurrently": "^10.0.5",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.1.0"
+  }
+}

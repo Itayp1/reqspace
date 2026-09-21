@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postman-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postman-web
+  template:
+    metadata:
+      labels:
+        app: postman-web
+    spec:
+      containers:
+      - name: postman-web
+        image: postman-web:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - configMapRef:
+            name: postman-web-config
+        - secretRef:
+            name: postman-web-secret
