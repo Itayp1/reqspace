@@ -1,6 +1,9 @@
-FROM node:22-slim AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
+
+# Install build dependencies for native modules (sqlite3, bcrypt)
+RUN apk add --no-cache python3 make g++
 
 # Copy all source code
 COPY . .
@@ -12,9 +15,12 @@ RUN cd client && npm install && npm run build
 RUN cd server && npm install && npm run build
 
 # Production image
-FROM node:22-slim
+FROM node:22-alpine
 
 WORKDIR /app
+
+# Install build dependencies again for production native modules
+RUN apk add --no-cache python3 make g++
 
 # Set production env
 ENV NODE_ENV=production
