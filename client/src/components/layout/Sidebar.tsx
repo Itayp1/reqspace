@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { Settings, Code2, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal } from 'lucide-react';
+import { Settings, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import CollectionExplorer from '../collection/CollectionExplorer';
 import WorkspaceSettingsModal from '../workspace/WorkspaceSettingsModal';
