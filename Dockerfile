@@ -1,4 +1,4 @@
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ RUN cd client && npm install && npm run build
 RUN cd server && npm install && npm run build
 
 # Production image
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 

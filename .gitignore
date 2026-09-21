@@ -12,3 +12,7 @@ dist-electron/
 client/test-results/
 server/data.sqlite
 server/postman-local.sqlite
+
+.env
+
+release/
