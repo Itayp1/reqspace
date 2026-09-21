@@ -38,7 +38,10 @@ export default function LoginPage() {
   return (
     <div className="flex h-screen items-center justify-center bg-surface">
       <form onSubmit={handleSubmit} className="bg-background p-8 rounded-lg shadow-md w-96 border border-border">
-        <h1 className="text-2xl font-bold mb-6 text-center">Login to Reqspace</h1>
+        <div className="flex flex-col items-center mb-6">
+          <img src="/reqspace-logo.jpg" alt="Reqspace Logo" className="h-16 w-16 rounded-xl object-cover border border-border shadow-sm mb-3" />
+          <h1 className="text-2xl font-bold text-center">Login to Reqspace</h1>
+        </div>
         
         {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
 

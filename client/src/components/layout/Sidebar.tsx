@@ -18,8 +18,8 @@ export default function Sidebar() {
     <div className="flex flex-col w-64 bg-surface border-r border-border h-full text-sm select-none">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <Link to="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
-          <Code2 className="text-primary w-6 h-6" />
-          <span className="font-bold">Reqspace</span>
+          <img src="/reqspace-logo.jpg" alt="Reqspace Logo" className="h-8 w-8 rounded-md object-cover border border-border" />
+          <span className="font-bold text-lg">Reqspace</span>
         </Link>
         <button 
           className="text-text-muted hover:text-text p-1" 
