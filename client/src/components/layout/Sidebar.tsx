@@ -1,18 +1,28 @@
 import { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { Settings, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal } from 'lucide-react';
+import { Settings, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal, LogOut } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import CollectionExplorer from '../collection/CollectionExplorer';
 import WorkspaceSettingsModal from '../workspace/WorkspaceSettingsModal';
 import HistorySidebar from '../history/HistorySidebar';
 import ImportModal from '../collection/ImportModal';
 import EnvironmentSidebar from '../environment/EnvironmentSidebar';
+import api from '../../api/axios';
 
 export default function Sidebar() {
   const { activeWorkspace, workspaces, setActiveWorkspace, user } = useAuthStore();
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'collections' | 'history' | 'environments'>('collections');
+
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+      window.location.href = '/login';
+    } catch(err) {
+      console.error(err);
+    }
+  };
 
   return (
     <div className="flex flex-col w-64 bg-surface border-r border-border h-full text-sm select-none">
@@ -111,11 +121,20 @@ export default function Sidebar() {
               <div className="text-xs text-text-muted capitalize">{activeWorkspace?.myRole}</div>
             </div>
           </div>
-          {user?.isSuperAdmin && (
-            <Link to="/admin" className="p-1 hover:bg-border rounded">
-              <Settings className="w-5 h-5 text-text-muted" />
-            </Link>
-          )}
+          <div className="flex items-center gap-1">
+            {user?.isSuperAdmin && (
+              <Link to="/admin" className="p-1 hover:bg-border rounded text-text-muted hover:text-text transition-colors" title="System Settings">
+                <Settings className="w-5 h-5" />
+              </Link>
+            )}
+            <button 
+              onClick={handleLogout}
+              className="p-1 hover:bg-red-500/10 rounded text-text-muted hover:text-red-400 transition-colors"
+              title="Logout"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
 
