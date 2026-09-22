@@ -24,9 +24,22 @@ function getDbConfig() {
     const fileConfig = readConfigFile();
     const type = (process.env.DB_TYPE || fileConfig.type || 'mongodb');
     if (type === 'sqlite') {
+        let defaultSqlitePath = path_1.default.join(process.cwd(), 'data.sqlite');
+        // If running in a desktop/production environment, save to OS user data dir to persist across updates
+        if (process.env.NODE_ENV === 'production') {
+            const appData = process.env.APPDATA
+                || (process.platform === 'darwin' ? path_1.default.join(process.env.HOME || '', 'Library', 'Application Support') : path_1.default.join(process.env.HOME || '', '.config'));
+            if (appData) {
+                const reqspaceDir = path_1.default.join(appData, 'reqspace');
+                if (!fs_1.default.existsSync(reqspaceDir)) {
+                    fs_1.default.mkdirSync(reqspaceDir, { recursive: true });
+                }
+                defaultSqlitePath = path_1.default.join(reqspaceDir, 'data.sqlite');
+            }
+        }
         return {
             type: 'sqlite',
-            storagePath: process.env.DB_STORAGE_PATH || fileConfig.storagePath || path_1.default.join(process.cwd(), 'data.sqlite'),
+            storagePath: process.env.DB_STORAGE_PATH || fileConfig.storagePath || defaultSqlitePath,
         };
     }
     if (type === 'mongodb') {

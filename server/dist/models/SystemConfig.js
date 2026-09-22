@@ -49,6 +49,14 @@ const SystemConfigSchema = new mongoose_1.Schema({
             enabled: { type: Boolean, default: false },
             clientId: { type: String, default: '' },
             clientSecret: { type: String, default: '' }
+        },
+        smtp: {
+            enabled: { type: Boolean, default: false },
+            host: { type: String, default: '' },
+            port: { type: Number, default: 587 },
+            user: { type: String, default: '' },
+            pass: { type: String, default: '' },
+            fromAddress: { type: String, default: 'noreply@reqspace.com' }
         }
     },
     history: {

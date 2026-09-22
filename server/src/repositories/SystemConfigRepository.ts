@@ -17,6 +17,14 @@ export interface ISystemConfigRecord {
       clientId: string;
       clientSecret: string;
     };
+    smtp?: {
+      enabled: boolean;
+      host: string;
+      port: number;
+      user: string;
+      pass: string;
+      fromAddress: string;
+    };
   };
   history: {
     maxRequestBodyKB: number;

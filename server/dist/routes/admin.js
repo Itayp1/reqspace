@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -9,6 +42,11 @@ const User_1 = require("../models/User");
 const Workspace_1 = require("../models/Workspace");
 const AuditLogRepository_1 = require("../repositories/AuditLogRepository");
 const SystemConfigRepository_1 = require("../repositories/SystemConfigRepository");
+const WorkspaceRepository_1 = require("../repositories/WorkspaceRepository");
+const Collection_1 = require("../models/Collection");
+const Folder_1 = require("../models/Folder");
+const Request_1 = require("../models/Request");
+const Environment_1 = require("../models/Environment");
 const UserRepository_1 = require("../repositories/UserRepository");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const mongoose_1 = __importDefault(require("mongoose"));
@@ -179,6 +217,88 @@ router.put('/config', async (req, res) => {
         ip: req.ip, details: req.body,
     });
     return res.json(config);
+});
+// ── POST /api/admin/test-smtp ──────────────────────────────────────
+router.post('/test-smtp', async (req, res) => {
+    const { host, port, user, pass, fromAddress } = req.body;
+    if (!host || !port)
+        return res.status(400).json({ message: 'Host and port are required' });
+    try {
+        const nodemailer = await Promise.resolve().then(() => __importStar(require('nodemailer')));
+        const transporter = nodemailer.createTransport({
+            host,
+            port: Number(port),
+            secure: Number(port) === 465,
+            auth: user && pass ? { user, pass } : undefined,
+        });
+        await transporter.verify();
+        // Optionally send a test email to the admin
+        await transporter.sendMail({
+            from: fromAddress || 'noreply@reqspace.com',
+            to: req.user.email,
+            subject: 'Reqspace SMTP Test',
+            text: 'This is a test email from your Reqspace system to verify SMTP settings are working correctly.',
+        });
+        return res.json({ message: 'SMTP connection successful and test email sent!' });
+    }
+    catch (err) {
+        return res.status(500).json({ message: 'SMTP Error: ' + err.message });
+    }
+});
+// ── GET /api/admin/export/:workspaceId ──────────────────────────────
+router.get('/export/:workspaceId', async (req, res) => {
+    try {
+        const workspaceId = req.params.workspaceId;
+        const workspace = await WorkspaceRepository_1.WorkspaceRepository.findById(workspaceId);
+        if (!workspace)
+            return res.status(404).json({ message: 'Workspace not found' });
+        const collections = await Collection_1.Collection.find({ workspaceId }).lean();
+        const folders = await Folder_1.Folder.find({ workspaceId }).lean();
+        const requests = await Request_1.Request.find({ workspaceId }).lean();
+        const environments = await Environment_1.Environment.find({ workspaceId }).lean();
+        const config = await SystemConfigRepository_1.SystemConfigRepository.getConfig();
+        const dump = {
+            workspace,
+            collections,
+            folders,
+            requests,
+            environments,
+            config
+        };
+        await (0, AuditLogRepository_1.logAudit)(req.user._id, 'admin.export', { ip: req.ip, targetId: workspaceId });
+        // Set headers to trigger a download of the JSON file
+        res.setHeader('Content-disposition', `attachment; filename=reqspace-export-${workspaceId}-${new Date().toISOString().split('T')[0]}.json`);
+        res.setHeader('Content-type', 'application/json');
+        return res.send(JSON.stringify(dump, null, 2));
+    }
+    catch (err) {
+        return res.status(500).json({ message: err.message });
+    }
+});
+// ── POST /api/admin/import/:workspaceId ─────────────────────────────
+router.post('/import/:workspaceId', async (req, res) => {
+    try {
+        const workspaceId = req.params.workspaceId;
+        const dump = req.body;
+        // In a real scenario we should validate and insert. 
+        // Since this is a dump, we can insert collections, folders, requests, environments, globals.
+        if (dump.collections)
+            await Collection_1.Collection.insertMany(dump.collections.map((c) => ({ ...c, workspaceId, _id: undefined })));
+        if (dump.folders)
+            await Folder_1.Folder.insertMany(dump.folders.map((f) => ({ ...f, workspaceId, _id: undefined })));
+        if (dump.requests)
+            await Request_1.Request.insertMany(dump.requests.map((r) => ({ ...r, workspaceId, _id: undefined })));
+        if (dump.environments)
+            await Environment_1.Environment.insertMany(dump.environments.map((e) => ({ ...e, workspaceId, _id: undefined })));
+        if (dump.config) {
+            await SystemConfigRepository_1.SystemConfigRepository.updateConfig(dump.config);
+        }
+        await (0, AuditLogRepository_1.logAudit)(req.user._id, 'admin.import', { ip: req.ip, targetId: workspaceId });
+        return res.json({ message: 'Import successful' });
+    }
+    catch (err) {
+        return res.status(500).json({ message: err.message });
+    }
 });
 exports.default = router;
 //# sourceMappingURL=admin.js.map

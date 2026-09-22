@@ -14,6 +14,14 @@ export interface ISystemConfig extends Document<string> {
       clientId: string;
       clientSecret: string;
     };
+    smtp?: {
+      enabled: boolean;
+      host: string;
+      port: number;
+      user: string;
+      pass: string;
+      fromAddress: string;
+    };
   };
   history: {
     maxRequestBodyKB: number;
@@ -41,6 +49,14 @@ const SystemConfigSchema = new Schema<ISystemConfig>({
       enabled: { type: Boolean, default: false },
       clientId: { type: String, default: '' },
       clientSecret: { type: String, default: '' }
+    },
+    smtp: {
+      enabled: { type: Boolean, default: false },
+      host: { type: String, default: '' },
+      port: { type: Number, default: 587 },
+      user: { type: String, default: '' },
+      pass: { type: String, default: '' },
+      fromAddress: { type: String, default: 'noreply@reqspace.com' }
     }
   },
   history: {

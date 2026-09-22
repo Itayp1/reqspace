@@ -218,73 +218,127 @@ export default function AdminPage() {
         {!loading && activeTab === 'settings' && config && (
           <div className="p-8 max-w-2xl space-y-6">
             <div>
-              <h3 className="text-lg font-bold mb-4">Authentication</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Auth Mode</label>
-                  <select 
-                    value={config.auth?.mode || 'login'} 
-                    onChange={e => setConfig({...config, auth: {...config.auth, mode: e.target.value}})}
-                    className="w-full p-2 border border-border rounded bg-surface"
-                  >
-                    <option value="login">Login (Email/Password)</option>
-                    <option value="header">Header Based (SSO)</option>
-                    <option value="both">Both</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Auth Header Name (if Header mode)</label>
-                  <input 
-                    type="text" 
-                    value={config.auth?.headerName || ''} 
-                    onChange={e => setConfig({...config, auth: {...config.auth, headerName: e.target.value}})}
-                    className="w-full p-2 border border-border rounded bg-surface"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="checkbox" 
-                    checked={config.auth?.allowSelfRegistration || false} 
-                    onChange={e => setConfig({...config, auth: {...config.auth, allowSelfRegistration: e.target.checked}})}
-                  />
-                  <label className="text-sm">Allow Self Registration</label>
+              <h3 className="text-lg font-bold mb-4">User Registration & Authentication</h3>
+              <div className="space-y-6">
+                
+                {/* 1. Email (SMTP) */}
+                <div className="p-4 border border-border rounded-lg bg-surface">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input 
+                      type="checkbox" 
+                      checked={config.auth?.smtp?.enabled || false} 
+                      onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth?.smtp, enabled: e.target.checked}}})}
+                    />
+                    <label className="text-sm font-bold">1. Email (SMTP Configuration)</label>
+                  </div>
+                  {config.auth?.smtp?.enabled && (
+                    <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
+                      <div>
+                        <label className="block text-xs mb-1 text-text-muted">Host</label>
+                        <input type="text" value={config.auth.smtp.host || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, host: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="smtp.gmail.com" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs mb-1 text-text-muted">Port</label>
+                          <input type="number" value={config.auth.smtp.port || 587} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, port: Number(e.target.value)}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs mb-1 text-text-muted">From Address</label>
+                          <input type="text" value={config.auth.smtp.fromAddress || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, fromAddress: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="noreply@reqspace.com" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs mb-1 text-text-muted">User</label>
+                          <input type="text" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs mb-1 text-text-muted">Password</label>
+                          <input type="password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                        </div>
+                      </div>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const res = await api.post('/admin/test-smtp', config.auth.smtp);
+                            alert(res.data.message);
+                          } catch(err: any) {
+                            alert(err.response?.data?.message || err.message);
+                          }
+                        }}
+                        className="bg-primary text-white text-xs px-3 py-1.5 rounded hover:bg-orange-600 transition"
+                      >
+                        Test Connection
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="pt-4 border-t border-border mt-4">
-                  <h4 className="font-semibold mb-2">Google OAuth</h4>
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="checkbox" 
-                        checked={config.auth?.googleOAuth?.enabled || false} 
-                        onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth?.googleOAuth, enabled: e.target.checked}}})}
-                      />
-                      <label className="text-sm font-medium">Enable Google OAuth</label>
-                    </div>
-                    {config.auth?.googleOAuth?.enabled && (
-                      <>
-                        <div>
-                          <label className="block text-sm mb-1 text-text-muted">Client ID</label>
-                          <input 
-                            type="text" 
-                            value={config.auth.googleOAuth.clientId || ''} 
-                            onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth.googleOAuth, clientId: e.target.value}}})}
-                            className="w-full p-2 border border-border rounded bg-surface"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm mb-1 text-text-muted">Client Secret</label>
-                          <input 
-                            type="password" 
-                            value={config.auth.googleOAuth.clientSecret || ''} 
-                            onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth.googleOAuth, clientSecret: e.target.value}}})}
-                            className="w-full p-2 border border-border rounded bg-surface"
-                          />
-                        </div>
-                      </>
-                    )}
+                {/* 2. Self Registration */}
+                <div className="p-4 border border-border rounded-lg bg-surface">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={config.auth?.allowSelfRegistration || false} 
+                      onChange={e => setConfig({...config, auth: {...config.auth, allowSelfRegistration: e.target.checked}})}
+                    />
+                    <label className="text-sm font-bold">2. Self Registration (Local DB Users)</label>
                   </div>
+                  {config.auth?.allowSelfRegistration && (
+                    <div className="mt-2 ml-6 text-xs text-text-muted">
+                      Allows users to register using a local email and password stored in the database.
+                    </div>
+                  )}
                 </div>
+
+                {/* 3. SSO Header */}
+                <div className="p-4 border border-border rounded-lg bg-surface">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input 
+                      type="checkbox" 
+                      checked={config.auth?.mode === 'header' || config.auth?.mode === 'both'} 
+                      onChange={e => setConfig({...config, auth: {...config.auth, mode: e.target.checked ? 'both' : 'login'}})}
+                    />
+                    <label className="text-sm font-bold">3. SSO Header (Reverse Proxy)</label>
+                  </div>
+                  {(config.auth?.mode === 'header' || config.auth?.mode === 'both') && (
+                    <div className="mt-3 ml-6 border-l-2 border-border pl-4">
+                      <label className="block text-xs mb-1 text-text-muted">Auth Header Name</label>
+                      <input 
+                        type="text" 
+                        value={config.auth?.headerName || ''} 
+                        onChange={e => setConfig({...config, auth: {...config.auth, headerName: e.target.value}})}
+                        className="w-full p-2 border border-border rounded bg-background text-sm"
+                        placeholder="e.g. X-Auth-User"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Google OAuth */}
+                <div className="p-4 border border-border rounded-lg bg-surface">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input 
+                      type="checkbox" 
+                      checked={config.auth?.googleOAuth?.enabled || false} 
+                      onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth?.googleOAuth, enabled: e.target.checked}}})}
+                    />
+                    <label className="text-sm font-bold">4. Google OAuth</label>
+                  </div>
+                  {config.auth?.googleOAuth?.enabled && (
+                    <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
+                      <div>
+                        <label className="block text-xs mb-1 text-text-muted">Client ID</label>
+                        <input type="text" value={config.auth.googleOAuth.clientId || ''} onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth.googleOAuth, clientId: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1 text-text-muted">Client Secret</label>
+                        <input type="password" value={config.auth.googleOAuth.clientSecret || ''} onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth.googleOAuth, clientSecret: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
 
@@ -356,7 +410,59 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="pt-6">
+            <div className="pt-6 border-t border-border">
+              <h3 className="text-lg font-bold mb-4">Export / Import System Data</h3>
+              <p className="text-sm text-text-muted mb-4">
+                Exporting data will download a full JSON dump of the current workspace, environments, collections, globals, and system configuration.
+                You can use this file to import the exact state into another Reqspace instance.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => {
+                    const workspaceId = useAuthStore.getState().activeWorkspace?._id;
+                    if (!workspaceId) return alert('No active workspace selected.');
+                    window.location.href = `/api/admin/export/${workspaceId}`;
+                  }}
+                  className="bg-surface border border-border px-4 py-2 rounded hover:bg-border transition text-sm"
+                >
+                  Export Data
+                </button>
+                <div className="relative">
+                  <input 
+                    type="file"
+                    accept=".json"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const workspaceId = useAuthStore.getState().activeWorkspace?._id;
+                      if (!workspaceId) return alert('No active workspace selected.');
+                      
+                      const reader = new FileReader();
+                      reader.onload = async (event) => {
+                        try {
+                          const dump = JSON.parse(event.target?.result as string);
+                          if (!confirm('This will insert all dumped collections, environments, and globals into the current workspace, and overwrite system configuration. Proceed?')) return;
+                          
+                          await api.post(`/admin/import/${workspaceId}`, dump);
+                          alert('Import successful! Reloading...');
+                          window.location.reload();
+                        } catch (err: any) {
+                          alert('Import failed: ' + (err.response?.data?.message || err.message));
+                        }
+                      };
+                      reader.readAsText(file);
+                    }}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full"
+                    title="Import Data"
+                  />
+                  <button className="bg-surface border border-border px-4 py-2 rounded hover:bg-border transition text-sm">
+                    Import Data
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-6 mt-6 border-t border-border">
               <button onClick={saveConfig} className="bg-primary text-white px-6 py-2 rounded hover:bg-orange-600 transition">
                 Save System Config
               </button>

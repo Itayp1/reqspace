@@ -4,6 +4,11 @@ import { User } from '../models/User';
 import { Workspace } from '../models/Workspace';
 import { logAudit, AuditLogRepository } from '../repositories/AuditLogRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
+import { Collection } from '../models/Collection';
+import { Folder } from '../models/Folder';
+import { Request as ApiRequest } from '../models/Request';
+import { Environment } from '../models/Environment';
 import { UserRepository } from '../repositories/UserRepository';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
@@ -204,6 +209,92 @@ router.put('/config', async (req: AuthRequest, res: Response) => {
     ip: req.ip, details: req.body,
   });
   return res.json(config);
+});
+
+// ── POST /api/admin/test-smtp ──────────────────────────────────────
+router.post('/test-smtp', async (req: AuthRequest, res: Response) => {
+  const { host, port, user, pass, fromAddress } = req.body;
+  if (!host || !port) return res.status(400).json({ message: 'Host and port are required' });
+  
+  try {
+    const nodemailer = await import('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host,
+      port: Number(port),
+      secure: Number(port) === 465,
+      auth: user && pass ? { user, pass } : undefined,
+    });
+    await transporter.verify();
+    
+    // Optionally send a test email to the admin
+    await transporter.sendMail({
+      from: fromAddress || 'noreply@reqspace.com',
+      to: req.user!.email,
+      subject: 'Reqspace SMTP Test',
+      text: 'This is a test email from your Reqspace system to verify SMTP settings are working correctly.',
+    });
+    
+    return res.json({ message: 'SMTP connection successful and test email sent!' });
+  } catch (err: any) {
+    return res.status(500).json({ message: 'SMTP Error: ' + err.message });
+  }
+});
+
+// ── GET /api/admin/export/:workspaceId ──────────────────────────────
+router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
+  try {
+    const workspaceId = req.params.workspaceId as string;
+    const workspace = await WorkspaceRepository.findById(workspaceId);
+    if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
+
+    const collections = await Collection.find({ workspaceId }).lean();
+    const folders = await Folder.find({ workspaceId }).lean();
+    const requests = await ApiRequest.find({ workspaceId }).lean();
+    const environments = await Environment.find({ workspaceId }).lean();
+        const config = await SystemConfigRepository.getConfig();
+
+    const dump = {
+      workspace,
+      collections,
+      folders,
+      requests,
+      environments,
+            config
+    };
+
+    await logAudit(req.user!._id as any, 'admin.export', { ip: req.ip, targetId: workspaceId as any });
+    
+    // Set headers to trigger a download of the JSON file
+    res.setHeader('Content-disposition', `attachment; filename=reqspace-export-${workspaceId}-${new Date().toISOString().split('T')[0]}.json`);
+    res.setHeader('Content-type', 'application/json');
+    return res.send(JSON.stringify(dump, null, 2));
+  } catch(err: any) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/admin/import/:workspaceId ─────────────────────────────
+router.post('/import/:workspaceId', async (req: AuthRequest, res: Response) => {
+  try {
+    const workspaceId = req.params.workspaceId as string;
+    const dump = req.body;
+    
+    // In a real scenario we should validate and insert. 
+    // Since this is a dump, we can insert collections, folders, requests, environments, globals.
+    if (dump.collections) await Collection.insertMany(dump.collections.map((c: any) => ({ ...c, workspaceId, _id: undefined })));
+    if (dump.folders) await Folder.insertMany(dump.folders.map((f: any) => ({ ...f, workspaceId, _id: undefined })));
+    if (dump.requests) await ApiRequest.insertMany(dump.requests.map((r: any) => ({ ...r, workspaceId, _id: undefined })));
+    if (dump.environments) await Environment.insertMany(dump.environments.map((e: any) => ({ ...e, workspaceId, _id: undefined })));
+    
+    if (dump.config) {
+      await SystemConfigRepository.updateConfig(dump.config);
+    }
+
+    await logAudit(req.user!._id as any, 'admin.import', { ip: req.ip, targetId: workspaceId as any });
+    return res.json({ message: 'Import successful' });
+  } catch(err: any) {
+    return res.status(500).json({ message: err.message });
+  }
 });
 
 export default router;

@@ -172,24 +172,26 @@ async function bootstrap() {
         console.log('✅ SystemConfig initialized');
         const adminCount = (await UserRepository_1.UserRepository.list({ isSuperAdmin: true })).length;
         if (adminCount === 0) {
-            const passwordHash = await bcryptjs_1.default.hash('admin', 10);
+            const adminEmail = process.env.ADMIN_EMAIL || 'admin';
+            const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+            const passwordHash = await bcryptjs_1.default.hash(adminPassword, 10);
             const adminUser = await UserRepository_1.UserRepository.create({
                 name: 'Admin',
-                email: 'admin',
+                email: adminEmail,
                 passwordHash,
                 authType: 'password',
                 isSuperAdmin: true,
-                mustChangePassword: true
+                mustChangePassword: adminPassword === 'admin' // Force change if using default fallback
             });
             await WorkspaceRepository_1.WorkspaceRepository.create({
                 name: `Admin's Workspace`,
                 description: 'Personal workspace',
                 ownerId: adminUser.id,
             });
-            console.log('✅ Default superadmin created (admin / admin) - password change required');
+            console.log(`✅ Default superadmin created (${adminEmail} / ${'*'.repeat(adminPassword.length)})`);
         }
         else {
-            console.log('✅ Default admin ensured');
+            console.log('✅ Superadmin exists');
         }
         dbStatus = 'ok';
     }

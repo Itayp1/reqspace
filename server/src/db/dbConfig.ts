@@ -36,9 +36,25 @@ export function getDbConfig(): DbConfig {
   const type = (process.env.DB_TYPE || fileConfig.type || 'mongodb') as DbType;
 
   if (type === 'sqlite') {
+    let defaultSqlitePath = path.join(process.cwd(), 'data.sqlite');
+    
+    // If running in a desktop/production environment, save to OS user data dir to persist across updates
+    if (process.env.NODE_ENV === 'production') {
+      const appData = process.env.APPDATA 
+        || (process.platform === 'darwin' ? path.join(process.env.HOME || '', 'Library', 'Application Support') : path.join(process.env.HOME || '', '.config'));
+      
+      if (appData) {
+        const reqspaceDir = path.join(appData, 'reqspace');
+        if (!fs.existsSync(reqspaceDir)) {
+          fs.mkdirSync(reqspaceDir, { recursive: true });
+        }
+        defaultSqlitePath = path.join(reqspaceDir, 'data.sqlite');
+      }
+    }
+
     return {
       type: 'sqlite',
-      storagePath: process.env.DB_STORAGE_PATH || fileConfig.storagePath || path.join(process.cwd(), 'data.sqlite'),
+      storagePath: process.env.DB_STORAGE_PATH || fileConfig.storagePath || defaultSqlitePath,
     };
   }
 

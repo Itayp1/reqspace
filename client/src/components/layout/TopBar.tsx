@@ -114,9 +114,11 @@ export default function TopBar() {
 
         <div className="h-4 w-px bg-border my-auto mx-1" />
 
-        <div className="flex items-center gap-2">
+        {/* Unified Environment Selector & Quick Look */}
+        <div className="flex items-center gap-1 bg-surface border border-border rounded pl-2 relative" ref={eyeRef}>
+          <span className="text-xs text-text-muted font-medium">Env:</span>
           <select
-            className="p-1 text-sm border border-border rounded bg-background text-text max-w-[150px] truncate"
+            className="p-1 text-sm bg-transparent text-text max-w-[120px] truncate focus:outline-none cursor-pointer"
             value={activeEnvironmentId || ''}
             onChange={(e) => setActiveEnvironmentId(e.target.value || null)}
           >
@@ -126,125 +128,115 @@ export default function TopBar() {
             ))}
           </select>
 
-          {/* Manage Environments Button */}
-          <button
-            className="p-1 hover:bg-border rounded text-text-muted hover:text-text transition-colors"
-            title="Manage Environments"
-            onClick={() => {
-              const env = environments.find(e => e._id === activeEnvironmentId);
-              openEnvironmentTab(activeEnvironmentId || 'global', env?.name || 'Globals (Common)');
-            }}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-
           <div className="h-4 w-px bg-border my-auto mx-1" />
 
-          {/* Capture Traffic Button */}
           <button
-            className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded hover:bg-orange-500/20 transition-colors"
-            onClick={() => setIsCaptureModalOpen(true)}
+            className="p-1.5 hover:bg-border rounded-r text-text-muted hover:text-text transition-colors flex items-center gap-1"
+            title="Environment Quick Look & Edit"
+            onClick={() => setIsQuickLookOpen(!isQuickLookOpen)}
           >
-            <Radio size={14} className="animate-pulse" />
-            Capture Traffic
+            <Eye className="w-4 h-4" />
           </button>
 
-          <button
-            className="p-1 hover:bg-border rounded text-text-muted hover:text-text ml-1"
-            title="Manage Cookies"
-            onClick={() => setIsCookieModalOpen(true)}
-          >
-            <Cookie className="w-4 h-4" />
-          </button>
-        </div>
+          {isQuickLookOpen && (() => {
+            const activeEnv = environments.find(e => e._id === activeEnvironmentId);
+            const { globalEnvironment } = useEnvironmentStore.getState();
+            const activeVars = activeEnv?.variables.filter(v => v.enabled) || [];
+            const globalVars = globalEnvironment?.variables.filter(v => v.enabled) || [];
 
-        {/* Action Buttons */}
-        <div className="flex items-center space-x-2">
-          {/* Quick Look Eye */}
-          <div className="relative" ref={eyeRef}>
-            <button
-              className="p-1 hover:bg-border rounded text-text-muted hover:text-text"
-              title="Environment Quick Look"
-              onClick={() => setIsQuickLookOpen(!isQuickLookOpen)}
-            >
-              <Eye className="w-5 h-5" />
-            </button>
-
-            {isQuickLookOpen && (() => {
-              const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-              const { globalEnvironment } = useEnvironmentStore.getState();
-              const activeVars = activeEnv?.variables.filter(v => v.enabled) || [];
-              const globalVars = globalEnvironment?.variables.filter(v => v.enabled) || [];
-
-              return (
-                <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl text-xs">
-                  <div className="p-3 border-b border-gray-700 font-semibold text-gray-100 flex justify-between items-center">
-                    <span>Environment Quick Look</span>
-                    <button onClick={() => setIsQuickLookOpen(false)} className="text-gray-400 hover:text-white">✕</button>
-                  </div>
-                  
-                  <div className="max-h-64 overflow-y-auto">
-                    {/* Active Environment Variables */}
-                    <div className="p-3">
-                      <h4 className="text-gray-400 uppercase font-bold mb-2 text-[10px] tracking-wider">{activeEnv?.name || 'No Active Environment'}</h4>
-                      {activeVars.length === 0 ? (
-                        <div className="text-gray-500 italic">No variables</div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {activeVars.map(v => (
-                            <div key={v.key} className="flex justify-between items-center group">
-                              <span className="text-gray-300 font-mono truncate w-1/3" title={v.key}>{v.key}</span>
-                              <span className="text-green-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? '••••••••' : (v.currentValue || v.initialValue)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+            return (
+              <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl text-xs">
+                <div className="p-3 border-b border-gray-700 font-semibold text-gray-100 flex justify-between items-center">
+                  <span>Environment Variables</span>
+                  <button onClick={() => setIsQuickLookOpen(false)} className="text-gray-400 hover:text-white">✕</button>
+                </div>
+                
+                <div className="max-h-64 overflow-y-auto">
+                  {/* Active Environment Variables */}
+                  <div className="p-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="text-gray-400 uppercase font-bold text-[10px] tracking-wider">{activeEnv?.name || 'No Active Environment'}</h4>
+                      <button 
+                        onClick={() => {
+                          openEnvironmentTab(activeEnv?._id || 'global', activeEnv?.name || 'Globals (Common)');
+                          setIsQuickLookOpen(false);
+                        }}
+                        className="text-orange-400 hover:text-orange-300 text-[10px] flex items-center gap-1"
+                      >
+                        <SlidersHorizontal className="w-3 h-3" /> Edit
+                      </button>
                     </div>
-
-                    {/* Global Environment Variables */}
-                    <div className="p-3 border-t border-gray-700">
-                      <h4 className="text-gray-400 uppercase font-bold mb-2 text-[10px] tracking-wider">Globals</h4>
-                      {globalVars.length === 0 ? (
-                        <div className="text-gray-500 italic">No global variables</div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {globalVars.map(v => (
-                            <div key={v.key} className="flex justify-between items-center group">
-                              <span className="text-gray-300 font-mono truncate w-1/3" title={v.key}>{v.key}</span>
-                              <span className="text-blue-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? '••••••••' : (v.currentValue || v.initialValue)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    {activeVars.length === 0 ? (
+                      <div className="text-gray-500 italic">No variables</div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {activeVars.map(v => (
+                          <div key={v.key} className="flex justify-between items-center group">
+                            <span className="text-gray-300 font-mono truncate w-1/3" title={v.key}>{v.key}</span>
+                            <span className="text-green-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? '••••••••' : (v.currentValue || v.initialValue)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="p-2 border-t border-gray-700 text-right">
-                    <button
-                      onClick={() => { 
-                        const env = environments.find(e => e._id === activeEnvironmentId);
-                        openEnvironmentTab(activeEnvironmentId || 'global', env?.name || 'Globals (Common)'); 
-                        setIsQuickLookOpen(false); 
-                      }}
-                      className="text-xs text-orange-400 hover:text-orange-300"
-                    >
-                      Manage Environments →
-                    </button>
+                  {/* Global Environment Variables */}
+                  <div className="p-3 border-t border-gray-700">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="text-gray-400 uppercase font-bold text-[10px] tracking-wider">Globals</h4>
+                      <button 
+                        onClick={() => {
+                          openEnvironmentTab('global', 'Globals (Common)');
+                          setIsQuickLookOpen(false);
+                        }}
+                        className="text-blue-400 hover:text-blue-300 text-[10px] flex items-center gap-1"
+                      >
+                        <Settings className="w-3 h-3" /> Edit Globals
+                      </button>
+                    </div>
+                    {globalVars.length === 0 ? (
+                      <div className="text-gray-500 italic">No global variables</div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {globalVars.map(v => (
+                          <div key={v.key} className="flex justify-between items-center group">
+                            <span className="text-gray-300 font-mono truncate w-1/3" title={v.key}>{v.key}</span>
+                            <span className="text-blue-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? '••••••••' : (v.currentValue || v.initialValue)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
-              );
-            })()}
-          </div>
+              </div>
+            );
+          })()}
+        </div>
 
+        <div className="h-4 w-px bg-border my-auto mx-1" />
+
+        {/* Capture Traffic Button */}
+        <button
+          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded hover:bg-orange-500/20 transition-colors"
+          onClick={() => setIsCaptureModalOpen(true)}
+        >
+          <Radio size={14} className="animate-pulse" />
+          Capture Traffic
+        </button>
+
+        <div className="h-4 w-px bg-border my-auto mx-1" />
+
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-1">
           <button
-            className="p-1 hover:bg-border rounded text-text-muted hover:text-text"
+            className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text"
             title="Global Search (Ctrl+K)"
             onClick={() => setIsSearchModalOpen(true)}
           >
             <Search className="w-5 h-5" />
           </button>
           <button
-            className="p-1 hover:bg-border rounded text-text-muted hover:text-text"
+            className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text"
             title="General Settings"
             onClick={() => setIsSettingsModalOpen(true)}
           >
