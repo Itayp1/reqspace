@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
+import { useSettingsStore } from './store/settingsStore';
 import MainLayout from './components/layout/MainLayout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -158,6 +159,7 @@ function App() {
         try {
           const { data: user } = await api.get('/auth/me');
           setUser(user);
+          if (user.settings) useSettingsStore.getState().setSettings(user.settings);
           const { data: workspaces } = await api.get('/workspaces');
           setWorkspaces(workspaces);
           if (workspaces.length > 0) {

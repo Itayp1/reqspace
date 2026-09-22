@@ -8,7 +8,8 @@ export declare class SqlUser extends Model {
     isSuperAdmin: boolean;
     status: string;
     avatar: string | null;
-    preferences: string;
+    settings: string;
+    clientCertificates: string;
     historyUsedBytes: number;
     mustChangePassword: boolean;
     lastLoginAt: Date | null;

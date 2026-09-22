@@ -14,7 +14,8 @@ export class SqlUser extends Model {
   declare isSuperAdmin: boolean;
   declare status: string;
   declare avatar: string | null;
-  declare preferences: string; // JSON
+  declare settings: string; // JSON
+  declare clientCertificates: string; // JSON
   declare historyUsedBytes: number;
   declare mustChangePassword: boolean;
   declare lastLoginAt: Date | null;
@@ -180,9 +181,10 @@ export function initSqlModels() {
     authType: { type: DataTypes.STRING(20), defaultValue: 'password' },
     isSuperAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
     status: { type: DataTypes.STRING(20), defaultValue: 'active' },
-    avatar: { type: DataTypes.TEXT, allowNull: true },
-    preferences: { type: DataTypes.TEXT, defaultValue: '{}' },
-    historyUsedBytes: { type: DataTypes.BIGINT, defaultValue: 0 },
+    avatar: { type: DataTypes.STRING(255), allowNull: true },
+    settings: { type: DataTypes.TEXT, defaultValue: '{}' },
+    clientCertificates: { type: DataTypes.TEXT, defaultValue: '[]' },
+    historyUsedBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
     mustChangePassword: { type: DataTypes.BOOLEAN, defaultValue: false },
     lastLoginAt: { type: DataTypes.DATE, allowNull: true },
   }, { sequelize: sq, tableName: 'users', timestamps: true });

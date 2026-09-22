@@ -4,11 +4,32 @@ export type UserRole = 'viewer' | 'editor' | 'owner';
 export type UserStatus = 'active' | 'suspended' | 'pending';
 export type AuthType = 'password' | 'header';
 
-export interface IUserPreferences {
+export interface IClientCertificate {
+  _id: mongoose.Types.ObjectId;
+  hostname: string;
+  cert: string;
+  key: string;
+  passphrase?: string;
+  createdAt: Date;
+}
+
+export interface IUserSettings {
+  followRedirects: boolean;
+  verifySsl: boolean;
+  sendNoCacheHeader: boolean;
+  encodeUrl: boolean;
+  timeout: number;
+  proxyEnabled: boolean;
+  proxyUrl: string;
+  proxyAuthEnabled: boolean;
+  proxyUsername?: string;
+  proxyPassword?: string;
   saveHistory: boolean;
-  historyIncludeResponseBody: boolean;
-  historyIncludeResponseHeaders: boolean;
-  historyClearOlderThanDays: number;
+  shortcuts: {
+    search: string;
+    save: string;
+    send: string;
+  };
 }
 
 export interface IUser extends Document {
@@ -19,12 +40,21 @@ export interface IUser extends Document {
   isSuperAdmin: boolean;
   status: UserStatus;
   avatar?: string;
-  preferences: IUserPreferences;
+  settings: IUserSettings;
+  clientCertificates: IClientCertificate[];
   historyUsedBytes: number;
   mustChangePassword?: boolean;
   createdAt: Date;
   lastLoginAt?: Date;
 }
+
+const ClientCertificateSchema = new Schema<IClientCertificate>({
+  hostname: { type: String, required: true },
+  cert: { type: String, required: true },
+  key: { type: String, required: true },
+  passphrase: { type: String },
+  createdAt: { type: Date, default: Date.now },
+});
 
 const UserSchema = new Schema<IUser>(
   {
@@ -35,12 +65,25 @@ const UserSchema = new Schema<IUser>(
     isSuperAdmin: { type: Boolean, default: false },
     status: { type: String, enum: ['active', 'suspended', 'pending'], default: 'active' },
     avatar: { type: String },
-    preferences: {
+    settings: {
+      followRedirects: { type: Boolean, default: true },
+      verifySsl: { type: Boolean, default: true },
+      sendNoCacheHeader: { type: Boolean, default: false },
+      encodeUrl: { type: Boolean, default: true },
+      timeout: { type: Number, default: 0 },
+      proxyEnabled: { type: Boolean, default: false },
+      proxyUrl: { type: String, default: 'http://127.0.0.1:8080' },
+      proxyAuthEnabled: { type: Boolean, default: false },
+      proxyUsername: { type: String, default: '' },
+      proxyPassword: { type: String, default: '' },
       saveHistory: { type: Boolean, default: true },
-      historyIncludeResponseBody: { type: Boolean, default: true },
-      historyIncludeResponseHeaders: { type: Boolean, default: false },
-      historyClearOlderThanDays: { type: Number, default: 30 },
+      shortcuts: {
+        search: { type: String, default: 'ctrl+k' },
+        save: { type: String, default: 'ctrl+s' },
+        send: { type: String, default: 'ctrl+enter' },
+      }
     },
+    clientCertificates: { type: [ClientCertificateSchema], default: [] },
     historyUsedBytes: { type: Number, default: 0 },
     mustChangePassword: { type: Boolean, default: false },
     lastLoginAt: { type: Date },

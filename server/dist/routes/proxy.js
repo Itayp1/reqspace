@@ -75,6 +75,31 @@ router.post('/', async (req, res) => {
                 activeProxy = config.proxy;
             }
         }
+        // Find matching client certificate
+        const targetUrlObj = new URL(url);
+        const userCerts = req.user?.clientCertificates || [];
+        let matchedCert = null;
+        for (const c of userCerts) {
+            if (c.hostname === targetUrlObj.hostname) {
+                matchedCert = c;
+                break;
+            }
+            if (c.hostname.startsWith('*.')) {
+                const domain = c.hostname.substring(2);
+                if (targetUrlObj.hostname === domain || targetUrlObj.hostname.endsWith('.' + domain)) {
+                    matchedCert = c;
+                    break;
+                }
+            }
+        }
+        const connectOpts = { rejectUnauthorized: verifySsl !== false };
+        if (matchedCert) {
+            connectOpts.cert = matchedCert.cert;
+            connectOpts.key = matchedCert.key;
+            if (matchedCert.passphrase)
+                connectOpts.passphrase = matchedCert.passphrase;
+        }
+        const { ProxyAgent, Agent, fetch: undiciFetch } = await Promise.resolve().then(() => __importStar(require('undici')));
         if (activeProxy?.url) {
             let proxyUrlStr = activeProxy.url;
             if (!proxyUrlStr.startsWith('http'))
@@ -84,8 +109,13 @@ router.post('/', async (req, res) => {
                 proxyUrl.username = activeProxy.username;
                 proxyUrl.password = activeProxy.password || '';
             }
-            const { ProxyAgent } = await Promise.resolve().then(() => __importStar(require('undici')));
-            fetchOptions.dispatcher = new ProxyAgent(proxyUrl.toString());
+            fetchOptions.dispatcher = new ProxyAgent({
+                uri: proxyUrl.toString(),
+                connect: connectOpts
+            });
+        }
+        else {
+            fetchOptions.dispatcher = new Agent({ connect: connectOpts });
         }
         if (!['GET', 'HEAD'].includes(method.toUpperCase()) && body !== undefined) {
             if (body._isFormData) {
@@ -105,10 +135,6 @@ router.post('/', async (req, res) => {
             else {
                 fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
             }
-        }
-        const { fetch: undiciFetch, Agent } = await Promise.resolve().then(() => __importStar(require('undici')));
-        if (!verifySsl && !fetchOptions.dispatcher) {
-            fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
         }
         const response = await undiciFetch(url, fetchOptions);
         if (timeoutId)

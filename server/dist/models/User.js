@@ -36,6 +36,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.User = void 0;
 exports.ensureDefaultAdmin = ensureDefaultAdmin;
 const mongoose_1 = __importStar(require("mongoose"));
+const ClientCertificateSchema = new mongoose_1.Schema({
+    hostname: { type: String, required: true },
+    cert: { type: String, required: true },
+    key: { type: String, required: true },
+    passphrase: { type: String },
+    createdAt: { type: Date, default: Date.now },
+});
 const UserSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -44,12 +51,25 @@ const UserSchema = new mongoose_1.Schema({
     isSuperAdmin: { type: Boolean, default: false },
     status: { type: String, enum: ['active', 'suspended', 'pending'], default: 'active' },
     avatar: { type: String },
-    preferences: {
+    settings: {
+        followRedirects: { type: Boolean, default: true },
+        verifySsl: { type: Boolean, default: true },
+        sendNoCacheHeader: { type: Boolean, default: false },
+        encodeUrl: { type: Boolean, default: true },
+        timeout: { type: Number, default: 0 },
+        proxyEnabled: { type: Boolean, default: false },
+        proxyUrl: { type: String, default: 'http://127.0.0.1:8080' },
+        proxyAuthEnabled: { type: Boolean, default: false },
+        proxyUsername: { type: String, default: '' },
+        proxyPassword: { type: String, default: '' },
         saveHistory: { type: Boolean, default: true },
-        historyIncludeResponseBody: { type: Boolean, default: true },
-        historyIncludeResponseHeaders: { type: Boolean, default: false },
-        historyClearOlderThanDays: { type: Number, default: 30 },
+        shortcuts: {
+            search: { type: String, default: 'ctrl+k' },
+            save: { type: String, default: 'ctrl+s' },
+            send: { type: String, default: 'ctrl+enter' },
+        }
     },
+    clientCertificates: { type: [ClientCertificateSchema], default: [] },
     historyUsedBytes: { type: Number, default: 0 },
     mustChangePassword: { type: Boolean, default: false },
     lastLoginAt: { type: Date },

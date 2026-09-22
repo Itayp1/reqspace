@@ -9,7 +9,8 @@ export interface IUserRecord {
     isSuperAdmin: boolean;
     status: string;
     avatar?: string | null;
-    preferences: any;
+    settings: any;
+    clientCertificates: any[];
     historyUsedBytes: number;
     mustChangePassword?: boolean;
     lastLoginAt?: Date | null;

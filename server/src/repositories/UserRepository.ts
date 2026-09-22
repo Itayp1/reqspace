@@ -14,7 +14,8 @@ export interface IUserRecord {
   isSuperAdmin: boolean;
   status: string;
   avatar?: string | null;
-  preferences: any;
+  settings: any;
+  clientCertificates: any[];
   historyUsedBytes: number;
   mustChangePassword?: boolean;
   lastLoginAt?: Date | null;
@@ -33,7 +34,8 @@ function sqlToRecord(u: SqlUser): IUserRecord {
     isSuperAdmin: u.isSuperAdmin,
     status: u.status,
     avatar: u.avatar,
-    preferences: typeof u.preferences === 'string' ? JSON.parse(u.preferences) : u.preferences,
+    settings: typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings,
+      clientCertificates: typeof u.clientCertificates === 'string' ? JSON.parse(u.clientCertificates) : (u.clientCertificates || []),
     historyUsedBytes: Number(u.historyUsedBytes),
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
@@ -53,7 +55,8 @@ function mongoToRecord(u: any): IUserRecord {
     isSuperAdmin: u.isSuperAdmin,
     status: u.status,
     avatar: u.avatar,
-    preferences: u.preferences,
+    settings: u.settings,
+      clientCertificates: u.clientCertificates || [],
     historyUsedBytes: u.historyUsedBytes,
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
@@ -94,7 +97,8 @@ export const UserRepository = {
       const u = await User.create({
         ...data,
         email: data.email.toLowerCase(),
-        preferences: { saveHistory: true, historyIncludeResponseBody: true, historyIncludeResponseHeaders: true, historyClearOlderThanDays: 30 },
+        settings: { followRedirects: true, verifySsl: true, sendNoCacheHeader: false, encodeUrl: true, timeout: 0, proxyEnabled: false, proxyUrl: 'http://127.0.0.1:8080', proxyAuthEnabled: false, proxyUsername: '', proxyPassword: '', saveHistory: true, shortcuts: { search: 'ctrl+k', save: 'ctrl+s', send: 'ctrl+enter' } },
+        clientCertificates: [],
       });
       return mongoToRecord(u);
     }
@@ -102,7 +106,8 @@ export const UserRepository = {
       id: uuidv4(),
       ...data,
       email: data.email.toLowerCase(),
-      preferences: JSON.stringify({ saveHistory: true, historyIncludeResponseBody: true, historyIncludeResponseHeaders: true, historyClearOlderThanDays: 30 }),
+      settings: JSON.stringify({ followRedirects: true, verifySsl: true, sendNoCacheHeader: false, encodeUrl: true, timeout: 0, proxyEnabled: false, proxyUrl: 'http://127.0.0.1:8080', proxyAuthEnabled: false, proxyUsername: '', proxyPassword: '', saveHistory: true, shortcuts: { search: 'ctrl+k', save: 'ctrl+s', send: 'ctrl+enter' } }),
+        clientCertificates: '[]',
     });
     return sqlToRecord(u);
   },
@@ -114,7 +119,8 @@ export const UserRepository = {
     }
     await SqlUser.update({
       ...data,
-      preferences: data.preferences ? JSON.stringify(data.preferences) : undefined,
+      settings: data.settings ? JSON.stringify(data.settings) : undefined,
+        clientCertificates: data.clientCertificates ? JSON.stringify(data.clientCertificates) : undefined,
     }, { where: { id } });
     return this.findById(id);
   },

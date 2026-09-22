@@ -81,9 +81,10 @@ function initSqlModels() {
         authType: { type: sequelize_1.DataTypes.STRING(20), defaultValue: 'password' },
         isSuperAdmin: { type: sequelize_1.DataTypes.BOOLEAN, defaultValue: false },
         status: { type: sequelize_1.DataTypes.STRING(20), defaultValue: 'active' },
-        avatar: { type: sequelize_1.DataTypes.TEXT, allowNull: true },
-        preferences: { type: sequelize_1.DataTypes.TEXT, defaultValue: '{}' },
-        historyUsedBytes: { type: sequelize_1.DataTypes.BIGINT, defaultValue: 0 },
+        avatar: { type: sequelize_1.DataTypes.STRING(255), allowNull: true },
+        settings: { type: sequelize_1.DataTypes.TEXT, defaultValue: '{}' },
+        clientCertificates: { type: sequelize_1.DataTypes.TEXT, defaultValue: '[]' },
+        historyUsedBytes: { type: sequelize_1.DataTypes.INTEGER, defaultValue: 0 },
         mustChangePassword: { type: sequelize_1.DataTypes.BOOLEAN, defaultValue: false },
         lastLoginAt: { type: sequelize_1.DataTypes.DATE, allowNull: true },
     }, { sequelize: sq, tableName: 'users', timestamps: true });

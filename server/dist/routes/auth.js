@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const mongoose_1 = __importDefault(require("mongoose"));
 const express_1 = require("express");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const UserRepository_1 = require("../repositories/UserRepository");
@@ -105,7 +106,8 @@ router.get('/me', auth_1.authenticate, (req, res) => {
         isSuperAdmin: user.isSuperAdmin,
         mustChangePassword: user.mustChangePassword,
         avatar: user.avatar,
-        preferences: user.preferences,
+        settings: user.settings,
+        clientCertificates: user.clientCertificates,
         authType: user.authType,
     });
 });
@@ -206,6 +208,52 @@ router.post('/google', async (req, res) => {
     catch (error) {
         console.error('Google OAuth Error:', error);
         return res.status(500).json({ message: 'Internal server error during Google login' });
+    }
+});
+// ── PUT /api/auth/settings ───────────────────────────────────────────
+router.put('/settings', auth_1.authenticate, async (req, res) => {
+    const user = req.user;
+    try {
+        const updatedUser = await UserRepository_1.UserRepository.update(user._id || user.id, { settings: { ...user.settings, ...req.body } });
+        return res.json(updatedUser.settings);
+    }
+    catch (err) {
+        return res.status(500).json({ message: err.message });
+    }
+});
+// ── POST /api/auth/certificates ──────────────────────────────────────
+router.post('/certificates', auth_1.authenticate, async (req, res) => {
+    const user = req.user;
+    const { hostname, cert, key, passphrase } = req.body;
+    if (!hostname || !cert || !key)
+        return res.status(400).json({ message: 'hostname, cert, and key are required' });
+    try {
+        const newCert = {
+            _id: new mongoose_1.default.Types.ObjectId(),
+            hostname,
+            cert,
+            key,
+            passphrase,
+            createdAt: new Date()
+        };
+        const updatedCerts = [...(user.clientCertificates || []), newCert];
+        const updatedUser = await UserRepository_1.UserRepository.update(user._id || user.id, { clientCertificates: updatedCerts });
+        return res.status(201).json(updatedUser.clientCertificates);
+    }
+    catch (err) {
+        return res.status(500).json({ message: err.message });
+    }
+});
+// ── DELETE /api/auth/certificates/:id ────────────────────────────────
+router.delete('/certificates/:id', auth_1.authenticate, async (req, res) => {
+    const user = req.user;
+    try {
+        const updatedCerts = (user.clientCertificates || []).filter((c) => String(c._id) !== req.params.id);
+        const updatedUser = await UserRepository_1.UserRepository.update(user._id || user.id, { clientCertificates: updatedCerts });
+        return res.json(updatedUser.clientCertificates);
+    }
+    catch (err) {
+        return res.status(500).json({ message: err.message });
     }
 });
 exports.default = router;

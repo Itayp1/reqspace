@@ -8,6 +8,7 @@ interface User {
   isSuperAdmin: boolean;
   avatar?: string;
   mustChangePassword?: boolean;
+  clientCertificates?: any[];
 }
 
 export interface Workspace {

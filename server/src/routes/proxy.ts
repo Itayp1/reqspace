@@ -44,6 +44,32 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Find matching client certificate
+    const targetUrlObj = new URL(url);
+    const userCerts = req.user?.clientCertificates || [];
+    let matchedCert: any = null;
+    
+    for (const c of userCerts) {
+      if (c.hostname === targetUrlObj.hostname) {
+        matchedCert = c; break;
+      }
+      if (c.hostname.startsWith('*.')) {
+        const domain = c.hostname.substring(2);
+        if (targetUrlObj.hostname === domain || targetUrlObj.hostname.endsWith('.' + domain)) {
+          matchedCert = c; break;
+        }
+      }
+    }
+
+    const connectOpts: any = { rejectUnauthorized: verifySsl !== false };
+    if (matchedCert) {
+      connectOpts.cert = matchedCert.cert;
+      connectOpts.key = matchedCert.key;
+      if (matchedCert.passphrase) connectOpts.passphrase = matchedCert.passphrase;
+    }
+
+    const { ProxyAgent, Agent, fetch: undiciFetch } = await import('undici');
+
     if (activeProxy?.url) {
       let proxyUrlStr = activeProxy.url;
       if (!proxyUrlStr.startsWith('http')) proxyUrlStr = 'http://' + proxyUrlStr;
@@ -53,8 +79,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         proxyUrl.username = activeProxy.username;
         proxyUrl.password = activeProxy.password || '';
       }
-      const { ProxyAgent } = await import('undici');
-      fetchOptions.dispatcher = new ProxyAgent(proxyUrl.toString());
+      fetchOptions.dispatcher = new ProxyAgent({
+        uri: proxyUrl.toString(),
+        connect: connectOpts
+      });
+    } else {
+      fetchOptions.dispatcher = new Agent({ connect: connectOpts });
     }
 
     if (!['GET', 'HEAD'].includes(method.toUpperCase()) && body !== undefined) {
@@ -75,12 +105,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const { fetch: undiciFetch, Agent } = await import('undici');
     
-    if (!verifySsl && !fetchOptions.dispatcher) {
-      fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
-    }
-
     const response = await undiciFetch(url, fetchOptions);
     if (timeoutId) clearTimeout(timeoutId);
 

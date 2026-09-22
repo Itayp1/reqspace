@@ -2,11 +2,31 @@ import mongoose, { Document } from 'mongoose';
 export type UserRole = 'viewer' | 'editor' | 'owner';
 export type UserStatus = 'active' | 'suspended' | 'pending';
 export type AuthType = 'password' | 'header';
-export interface IUserPreferences {
+export interface IClientCertificate {
+    _id: mongoose.Types.ObjectId;
+    hostname: string;
+    cert: string;
+    key: string;
+    passphrase?: string;
+    createdAt: Date;
+}
+export interface IUserSettings {
+    followRedirects: boolean;
+    verifySsl: boolean;
+    sendNoCacheHeader: boolean;
+    encodeUrl: boolean;
+    timeout: number;
+    proxyEnabled: boolean;
+    proxyUrl: string;
+    proxyAuthEnabled: boolean;
+    proxyUsername?: string;
+    proxyPassword?: string;
     saveHistory: boolean;
-    historyIncludeResponseBody: boolean;
-    historyIncludeResponseHeaders: boolean;
-    historyClearOlderThanDays: number;
+    shortcuts: {
+        search: string;
+        save: string;
+        send: string;
+    };
 }
 export interface IUser extends Document {
     name: string;
@@ -16,7 +36,8 @@ export interface IUser extends Document {
     isSuperAdmin: boolean;
     status: UserStatus;
     avatar?: string;
-    preferences: IUserPreferences;
+    settings: IUserSettings;
+    clientCertificates: IClientCertificate[];
     historyUsedBytes: number;
     mustChangePassword?: boolean;
     createdAt: Date;

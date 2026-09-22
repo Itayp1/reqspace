@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
@@ -123,7 +124,8 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     isSuperAdmin: user.isSuperAdmin,
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
-    preferences: user.preferences,
+    settings: user.settings,
+    clientCertificates: user.clientCertificates,
     authType: user.authType,
   });
 });
@@ -231,6 +233,52 @@ router.post('/google', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Google OAuth Error:', error);
     return res.status(500).json({ message: 'Internal server error during Google login' });
+  }
+});
+
+// ── PUT /api/auth/settings ───────────────────────────────────────────
+router.put('/settings', authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  try {
+    const updatedUser = await UserRepository.update(user._id || (user as any).id, { settings: { ...user.settings, ...req.body } } as any);
+    return res.json(updatedUser!.settings);
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /api/auth/certificates ──────────────────────────────────────
+router.post('/certificates', authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  const { hostname, cert, key, passphrase } = req.body;
+  if (!hostname || !cert || !key) return res.status(400).json({ message: 'hostname, cert, and key are required' });
+  
+  try {
+    const newCert = {
+      _id: new mongoose.Types.ObjectId(),
+      hostname,
+      cert,
+      key,
+      passphrase,
+      createdAt: new Date()
+    };
+    const updatedCerts = [...(user.clientCertificates || []), newCert];
+    const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
+    return res.status(201).json(updatedUser!.clientCertificates);
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+// ── DELETE /api/auth/certificates/:id ────────────────────────────────
+router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  try {
+    const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
+    const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
+    return res.json(updatedUser!.clientCertificates);
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message });
   }
 });
 

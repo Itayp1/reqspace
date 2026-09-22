@@ -77,7 +77,7 @@ async function run() {
       await SqlUser.create({
         id, name: 'Test User', email: `test-${id.slice(0,8)}@example.com`,
         passwordHash: null, authType: 'password', isSuperAdmin: false,
-        status: 'active', preferences: '{}', historyUsedBytes: 0, mustChangePassword: false,
+        status: 'active', settings: '{}', clientCertificates: '[]', historyUsedBytes: 0, mustChangePassword: false,
       });
       const found = await SqlUser.findByPk(id);
       if (!found || found.name !== 'Test User') throw new Error('User read-back failed');

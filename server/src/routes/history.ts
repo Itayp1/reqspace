@@ -108,7 +108,7 @@ export async function saveHistoryEntry(
   }
 ) {
   const user = await User.findById(userId);
-  if (!user?.preferences.saveHistory) return;
+  if (!user?.settings?.saveHistory) return;
 
   const config = await SystemConfig.findById('global');
   const maxBodyKB = (config?.history.maxRequestBodyKB ?? 10) * 1024;

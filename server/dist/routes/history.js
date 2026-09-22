@@ -90,7 +90,7 @@ exports.default = router;
 // ─── History GC Service ─────────────────────────────────────────────────────
 async function saveHistoryEntry(userId, workspaceId, data) {
     const user = await User_1.User.findById(userId);
-    if (!user?.preferences.saveHistory)
+    if (!user?.settings?.saveHistory)
         return;
     const config = await SystemConfig_1.SystemConfig.findById('global');
     const maxBodyKB = (config?.history.maxRequestBodyKB ?? 10) * 1024;

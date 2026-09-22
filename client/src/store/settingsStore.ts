@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import api from '../api/axios';
 
 export interface GlobalSettings {
   followRedirects: boolean;
@@ -24,6 +25,7 @@ export interface GlobalSettings {
 interface SettingsStore {
   settings: GlobalSettings;
   updateSettings: (settings: Partial<GlobalSettings>) => void;
+  setSettings: (settings: GlobalSettings) => void;
 }
 
 export const getLocalProxyConfig = () => {
@@ -58,7 +60,12 @@ export const useSettingsStore = create<SettingsStore>()(
           send: 'ctrl+enter'
         },
       },
-      updateSettings: (newSettings) => set((state) => ({ settings: { ...state.settings, ...newSettings } })),
+      setSettings: (settings) => set({ settings }),
+      updateSettings: (newSettings) => set((state) => {
+        const next = { ...state.settings, ...newSettings };
+        api.put('/auth/settings', next).catch(console.error);
+        return { settings: next };
+      }),
     }),
     { name: 'postman-global-settings' }
   )

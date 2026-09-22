@@ -61,7 +61,7 @@ describe('SqlUser table', () => {
       authType: 'password',
       isSuperAdmin: false,
       status: 'active',
-      preferences: JSON.stringify({ saveHistory: true }),
+      settings: JSON.stringify({ saveHistory: true }),
       historyUsedBytes: 0,
       mustChangePassword: false,
     });
@@ -90,7 +90,7 @@ describe('SqlUser table', () => {
       authType: 'password',
       isSuperAdmin: false,
       status: 'active',
-      preferences: '{}',
+      settings: '{}',
       historyUsedBytes: 0,
       mustChangePassword: false,
     })).rejects.toThrow();
@@ -102,11 +102,11 @@ describe('SqlUser table', () => {
     expect(u!.name).toBe('Alice Updated');
   });
 
-  it('stores preferences as JSON string and reads back', async () => {
+  it('stores settings as JSON string and reads back', async () => {
     const prefs = { saveHistory: true, historyClearOlderThanDays: 30 };
-    await SqlUser.update({ preferences: JSON.stringify(prefs) }, { where: { id: userId } });
+    await SqlUser.update({ settings: JSON.stringify(prefs) }, { where: { id: userId } });
     const u = await SqlUser.findByPk(userId);
-    const parsed = JSON.parse(u!.preferences);
+    const parsed = JSON.parse(u!.settings);
     expect(parsed.saveHistory).toBe(true);
     expect(parsed.historyClearOlderThanDays).toBe(30);
   });
