@@ -18,3 +18,11 @@ server/reqspace-local.sqlite
 .jwt-secret.local
 
 release/
+
+# One-off scratch fix/patch scripts (see scripts/clean-scratch-files.sh)
+/fix.js
+/fix[0-9].js
+/fix_*.js
+/fix_*.py
+/fix.ps1
+/patch_*.js
