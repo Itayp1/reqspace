@@ -6,8 +6,9 @@ import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { Workspace } from '../models/Workspace';
 import mongoose from 'mongoose';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
+import { resolveJwtSecret } from '../utils/jwtSecret';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
+const JWT_SECRET = resolveJwtSecret();
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -19,10 +20,19 @@ export function signToken(userId: string, ttlDays: number): string {
   });
 }
 
+// Defaults to secure cookies in production (session token never sent over
+// plain HTTP — required once this is a public, multi-tenant SaaS). Explicit
+// COOKIE_SECURE=false opts back out for self-hosted deployments that are
+// intentionally HTTP-only on a trusted network (e.g. behind Tailscale).
+function cookieSecure(): boolean {
+  if (process.env.COOKIE_SECURE !== undefined) return process.env.COOKIE_SECURE === 'true';
+  return process.env.NODE_ENV === 'production';
+}
+
 export function setCookieToken(res: Response, token: string, ttlDays: number) {
   res.cookie('token', token, {
     httpOnly: true,
-    secure: false, // Allow HTTP (e.g. Tailscale, local network) without dropping the cookie
+    secure: cookieSecure(),
     sameSite: 'lax',
     maxAge: ttlDays * 24 * 60 * 60 * 1000,
   });

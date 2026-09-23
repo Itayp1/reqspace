@@ -1,18 +1,35 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { Collection } from '../models/Collection';
 import { Request as ApiRequest } from '../models/Request';
 import { io } from '../index';
 import mongoose from 'mongoose';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { getUserWorkspaceRole } from '../middleware/rbac';
+import { SystemConfig } from '../models/SystemConfig';
+import { assertSsrfSafe, SsrfBlockedError } from '../utils/ssrf';
 
 const router = Router();
 
 // ── ALL /api/capture/:workspaceId/* ──────────────────────────────────────────
-router.all('/:workspaceId/*', async (req: Request, res: Response) => {
+// This endpoint writes captured traffic into a workspace AND makes the
+// server issue an outbound request to whatever URL the caller supplies — so
+// it must never be reachable without proving membership in that workspace
+// first (previously it had no auth at all: anyone on the internet could
+// write into any workspace by guessing its id and use this server as an
+// open SSRF relay).
+router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Response) => {
   const workspaceId = req.params.workspaceId as string;
   const targetPath = req.params[0];
-  
+
   if (!mongoose.Types.ObjectId.isValid(workspaceId)) {
     return res.status(400).json({ message: 'Invalid workspace ID' });
+  }
+
+  if (!req.user!.isSuperAdmin) {
+    const role = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
+    if (!role || role === 'viewer') {
+      return res.status(403).json({ message: 'Editor role required in this workspace' });
+    }
   }
 
   try {
@@ -104,6 +121,9 @@ router.all('/:workspaceId/*', async (req: Request, res: Response) => {
     // 7. Forward request if target is known
     if (finalUrl) {
       try {
+        const systemConfig = await SystemConfig.findById('global');
+        await assertSsrfSafe(finalUrl, systemConfig?.proxy?.allowPrivateTargets ?? false);
+
         const outHeaders = new Headers(req.headers as any);
         outHeaders.delete('host');
         outHeaders.delete('x-target-url');
@@ -128,7 +148,8 @@ router.all('/:workspaceId/*', async (req: Request, res: Response) => {
         
         return res.send(responseBody);
       } catch (err: any) {
-        return res.status(502).json({ error: 'Proxy forwarding failed', details: err.message, capturedId: newRequest._id });
+        const status = err instanceof SsrfBlockedError ? 400 : 502;
+        return res.status(status).json({ error: 'Proxy forwarding failed', details: err.message, capturedId: newRequest._id });
       }
     } else {
       return res.status(200).json({ message: 'Request captured successfully (no target to forward)', capturedId: newRequest._id });

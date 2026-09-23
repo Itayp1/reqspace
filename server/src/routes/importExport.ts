@@ -3,6 +3,8 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { Collection } from '../models/Collection';
 import { Folder } from '../models/Folder';
 import { Request as ApiRequest } from '../models/Request';
+import { SystemConfig } from '../models/SystemConfig';
+import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
 import mongoose from 'mongoose';
 
@@ -126,6 +128,9 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
   }
 
   try {
+    const systemConfig = await SystemConfig.findById('global');
+    await assertSsrfSafe(url, systemConfig?.proxy?.allowPrivateTargets ?? false);
+
     const client = await soap.createClientAsync(url);
     const description = client.describe();
     

@@ -36,6 +36,7 @@ export interface ISystemConfigRecord {
     url: string;
     username?: string;
     password?: string;
+    allowPrivateTargets?: boolean;
   };
 }
 
@@ -83,6 +84,7 @@ const DEFAULT_CONFIG = {
     url: '',
     username: '',
     password: '',
+    allowPrivateTargets: false,
   }
 };
 

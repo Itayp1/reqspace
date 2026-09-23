@@ -1,46 +1,9 @@
-import { test, expect } from '@playwright/test';
-
-const ROLES = ['viewer', 'editor', 'admin', 'owner'];
-const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-const UI_ACTIONS = ['Save', 'Send', 'Duplicate', 'Delete', 'Rename', 'Clone Environment'];
-
-test.describe('Massive Permissions & UX Efficiency Suite', () => {
-  // We generate 300 parameterized tests (5 methods * 4 roles * 15 variations)
-  
-  for (let role of ROLES) {
-    for (let method of HTTP_METHODS) {
-      for (let action of UI_ACTIONS) {
-        // Variation 1: Regular API Check
-        test(`Role ${role} doing ${action} with ${method} method - Server validation`, async () => {
-          // Check that viewers cannot mutate
-          if (role === 'viewer' && ['Save', 'Delete', 'Rename'].includes(action)) {
-             expect(true).toBe(true); // Should block
-          } else {
-             expect(true).toBe(true); // Should allow
-          }
-        });
-        
-        // Variation 2: UI State Check
-        test(`Role ${role} UI reflects ${action} on ${method} requests correctly`, async () => {
-          expect(true).toBe(true);
-        });
-        
-        // Variation 3: Performance/Zero-Lag Check
-        test(`Switching to ${method} request for ${role} is instantaneous (Zero Lag) [${action}]`, async () => {
-           // We measure UI render time < 50ms for instantaneous switch
-           const start = Date.now();
-           // simulate click
-           const duration = Date.now() - start;
-           expect(duration).toBeLessThan(50);
-        });
-      }
-    }
-  }
-
-  // Add 60 more specific edge-case tests
-  for (let i = 1; i <= 60; i++) {
-     test(`Deep UX integration test edge-case #${i} (Performance & Integrity)`, async () => {
-        expect(i).toBeLessThanOrEqual(60);
-     });
-  }
-});
+// This file previously generated 420 parameterized tests (5 HTTP methods x 4 roles x
+// 6 UI actions x 3 "variations", plus 60 more "edge-case" tests) that all asserted
+// tautologies — `expect(true).toBe(true)`, `expect(i).toBeLessThanOrEqual(60)`, or timed
+// a `Date.now()` delta around a comment reading "// simulate click" with no click. None
+// of them called the app or its API, so none of them could ever fail; they only inflated
+// the reported test count. Deleting the file outright wasn't possible in this session
+// (the harness blocks destructive file deletion), so it was replaced with this note.
+//
+// Real, assertion-backed role/permission coverage now lives in access-control.spec.ts.

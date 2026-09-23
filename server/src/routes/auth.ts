@@ -5,11 +5,17 @@ import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { authenticate, AuthRequest, signToken, setCookieToken, createPersonalWorkspace } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
+import { rateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 
+// Login/password-guessing and account-creation throttles — this whole file
+// was previously reachable with unlimited attempts per IP.
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: 'Too many login attempts — please try again later.' });
+const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'Too many accounts created from this address — please try again later.' });
+
 // ── POST /api/auth/register ─────────────────────────────────────────────────
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', registerLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
 
   if (!config?.auth.allowSelfRegistration) {
@@ -57,12 +63,14 @@ router.post('/register', async (req: Request, res: Response) => {
 
   return res.status(201).json({
     message: 'Registered successfully',
-    user: { id: user._id, token: token, name: user.name, email: user.email },
+    // Session lives in the httpOnly cookie set above — the client never
+    // reads a token field (grepped: unused), so it isn't echoed here too.
+    user: { id: user._id, name: user.name, email: user.email },
   });
 });
 
 // ── POST /api/auth/login ────────────────────────────────────────────────────
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   const mode = config?.auth.mode ?? 'login';
 
@@ -98,7 +106,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
   return res.json({
     user: {
-      id: user._id, token: token,
+      id: user._id,
       name: user.name,
       email: user.email,
       isSuperAdmin: user.isSuperAdmin,
@@ -158,7 +166,7 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
 });
 
 // ── POST /api/auth/google ───────────────────────────────────────────────────
-router.post('/google', async (req: Request, res: Response) => {
+router.post('/google', loginLimiter, async (req: Request, res: Response) => {
   const { code, redirectUri } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
 
@@ -222,7 +230,6 @@ router.post('/google', async (req: Request, res: Response) => {
     return res.json({
       user: {
         id: user._id,
-        token: token,
         name: user.name,
         email: user.email,
         isSuperAdmin: user.isSuperAdmin,

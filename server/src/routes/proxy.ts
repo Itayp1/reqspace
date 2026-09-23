@@ -3,6 +3,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { saveHistoryEntry } from './history';
 import mongoose from 'mongoose';
 import { SystemConfig } from '../models/SystemConfig';
+import { createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
 router.use(authenticate);
@@ -34,14 +35,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       redirect: followRedirects ? 'follow' : 'manual',
     };
 
+    const systemConfig = await SystemConfig.findById('global');
+    const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
+
     let activeProxy = null;
     if (localProxy?.url) {
       activeProxy = localProxy;
-    } else {
-      const config = await SystemConfig.findById('global');
-      if (config?.proxy?.enabled && config.proxy.url) {
-        activeProxy = config.proxy;
-      }
+    } else if (systemConfig?.proxy?.enabled && systemConfig.proxy.url) {
+      activeProxy = systemConfig.proxy;
     }
 
     // Find matching client certificate
@@ -61,7 +62,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const connectOpts: any = { rejectUnauthorized: verifySsl !== false };
+    const connectOpts: any = { rejectUnauthorized: verifySsl !== false, lookup: createSafeLookup(allowPrivateTargets) };
     if (matchedCert) {
       connectOpts.cert = matchedCert.cert;
       connectOpts.key = matchedCert.key;
@@ -166,6 +167,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const elapsed = Date.now() - startTime;
     if (err instanceof Error && err.name === 'AbortError') {
       return res.status(408).json({ message: 'Request timed out', responseTime: elapsed });
+    }
+    // undici wraps connect-time errors (incl. our SSRF-guard lookup) in a
+    // TypeError with the original error as `.cause`.
+    const cause = err instanceof Error ? (err as any).cause : undefined;
+    if ((err instanceof Error && err.name === 'SsrfBlockedError') || cause?.name === 'SsrfBlockedError') {
+      return res.status(400).json({ message: (cause ?? err as Error).message, responseTime: elapsed });
     }
     return res.status(502).json({
       message: 'Proxy error',

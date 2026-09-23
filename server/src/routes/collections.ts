@@ -78,6 +78,7 @@ router.delete('/collections/:id', (req: AuthRequest, res: Response, next: NextFu
 // ── Folders ──────────────────────────────────────────────────────────────────
 
 router.get('/collections/:collectionId/folders',
+  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'viewer'),
   async (req: AuthRequest, res: Response) => {
     const folders = await Folder.find({ collectionId: req.params.collectionId })
       .sort({ order: 1 }).lean();
@@ -86,6 +87,7 @@ router.get('/collections/:collectionId/folders',
 );
 
 router.post('/collections/:collectionId/folders',
+  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'),
   async (req: AuthRequest, res: Response) => {
     const { name, parentFolderId, description, preRequestScript, testScript } = req.body;
     if (!name) return res.status(400).json({ message: 'name required' });
@@ -121,6 +123,7 @@ router.delete('/folders/:id', (req: AuthRequest, res: Response, next: NextFuncti
 // ── Requests ─────────────────────────────────────────────────────────────────
 
 router.get('/collections/:collectionId/requests',
+  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'viewer'),
   async (req: AuthRequest, res: Response) => {
     const filter: any = { collectionId: req.params.collectionId };
     if (req.query.folderId !== undefined) {
@@ -132,6 +135,7 @@ router.get('/collections/:collectionId/requests',
 );
 
 router.post('/collections/:collectionId/requests',
+  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'),
   async (req: AuthRequest, res: Response) => {
     const count = await ApiRequest.countDocuments({
       collectionId: req.params.collectionId,
@@ -158,11 +162,14 @@ router.post('/collections/:collectionId/requests',
   }
 );
 
-router.get('/requests/:id', async (req: AuthRequest, res: Response) => {
-  const request = await ApiRequest.findById(req.params.id).lean();
-  if (!request) return res.status(404).json({ message: 'Request not found' });
+router.get('/requests/:id',
+  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'viewer'),
+  async (req: AuthRequest, res: Response) => {
+    const request = await ApiRequest.findById(req.params.id).lean();
+    if (!request) return res.status(404).json({ message: 'Request not found' });
     return res.json(request);
-});
+  }
+);
 
 router.put('/requests/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'editor'), async (req: AuthRequest, res: Response) => {
   const request = await ApiRequest.findByIdAndUpdate(req.params.id, req.body, { new: true });

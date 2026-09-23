@@ -44,7 +44,11 @@ describe('E2E Auth - Registration and Login', () => {
     const loginData = await loginRes.json() as any;
     expect(loginRes.status).toBe(200);
     expect(loginData.user.email).toBe(email);
-    expect(typeof loginData.user.token).toBe('string');
+    // Session lives in the httpOnly cookie, not in the response body (a JWT
+    // in the JSON body would be readable by any XSS on the page, defeating
+    // the point of httpOnly) — assert the cookie instead of a body token.
+    const setCookie = loginRes.headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(/token=.+HttpOnly/i);
   });
 
   it('should not login with wrong password', async () => {

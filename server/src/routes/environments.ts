@@ -7,14 +7,16 @@ import { NextFunction } from "express";
 import { emitToWorkspace } from '../socketUtils';
 const router = Router();
 
-async function checkEnvPermission(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.isSuperAdmin) return next();
-  try {
-    const item = await Environment.findById(req.params.id);
-    if (!item) return res.status(404).json({ message: 'Environment not found' });
-    req.params.workspaceId = String(item.workspaceId);
-    return requireWorkspaceRole('editor')(req, res, next);
-  } catch(e) { next(e); }
+function checkEnvPermission(minRole: 'viewer' | 'editor') {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (req.user?.isSuperAdmin) return next();
+    try {
+      const item = await Environment.findById(req.params.id);
+      if (!item) return res.status(404).json({ message: 'Environment not found' });
+      req.params.workspaceId = String(item.workspaceId);
+      return requireWorkspaceRole(minRole)(req, res, next);
+    } catch(e) { next(e); }
+  };
 }
 
 router.use(authenticate);
@@ -74,14 +76,14 @@ router.put('/environments/reorder', async (req: AuthRequest, res: Response) => {
 });
 
 // ── GET /api/environments/:id ───────────────────────────────────────────────
-router.get('/environments/:id', async (req: AuthRequest, res: Response) => {
+router.get('/environments/:id', checkEnvPermission('viewer'), async (req: AuthRequest, res: Response) => {
   const env = await Environment.findById(req.params.id).lean();
   if (!env) return res.status(404).json({ message: 'Environment not found' });
   return res.json(env);
 });
 
 // ── PUT /api/environments/:id ───────────────────────────────────────────────
-router.put('/environments/:id', checkEnvPermission, async (req: AuthRequest, res: Response) => {
+router.put('/environments/:id', checkEnvPermission('editor'), async (req: AuthRequest, res: Response) => {
   const env = await Environment.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!env) return res.status(404).json({ message: 'Environment not found' });
   emitToWorkspace(req.params.workspaceId, 'environment:updated', env);
@@ -89,14 +91,14 @@ router.put('/environments/:id', checkEnvPermission, async (req: AuthRequest, res
 });
 
 // ── DELETE /api/environments/:id ────────────────────────────────────────────
-router.delete('/environments/:id', checkEnvPermission, async (req: AuthRequest, res: Response) => {
+router.delete('/environments/:id', checkEnvPermission('editor'), async (req: AuthRequest, res: Response) => {
   await Environment.findByIdAndDelete(req.params.id);
   emitToWorkspace(req.params.workspaceId, 'environment:deleted', req.params.id);
   return res.json({ message: 'Environment deleted' });
 });
 
 // ── POST /api/environments/:id/duplicate ────────────────────────────────────
-router.post('/environments/:id/duplicate', checkEnvPermission, async (req: AuthRequest, res: Response) => {
+router.post('/environments/:id/duplicate', checkEnvPermission('viewer'), async (req: AuthRequest, res: Response) => {
   const env = await Environment.findById(req.params.id).lean();
   if (!env) return res.status(404).json({ message: 'Environment not found' });
 

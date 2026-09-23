@@ -196,19 +196,43 @@ router.get('/audit-logs', async (req: AuthRequest, res: Response) => {
 });
 
 // ── GET /api/admin/config ───────────────────────────────────────────────────
+// Secrets (SMTP password, OAuth client secret, outbound proxy password) are
+// masked rather than returned in plaintext — the admin UI only needs to know
+// one is set, not its value, and this response is one XSS/network-sniff away
+// from leaking real credentials otherwise. Sending the *same* config object
+// back to PUT /config with an unmodified mask leaves the stored secret alone
+// (see updateConfig's masked-value handling below).
+const SECRET_MASK = '••••••••';
+function maskConfigSecrets(config: any) {
+  if (!config) return config;
+  const masked = JSON.parse(JSON.stringify(config));
+  if (masked.auth?.smtp?.pass) masked.auth.smtp.pass = SECRET_MASK;
+  if (masked.auth?.googleOAuth?.clientSecret) masked.auth.googleOAuth.clientSecret = SECRET_MASK;
+  if (masked.proxy?.password) masked.proxy.password = SECRET_MASK;
+  return masked;
+}
+
 router.get('/config', async (_req: AuthRequest, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
-  return res.json(config);
+  return res.json(maskConfigSecrets(config));
 });
 
 // ── PUT /api/admin/config ───────────────────────────────────────────────────
 router.put('/config', async (req: AuthRequest, res: Response) => {
-  const { auth, history } = req.body;
-  const config = await SystemConfigRepository.updateConfig(req.body);
+  const update = JSON.parse(JSON.stringify(req.body));
+  // The client only ever sees the masked placeholder for secret fields (see
+  // GET /config above); if it comes back unchanged, drop it from the update
+  // so it doesn't overwrite the real stored secret with the mask itself.
+  if (update.auth?.smtp?.pass === SECRET_MASK) delete update.auth.smtp.pass;
+  if (update.auth?.googleOAuth?.clientSecret === SECRET_MASK) delete update.auth.googleOAuth.clientSecret;
+  if (update.proxy?.password === SECRET_MASK) delete update.proxy.password;
+
+  const config = await SystemConfigRepository.updateConfig(update);
   await logAudit(req.user!._id as any, 'admin.config.update', {
-    ip: req.ip, details: req.body,
+    // Field names only — never the raw values, which can include SMTP/OAuth/proxy secrets.
+    ip: req.ip, details: { fields: Object.keys(req.body) },
   });
-  return res.json(config);
+  return res.json(maskConfigSecrets(config));
 });
 
 // ── POST /api/admin/test-smtp ──────────────────────────────────────

@@ -4,6 +4,7 @@ import { Collection } from '../models/Collection';
 import { Request as ApiRequest } from '../models/Request';
 import crypto from 'crypto';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { getUserWorkspaceRole } from '../middleware/rbac';
 
 const router = Router();
 
@@ -42,7 +43,16 @@ router.post('/collection/:id', authenticate, async (req: AuthRequest, res: Respo
   if (!collection) {
     return res.status(404).json({ message: 'Collection not found' });
   }
-  
+
+  // Previously missing: any logged-in user could publish a public link for
+  // ANY collection in the system by id, regardless of workspace membership.
+  if (!req.user!.isSuperAdmin) {
+    const role = await getUserWorkspaceRole(String(req.user!._id), String(collection.workspaceId));
+    if (!role || role === 'viewer') {
+      return res.status(403).json({ message: 'Editor role required in this workspace to share a collection' });
+    }
+  }
+
   const shortId = crypto.randomBytes(6).toString('hex');
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + days);

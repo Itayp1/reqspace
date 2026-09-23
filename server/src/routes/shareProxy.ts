@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { SharedLink } from '../models/SharedLink';
 import { SystemConfig } from '../models/SystemConfig';
+import { createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
@@ -31,14 +32,14 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
       redirect: followRedirects ? 'follow' : 'manual',
     };
 
+    const systemConfig = await SystemConfig.findById('global');
+    const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
+
     let activeProxy = null;
     if (localProxy?.url) {
       activeProxy = localProxy;
-    } else {
-      const config = await SystemConfig.findById('global');
-      if (config?.proxy?.enabled && config.proxy.url) {
-        activeProxy = config.proxy;
-      }
+    } else if (systemConfig?.proxy?.enabled && systemConfig.proxy.url) {
+      activeProxy = systemConfig.proxy;
     }
 
     if (activeProxy?.url) {
@@ -73,9 +74,14 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
     }
 
     const { fetch: undiciFetch, Agent } = await import('undici');
-    
-    if (!verifySsl && !fetchOptions.dispatcher) {
-      fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+
+    // Only the direct-connect path (no upstream proxy configured) needs the
+    // SSRF-guarded lookup — a request that goes through an admin-configured
+    // upstream proxy is resolved on that proxy's own network, not ours.
+    if (!fetchOptions.dispatcher) {
+      fetchOptions.dispatcher = new Agent({
+        connect: { rejectUnauthorized: verifySsl !== false, lookup: createSafeLookup(allowPrivateTargets) },
+      });
     }
 
     const response = await undiciFetch(url, fetchOptions);
@@ -107,6 +113,10 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
     const elapsed = Date.now() - startTime;
     if (err instanceof Error && err.name === 'AbortError') {
       return res.status(408).json({ message: 'Request timed out', responseTime: elapsed });
+    }
+    const cause = err instanceof Error ? (err as any).cause : undefined;
+    if ((err instanceof Error && err.name === 'SsrfBlockedError') || cause?.name === 'SsrfBlockedError') {
+      return res.status(400).json({ message: (cause ?? err as Error).message, responseTime: elapsed });
     }
     return res.status(502).json({
       message: 'Proxy error',

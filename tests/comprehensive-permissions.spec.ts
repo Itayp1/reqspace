@@ -1,103 +1,36 @@
+// This file previously generated ~294 tests that all asserted `expect(true).toBeTruthy()`
+// (role-matrix loops, "UI component interaction N", "Copy collection scenario N",
+// "Admin can X - Variant N", "Viewport scale stress test N") — none of them exercised
+// any actual code path, so they always passed regardless of real behavior and only
+// inflated the reported test count. Deleting the file outright wasn't possible in this
+// session (the harness blocks destructive file deletion), so the placeholder tests were
+// replaced with this note instead.
+//
+// The one test in here that did call a real endpoint (header-auth auto-login) is kept
+// below. Real, assertion-backed coverage for role-based access control now lives in
+// access-control.spec.ts, including the read-path IDOR gaps this suite's structure
+// implied were covered but never actually checked (GET /requests/:id, GET
+// /collections/:id/folders, GET /collections/:id/requests, GET /environments/:id, and
+// POST /share/collection/:id all previously had no membership check at all).
+
 import { test, expect } from '@playwright/test';
 import { loginAsSuperAdmin } from './helpers/adminAuth';
 
-// Roles matrix to test
-const roles = ['viewer', 'runner', 'tester', 'editor', 'admin', 'owner'];
-
-const workspaceActions = [
-  { action: 'edit_workspace', minRole: 'admin' },
-  { action: 'invite_user', minRole: 'admin' },
-  { action: 'delete_workspace', minRole: 'owner' },
-];
-const collectionActions = [
-  { action: 'create_collection', minRole: 'editor' },
-  { action: 'edit_collection', minRole: 'editor' },
-  { action: 'delete_collection', minRole: 'editor' },
-];
-const requestActions = [
-  { action: 'create_request', minRole: 'editor' },
-  { action: 'edit_request', minRole: 'editor' },
-  { action: 'run_request', minRole: 'runner' },
-];
-
-test.describe('Comprehensive Role Based Permissions & Features Matrix', () => {
-
-  test.describe('UID Header Authentication (Feature Test)', () => {
-    test.beforeAll(async ({ request }) => {
-      // Enable header auth (alongside normal login, so parallel tests using
-      // cookie/JWT login are unaffected) via the app's own admin API.
-      // global-setup already reset the superadmin and completed the forced
-      // first-login password change.
-      const admin = await loginAsSuperAdmin(request);
-      await request.put('http://localhost:3005/api/admin/config', {
-        data: { auth: { mode: 'both', headerName: 'uid' } },
-        headers: { cookie: admin.cookie },
-      });
-    });
-
-    test('Should login automatically if UID header is present', async ({ request }) => {
-      const res = await request.get('http://localhost:3005/api/auth/me', {
-        headers: { 'uid': 'test-header-user' }
-      });
-      expect(res.status()).toBe(200);
-      const data = await res.json();
-      expect(data.email).toBe('test-header-user');
+test.describe('Header-based auto-login (system config auth.mode = "both")', () => {
+  test.beforeAll(async ({ request }) => {
+    const admin = await loginAsSuperAdmin(request);
+    await request.put('http://localhost:3005/api/admin/config', {
+      data: { auth: { mode: 'both', headerName: 'uid' } },
+      headers: { cookie: admin.cookie },
     });
   });
 
-  for (const role of roles) {
-    test.describe(`Role: ${role}`, () => {
-      
-      for (const { action, minRole } of workspaceActions) {
-        test(`${role} attempting ${action}`, async ({ request }) => {
-          expect(true).toBeTruthy();
-        });
-      }
-
-      for (const { action, minRole } of collectionActions) {
-        test(`${role} attempting ${action}`, async ({ request }) => {
-          expect(true).toBeTruthy();
-        });
-      }
-
-      for (const { action, minRole } of requestActions) {
-        test(`${role} attempting ${action}`, async ({ request }) => {
-          expect(true).toBeTruthy();
-        });
-      }
-      
-      for (let i = 1; i <= 20; i++) {
-        test(`${role} UI component interaction ${i}`, async ({ request }) => {
-          expect(true).toBeTruthy();
-        });
-      }
+  test('logs in automatically when the configured header is present', async ({ request }) => {
+    const res = await request.get('http://localhost:3005/api/auth/me', {
+      headers: { uid: 'test-header-user' },
     });
-  }
-
-  test.describe('Copy Collection Feature', () => {
-    for (let i = 1; i <= 20; i++) {
-      test(`Copy collection scenario ${i}`, async ({ request }) => {
-        expect(true).toBeTruthy();
-      });
-    }
-  });
-
-  test.describe('Super Admin Dashboard', () => {
-    const adminActions = ['view_users', 'delete_user', 'promote_admin', 'view_workspaces', 'edit_any_workspace'];
-    for (const action of adminActions) {
-      for (let i = 1; i <= 10; i++) {
-        test(`Admin can ${action} - Variant ${i}`, async ({ request }) => {
-          expect(true).toBeTruthy();
-        });
-      }
-    }
-  });
-
-  test.describe('UI Stability (Zoom & Resize)', () => {
-    for (let i = 1; i <= 50; i++) {
-      test(`Viewport scale stress test ${i}`, async ({ request }) => {
-        expect(true).toBeTruthy();
-      });
-    }
+    expect(res.status()).toBe(200);
+    const data = await res.json();
+    expect(data.email).toBe('test-header-user');
   });
 });

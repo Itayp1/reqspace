@@ -29,7 +29,10 @@ import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
 import { getUserWorkspaceRole } from './middleware/rbac';
+import { resolveJwtSecret } from './utils/jwtSecret';
 import bcrypt from 'bcryptjs';
+
+const JWT_SECRET = resolveJwtSecret();
 
 const app = express();
 const server = http.createServer(app);
@@ -63,7 +66,7 @@ function getSocketUserId(socket: import('socket.io').Socket): string | null {
       .find(part => part.startsWith('token='))
       ?.slice('token='.length);
     if (!token) return null;
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'changeme') as jwt.JwtPayload;
+    const payload = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload;
     return payload.sub ? String(payload.sub) : null;
   } catch {
     return null;
@@ -161,10 +164,13 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
-// Error handler
+// Error handler — logs the real error server-side but never echoes internal
+// messages (DB connection strings, file paths, stack detail) back to the
+// client, which is publicly reachable once this is deployed as a SaaS.
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
-  res.status(500).json({ message: err.message ?? 'Internal server error' });
+  const message = process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message ?? 'Internal server error');
+  res.status(500).json({ message });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

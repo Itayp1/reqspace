@@ -370,12 +370,30 @@ export default function AdminPage() {
               <h3 className="text-lg font-bold mb-4">HTTP Proxy Configuration (For outbound API requests)</h3>
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <input 
-                    type="checkbox" 
-                    checked={config.proxy?.enabled || false} 
+                  <input
+                    type="checkbox"
+                    checked={config.proxy?.enabled || false}
                     onChange={e => setConfig({...config, proxy: {...(config.proxy || {}), enabled: e.target.checked}})}
                   />
                   <label className="text-sm font-medium">Enable Global Proxy</label>
+                </div>
+                <div className="flex items-start gap-2 p-3 rounded border border-orange-500/30 bg-orange-500/10">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={config.proxy?.allowPrivateTargets || false}
+                    onChange={e => setConfig({...config, proxy: {...(config.proxy || {}), allowPrivateTargets: e.target.checked}})}
+                  />
+                  <div>
+                    <label className="text-sm font-medium block">Allow requests to internal/private network addresses</label>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      Off by default: every user's "Send" / share-link / capture requests are blocked from reaching
+                      localhost, RFC1918 ranges, and link-local addresses (including cloud metadata endpoints like
+                      169.254.169.254) — this prevents any signed-in user from using this server to reach its own
+                      internal network (SSRF). Only enable this on a self-hosted, single-tenant deployment that
+                      genuinely needs to test its own internal APIs.
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Proxy URL (e.g. http://proxy.corporate.com:8080)</label>

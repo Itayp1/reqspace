@@ -33,6 +33,7 @@ export interface ISystemConfig extends Document<string> {
     url: string;
     username?: string;
     password?: string;
+    allowPrivateTargets?: boolean;
   };
 }
 
@@ -69,6 +70,7 @@ const SystemConfigSchema = new Schema<ISystemConfig>({
     url: { type: String, default: '' },
     username: { type: String, default: '' },
     password: { type: String, default: '' },
+    allowPrivateTargets: { type: Boolean, default: false },
   },
 });
 

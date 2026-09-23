@@ -15,5 +15,6 @@ server/data.sqlite
 server/reqspace-local.sqlite
 
 .env
+.jwt-secret.local
 
 release/
