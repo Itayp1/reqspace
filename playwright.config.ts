@@ -13,14 +13,21 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
+  /* Resets the seeded superadmin and walks it through the forced first-login
+     password change exactly once, before any test file runs. See
+     tests/global-setup.ts for why this can't be done per-file. */
+  globalSetup: require.resolve('./tests/global-setup'),
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* One retry locally too: with ~800 tests hitting a single dev server + a
+     remote DB, an occasional timeout under load is infra noise, not a bug. */
+  retries: process.env.CI ? 2 : 1,
+  /* Opt out of parallel tests on CI. Cap local workers — this app runs many
+     real API round-trips per test against one Node process; uncapped workers
+     (= CPU core count) overload it and produce load-induced flakes. */
+  workers: process.env.CI ? 1 : 4,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
@@ -30,6 +37,10 @@ export default defineConfig({
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+
+    /* The app's CodeGen "Copy" button uses navigator.clipboard, which Chromium
+       blocks without an explicit grant in an automated context. */
+    permissions: ['clipboard-read', 'clipboard-write'],
   },
 
   /* Configure projects for major browsers */

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { execSync } from 'child_process';
+import { loginAsSuperAdmin } from './helpers/adminAuth';
 
 test.describe('Admin Operations & Public Workspaces', () => {
   let superAdminCookie: string;
@@ -8,30 +8,11 @@ test.describe('Admin Operations & Public Workspaces', () => {
   let superAdminId: string;
 
   test.beforeAll(async ({ request }) => {
-    // Register SuperAdmin
-    const saSuffix = Math.floor(Math.random() * 100000);
-    const saRes = await request.post('http://localhost:3005/api/auth/register', {
-      data: { name: `SA ${saSuffix}`, email: `sa${saSuffix}@test.com`, password: 'password123' }
-    });
-    superAdminCookie = saRes.headers()['set-cookie']?.split(';')[0] || '';
-    const saData = await saRes.json();
-    superAdminId = saData.user.id || saData.user._id;
-
-    // Direct DB promotion for SA
-    const dbScript = `
-      const mongoose = require('mongoose');
-      mongoose.connect('mongodb+srv://REDACTED:REDACTED@REDACTED.mongodb.net/REDACTED', { tlsInsecure: true }).then(async () => {
-        await mongoose.connection.db.collection('users').updateOne(
-          { email: 'sa${saSuffix}@test.com' },
-          { $set: { isSuperAdmin: true } }
-        );
-        process.exit(0);
-      });
-    `;
-    const scriptName = `./server/temp-promote-${saSuffix}.js`;
-    require('fs').writeFileSync(scriptName, dbScript);
-    execSync(`node temp-promote-${saSuffix}.js`, { cwd: './server' });
-    require('fs').unlinkSync(scriptName);
+    // global-setup already reset the seeded superadmin and completed the
+    // forced first-login password change — just log in with the result.
+    const admin = await loginAsSuperAdmin(request);
+    superAdminCookie = admin.cookie;
+    superAdminId = admin.userId;
 
     // Register Regular User
     const rSuffix = Math.floor(Math.random() * 100000);
@@ -109,16 +90,16 @@ test.describe('Admin Operations & Public Workspaces', () => {
       data: { name: `Member ${suffix}`, email: `member${suffix}@test.com`, password: 'password123' }
     });
 
-    // Invite user as runner
+    // Invite user as viewer (the app's role model is viewer/editor/owner — no 'runner')
     const inviteRes = await request.post(`http://localhost:3005/api/workspaces/${wsId}/members`, {
-      data: { email: `member${suffix}@test.com`, role: 'runner' },
+      data: { email: `member${suffix}@test.com`, role: 'viewer' },
       headers: { cookie: superAdminCookie }
     });
     expect(inviteRes.status()).toBe(201);
 
     const wsData = (await (await request.get(`http://localhost:3005/api/workspaces/${wsId}`, { headers: { cookie: superAdminCookie } })).json());
     const memberObj = wsData.members.find((m: any) => m.userId.email === `member${suffix}@test.com`);
-    expect(memberObj.role).toBe('runner');
+    expect(memberObj.role).toBe('viewer');
 
     // Change role to editor
     const updateRes = await request.put(`http://localhost:3005/api/workspaces/${wsId}/members/${memberObj.userId._id}`, {

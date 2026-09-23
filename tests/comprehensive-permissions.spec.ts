@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { loginAsSuperAdmin } from './helpers/adminAuth';
 
 // Roles matrix to test
 const roles = ['viewer', 'runner', 'tester', 'editor', 'admin', 'owner'];
@@ -22,6 +23,18 @@ const requestActions = [
 test.describe('Comprehensive Role Based Permissions & Features Matrix', () => {
 
   test.describe('UID Header Authentication (Feature Test)', () => {
+    test.beforeAll(async ({ request }) => {
+      // Enable header auth (alongside normal login, so parallel tests using
+      // cookie/JWT login are unaffected) via the app's own admin API.
+      // global-setup already reset the superadmin and completed the forced
+      // first-login password change.
+      const admin = await loginAsSuperAdmin(request);
+      await request.put('http://localhost:3005/api/admin/config', {
+        data: { auth: { mode: 'both', headerName: 'uid' } },
+        headers: { cookie: admin.cookie },
+      });
+    });
+
     test('Should login automatically if UID header is present', async ({ request }) => {
       const res = await request.get('http://localhost:3005/api/auth/me', {
         headers: { 'uid': 'test-header-user' }
