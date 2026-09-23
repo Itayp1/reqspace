@@ -8,6 +8,7 @@ import morgan from 'morgan';
 import path from 'path';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -27,6 +28,7 @@ import runnerRouter from './routes/runner';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
+import { getUserWorkspaceRole } from './middleware/rbac';
 import bcrypt from 'bcryptjs';
 
 const app = express();
@@ -39,21 +41,59 @@ let dbType: string = 'unknown';
 
 // Socket.io
 export const io = new SocketIOServer(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  // Mirrors the REST API's CORS policy: same-origin only in production,
+  // the Vite dev server in development. '*' would let any site open an
+  // authenticated socket against this server.
+  cors: {
+    origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
   path: '/ws',
 });
 
+/** Verifies the socket's auth cookie and returns the userId, or null. */
+function getSocketUserId(socket: import('socket.io').Socket): string | null {
+  try {
+    const cookieHeader = socket.handshake.headers.cookie;
+    if (!cookieHeader) return null;
+    const token = cookieHeader
+      .split(';')
+      .map(part => part.trim())
+      .find(part => part.startsWith('token='))
+      ?.slice('token='.length);
+    if (!token) return null;
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'changeme') as jwt.JwtPayload;
+    return payload.sub ? String(payload.sub) : null;
+  } catch {
+    return null;
+  }
+}
+
 io.on('connection', (socket) => {
-  socket.on('join:workspace', (workspaceId: string) => {
+  const userId = getSocketUserId(socket);
+  const authorizedWorkspaces = new Set<string>();
+
+  socket.on('join:workspace', async (workspaceId: string) => {
+    if (!userId || typeof workspaceId !== 'string') return;
+    const role = await getUserWorkspaceRole(userId, workspaceId).catch(() => null);
+    const user = await UserRepository.findById(userId).catch(() => null);
+    if (!role && !user?.isSuperAdmin) return; // not a member, workspace not public, and not superadmin
+    authorizedWorkspaces.add(workspaceId);
     socket.join('workspace:' + workspaceId);
   });
+
   socket.on('leave:workspace', (workspaceId: string) => {
+    authorizedWorkspaces.delete(workspaceId);
     socket.leave('workspace:' + workspaceId);
   });
+
   socket.on('presence:open', ({ workspaceId, requestId, user }) => {
+    if (!authorizedWorkspaces.has(workspaceId)) return;
     socket.to('workspace:' + workspaceId).emit('presence:open', { requestId, user });
   });
   socket.on('presence:close', ({ workspaceId, requestId, user }) => {
+    if (!authorizedWorkspaces.has(workspaceId)) return;
     socket.to('workspace:' + workspaceId).emit('presence:close', { requestId, user });
   });
 });
