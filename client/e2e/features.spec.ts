@@ -5,7 +5,7 @@ test.describe('Advanced Features E2E', () => {
     await page.goto('/register');
     const uniqueEmail = `advtest${Date.now()}@example.com`;
     await page.fill('input[type="text"]', 'Adv User');
-    await page.fill('input[type="email"]', uniqueEmail);
+    await page.fill('input[placeholder="admin or test@example.com"]', uniqueEmail);
     await page.fill('input[type="password"]', 'password123');
     await page.click('button[type="submit"]');
     await page.waitForURL('/');
@@ -34,10 +34,10 @@ test.describe('Advanced Features E2E', () => {
 
     // 3. Test Multi-Tab: click request to open in tab
     await page.locator('text=Get Posts').first().click();
-    await expect(page.locator('button[title="Generate Code"]')).toBeVisible();
+    await expect(page.locator('button[title="Code Snippet"]')).toBeVisible();
 
     // 4. Test Code Generation Modal
-    await page.click('button[title="Generate Code"]');
+    await page.click('button[title="Code Snippet"]');
     await expect(page.locator('h2:has-text("Generate Code")')).toBeVisible();
     await expect(page.locator('button:has-text("cURL")')).toBeVisible();
     await expect(page.locator('text=JavaScript (fetch)')).toBeVisible();
@@ -62,7 +62,7 @@ test.describe('Advanced Features E2E', () => {
 
     // Verify Custom Confirm Modal appeared
     await expect(page.locator('h2:has-text("Delete Request")')).toBeVisible();
-    await expect(page.locator('text=This cannot be undone.')).toBeVisible();
+    await expect(page.locator('text=Are you sure you want to delete request')).toBeVisible();
     // Click Delete in the modal
     await page.locator('div.fixed.inset-0').locator('button:has-text("Delete")').click();
     await expect(page.locator('h2:has-text("Delete Request")')).not.toBeVisible();

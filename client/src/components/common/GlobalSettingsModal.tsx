@@ -152,18 +152,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <div>
-                  <label htmlFor="saveHistory" className="text-sm font-medium block">Save Request History</label>
-                  <p className="text-xs text-text-muted">Save executed requests to history (max 500KB total size).</p>
-                </div>
-                <input
-                  type="checkbox"
-                  id="saveHistory"
-                  checked={settings.saveHistory}
-                  onChange={(e) => updateSettings({ saveHistory: e.target.checked })}
-                />
-              </div>
+              
 
               <div className="pt-4 mt-4 border-t border-border">
                 <h3 className="font-semibold mb-3">Client Certificates (mTLS)</h3>

@@ -1,6 +1,6 @@
-# Postman Features Roadmap (100 Missing Features)
+# ReqSpace Features Roadmap (100 Missing Features)
 
-This document outlines 100 features that exist in the official Postman application but are currently missing from our clone. We will begin working through this list to reach feature parity.
+This document outlines 100 features that exist in the official ReqSpace application but are currently missing from our clone. We will begin working through this list to reach feature parity.
 
 ## Protocols & API Types
 1. **GraphQL Support** - Full support including schema introspection and query builder.
@@ -55,7 +55,7 @@ This document outlines 100 features that exist in the official Postman applicati
 42. **Saved Examples** - Saving multiple example responses per request.
 
 ## Request Configuration
-43. **Request Interceptor** - Browser extension to capture live web traffic into Postman.
+43. **Request Interceptor** - Browser extension to capture live web traffic into ReqSpace.
 44. **Proxy Settings** - Custom HTTP/SOCKS proxies per request.
 45. **Client SSL Certificates** - Managing certs per domain (PFX, PEM).
 46. **Disable SSL Verification** - Toggle to ignore self-signed certificates.
@@ -75,8 +75,8 @@ This document outlines 100 features that exist in the official Postman applicati
 ## Import / Export
 57. **Import from cURL** - Pasting cURL commands to generate requests.
 58. **Export to cURL** - Quickly getting the cURL equivalent of the UI request.
-59. **Export Collection (v2.1)** - Standard Postman JSON export.
-60. **Import Postman Collection** - Supporting v2.0 and v2.1 formats.
+59. **Export Collection (v2.1)** - Standard ReqSpace JSON export.
+60. **Import ReqSpace Collection** - Supporting v2.0 and v2.1 formats.
 61. **Import Environment** - Loading environment JSON files.
 62. **Export Environment** - Sharing environment variables.
 63. **Raw Text Import** - Parsing raw HTTP messages.
@@ -119,7 +119,7 @@ This document outlines 100 features that exist in the official Postman applicati
 92. **Custom Themes** - Fine-tuning interface colors.
 
 ## Advanced Development
-93. **Postman API Integration** - Accessing Postman data programmatically.
+93. **ReqSpace API Integration** - Accessing ReqSpace data programmatically.
 94. **GraphQL Autocomplete** - Intellisense for GraphQL queries based on schema.
 95. **gRPC Autocomplete** - Intellisense based on Protobuf definitions.
 96. **Mock Delay Simulation** - Simulating network latency on mock servers.

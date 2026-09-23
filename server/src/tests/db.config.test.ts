@@ -14,7 +14,7 @@ let tmpDir: string;
 let configFilePath: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'postman-test-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reqspace-test-'));
   configFilePath = path.join(tmpDir, 'db-config.json');
   process.env.DB_CONFIG_FILE = configFilePath;
   // Clear cached env vars

@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postman-web
+  name: reqspace-web
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: postman-web
+      app: reqspace-web
   template:
     metadata:
       labels:
-        app: postman-web
+        app: reqspace-web
     spec:
       containers:
-      - name: postman-web
-        image: postman-web:latest
+      - name: reqspace-web
+        image: reqspace-web:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         envFrom:
         - configMapRef:
-            name: postman-web-config
+            name: reqspace-web-config
         - secretRef:
-            name: postman-web-secret
+            name: reqspace-web-secret

@@ -10,6 +10,9 @@ export interface IKeyValueItem {
   value: string;
   description?: string;
   enabled: boolean;
+  type?: 'text' | 'file';
+  fileName?: string;
+  fileData?: string;
 }
 
 export interface IRequestAuth {
@@ -69,6 +72,9 @@ const KeyValueSchema = new Schema<IKeyValueItem>(
     value: { type: String, default: '' },
     description: { type: String, default: '' },
     enabled: { type: Boolean, default: true },
+    type: { type: String },
+    fileName: { type: String },
+    fileData: { type: String },
   },
   { _id: false }
 );

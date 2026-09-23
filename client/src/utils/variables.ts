@@ -96,7 +96,7 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     return match;
   });
 
-  // Support Postman-style path variables like :id in URLs
+  // Support ReqSpace-style path variables like :id in URLs
   result = result.replace(/(^|[^a-zA-Z0-9_]):([a-zA-Z0-9_]+)/g, (match, prefix, varName) => {
     if (envVars.has(varName)) {
       return prefix + envVars.get(varName)!;

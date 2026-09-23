@@ -54,6 +54,13 @@ router.delete('/history/:id', async (req: AuthRequest, res: Response) => {
   return res.json({ message: 'Deleted' });
 });
 
+// ── DELETE /api/history ─ Clear all history for user ──────────────────
+router.delete('/history', async (req: AuthRequest, res: Response) => {
+  await History.deleteMany({ userId: req.user!._id });
+  await User.findByIdAndUpdate(req.user!._id, { historyUsedBytes: 0 });
+  return res.json({ message: 'All history cleared' });
+});
+
 // ── DELETE /api/workspaces/:workspaceId/history – Clear all ─────────────────
 router.delete('/workspaces/:workspaceId/history', async (req: AuthRequest, res: Response) => {
   await History.deleteMany({ userId: req.user!._id, workspaceId: req.params.workspaceId });

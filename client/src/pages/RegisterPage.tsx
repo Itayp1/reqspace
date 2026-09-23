@@ -20,7 +20,7 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
     try {
-      const res = await api.post('/auth/Register to Reqspace', { name, email, password });
+      const res = await api.post('/auth/register', { name, email, password });
       setUser(res.data.user);
       navigate('/');
       window.location.reload();
@@ -35,6 +35,21 @@ export default function RegisterPage() {
     const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${config.googleOAuth.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile&access_type=offline&prompt=consent`;
     window.location.href = googleAuthUrl;
   };
+
+  if (config && config.allowSelfRegistration === false) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-surface">
+        <div className="bg-background p-8 rounded-lg shadow-md w-96 border border-border text-center">
+          <div className="flex flex-col items-center mb-6">
+            <img src="/reqspace-logo.jpg" alt="Reqspace Logo" className="h-16 w-16 rounded-xl object-cover border border-border shadow-sm mb-3" />
+            <h1 className="text-2xl font-bold text-center">Registration Disabled</h1>
+          </div>
+          <p className="text-text-muted mb-6">New user registration is currently disabled by the administrator. Please contact them to create an account.</p>
+          <Link to="/login" className="text-primary hover:underline">Back to Login</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen items-center justify-center bg-surface">
@@ -58,12 +73,13 @@ export default function RegisterPage() {
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Email</label>
+          <label className="block text-sm font-medium mb-1">Username or Email</label>
           <input
-            type="email"
+            type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full p-2 border border-border rounded focus:outline-none focus:border-primary"
+            placeholder="admin or test@example.com"
             required
           />
         </div>

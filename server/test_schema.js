@@ -2,11 +2,11 @@ const fs = require('fs');
 const https = require('https');
 
 async function downloadSchema() {
-  const res = await fetch('https://schema.getpostman.com/json/collection/v2.1.0/collection.json');
+  const res = await fetch('https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json');
   return res.json();
 }
 
-function generatePostmanExport(collection, folders, requests) {
+function generateReqSpaceExport(collection, folders, requests) {
   const buildItems = (parentFolderId) => {
     const items = [];
     
@@ -100,7 +100,7 @@ function generatePostmanExport(collection, folders, requests) {
   return {
     info: { 
       name: collection.name, 
-      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' 
+      schema: 'https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json' 
     },
     item: buildItems(null),
   };
@@ -151,7 +151,7 @@ async function main() {
   const schema = await downloadSchema();
   console.log('Schema downloaded.');
 
-  const generatedJson = generatePostmanExport(mockCollection, mockFolders, mockRequests);
+  const generatedJson = generateReqSpaceExport(mockCollection, mockFolders, mockRequests);
   
   fs.writeFileSync('test_export.json', JSON.stringify(generatedJson, null, 2));
   console.log('Exported JSON to test_export.json');
@@ -167,7 +167,7 @@ async function main() {
     console.log('Validation failed!');
     console.log(JSON.stringify(validate.errors, null, 2));
   } else {
-    console.log('Validation SUCCESS! The exported JSON is 100% compliant with Postman v2.1.0 schema.');
+    console.log('Validation SUCCESS! The exported JSON is 100% compliant with ReqSpace v2.1.0 schema.');
   }
 }
 

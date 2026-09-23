@@ -45,6 +45,9 @@ const KeyValueSchema = new mongoose_1.Schema({
     value: { type: String, default: '' },
     description: { type: String, default: '' },
     enabled: { type: Boolean, default: true },
+    type: { type: String },
+    fileName: { type: String },
+    fileData: { type: String },
 }, { _id: false });
 const RequestSchema = new mongoose_1.Schema({
     collectionId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Collection', required: true },

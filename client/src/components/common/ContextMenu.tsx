@@ -25,18 +25,20 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     window.addEventListener('click', handleClick);
     window.addEventListener('scroll', handleScroll, true);
 
-    // Ensure menu stays within viewport
+    // Ensure menu stays within viewport (clamp both edges, not just overflow correction)
     const menuWidth = 160;
     const menuHeight = items.length * 36;
     let newX = x;
     let newY = y;
-    
+
     if (x + menuWidth > window.innerWidth) {
       newX = x - menuWidth;
     }
     if (y + menuHeight > window.innerHeight) {
       newY = y - menuHeight;
     }
+    newX = Math.max(4, Math.min(newX, window.innerWidth - menuWidth - 4));
+    newY = Math.max(4, Math.min(newY, window.innerHeight - menuHeight - 4));
     setPosition({ x: newX, y: newY });
 
     return () => {

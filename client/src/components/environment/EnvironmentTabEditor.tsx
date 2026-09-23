@@ -60,7 +60,7 @@ export function EnvironmentTabEditor() {
     if (!env) return;
     try {
       if (isGlobal) {
-        const res = await api.put(`/environments/global`, { variables: localVars });
+        const res = await api.put(`/environments/${env._id}`, { variables: localVars });
         setGlobalEnvironment(res.data);
       } else {
         const res = await api.put(`/environments/${env._id}`, { name, variables: localVars });
@@ -82,7 +82,7 @@ export function EnvironmentTabEditor() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(env, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `${env.name}.postman_environment.json`);
+    downloadAnchorNode.setAttribute("download", `${env.name}.reqspace_environment.json`);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();

@@ -75,6 +75,7 @@ interface RequestStore {
 
   setActiveRequest: (req: ActiveRequest | null) => void;
   updateActiveRequest: (updates: Partial<ActiveRequest>) => void;
+  updateTab: (tabId: string, updates: Partial<ActiveRequest>) => void;
   setActiveResponse: (res: ResponseData | null) => void;
   setIsLoading: (loading: boolean) => void;
   markSaved: () => void;
@@ -83,9 +84,11 @@ interface RequestStore {
   selectTab: (tabId: string) => void;
   newTab: () => void;
   openEnvironmentTab: (envId: string, name: string) => void;
+  closeEnvironmentTab: (envId: string) => void;
   closeAllToRight: (tabId: string) => void;
   closeAllToLeft: (tabId: string) => void;
   closeOtherTabs: (tabId: string) => void;
+  reorderTabs: (draggedId: string, targetId: string, pos: 'before'|'after') => void;
   undo: () => void;
   redo: () => void;
 }
@@ -100,6 +103,23 @@ export const useRequestStore = create<RequestStore>()(
       activeRequest: null,
       activeResponse: null,
       isLoading: false,
+
+            reorderTabs: (draggedId, targetId, pos) => set((state) => {
+        const tabs = [...state.tabs];
+        const draggedIdx = tabs.findIndex(t => t.tabId === draggedId);
+        if (draggedIdx === -1) return state;
+        const [draggedTab] = tabs.splice(draggedIdx, 1);
+        
+        const targetIdx = tabs.findIndex(t => t.tabId === targetId);
+        if (targetIdx === -1) {
+          tabs.push(draggedTab);
+          return { tabs };
+        }
+        
+        const insertIdx = pos === 'before' ? targetIdx : targetIdx + 1;
+        tabs.splice(insertIdx, 0, draggedTab);
+        return { tabs };
+      }),
 
       undo: () => set((state) => {
         if (!state.activeTabId || !state.activeRequest) return state;
@@ -157,6 +177,10 @@ export const useRequestStore = create<RequestStore>()(
         });
       },
 
+      updateTab: (tabId, updates) => set((state) => {
+        const tabs = state.tabs.map(t => t.tabId === tabId ? { ...t, ...updates } : t);
+        return { tabs };
+      }),
       updateActiveRequest: (updates) => set((state) => {
         if (!state.activeRequest || !state.activeTabId) return state;
         
@@ -173,10 +197,16 @@ export const useRequestStore = create<RequestStore>()(
 
         const updated = { ...state.activeRequest, ...updates, isDirty: true };
 
-        // Update in tabs array too
-        const nextTabs = state.tabs.map(t =>
-          t.tabId === state.activeTabId ? { ...t, ...updates, isDirty: true } : t
-        );
+        // Only rebuild the tabs array when something the tab bar actually
+        // renders changes (name/method, or the dirty flag first flipping on).
+        // Otherwise every keystroke in the URL/body/headers/scripts editors
+        // would produce a new `tabs` array reference and re-render the whole
+        // tab bar (and anything else subscribed to `tabs`) for no visible change.
+        const activeTab = state.tabs.find(t => t.tabId === state.activeTabId);
+        const tabBarRelevant = !activeTab?.isDirty || 'name' in updates || 'method' in updates;
+        const nextTabs = tabBarRelevant
+          ? state.tabs.map(t => t.tabId === state.activeTabId ? { ...t, ...updates, isDirty: true } : t)
+          : state.tabs;
 
         return { activeRequest: updated, tabs: nextTabs };
       }),
@@ -237,6 +267,12 @@ export const useRequestStore = create<RequestStore>()(
           isDirty: false,
         };
         get().setActiveRequest(newReq);
+      },
+
+      closeEnvironmentTab: (envId) => {
+        const { tabs } = get();
+        const tab = tabs.find(t => t.tabType === 'environment' && t.environmentId === envId);
+        if (tab) get().closeTab(tab.tabId!);
       },
 
       openEnvironmentTab: (envId, name) => {

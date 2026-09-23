@@ -5,7 +5,7 @@ test.describe('Collection Management', () => {
     await page.goto('/register');
     const uniqueEmail = `colltest${Date.now()}@example.com`;
     await page.fill('input[type="text"]', 'Coll User');
-    await page.fill('input[type="email"]', uniqueEmail);
+    await page.fill('input[placeholder="admin or test@example.com"]', uniqueEmail);
     await page.fill('input[type="password"]', 'password123');
     await page.click('button[type="submit"]');
     await page.waitForURL('/');

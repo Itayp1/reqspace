@@ -24,7 +24,7 @@ interface CookieStore {
   getCookiesHeaderForUrl: (url: string) => string;
 }
 
-const STORAGE_KEY = 'postman_cookies_v1';
+const STORAGE_KEY = 'reqspace_cookies_v1';
 
 const loadSavedCookies = (): CookieItem[] => {
   try {

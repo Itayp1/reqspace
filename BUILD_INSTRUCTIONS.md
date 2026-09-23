@@ -1,6 +1,6 @@
 # הנחיות בניה ופריסה (Build & Deployment)
 
-קובץ זה מתעד את צורת הפריסה וההרצה של הפרויקט (Postman Clone) בסביבת Production וכיצד לטפל בבנייה (Build).
+קובץ זה מתעד את צורת הפריסה וההרצה של הפרויקט (reqSpace) בסביבת Production וכיצד לטפל בבנייה (Build).
 
 ## 1. פריסה אוטומטית מקומית באמצעות PM2 (מצב נוכחי)
 
@@ -14,9 +14,9 @@
   3. מעלה את השרת על פורט 3005.
 
 ### פקודות שימושיות ל-PM2:
-* **צפייה בלוגים בזמן אמת:** `pm2 logs postman-clone`
-* **הפעלה מחדש (Restart):** `pm2 restart postman-clone`
-* **עצירת השרת:** `pm2 stop postman-clone`
+* **צפייה בלוגים בזמן אמת:** `pm2 logs reqspace`
+* **הפעלה מחדש (Restart):** `pm2 restart reqspace`
+* **עצירת השרת:** `pm2 stop reqspace`
 * **רשימת כל השרתים הרצים:** `pm2 list`
 
 ---

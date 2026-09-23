@@ -44,7 +44,7 @@ self.onmessage = async (e) => {
        // but wait, CORS! We must route through main thread -> proxy!
        
        // Because of async nature, we'd need to pause script execution or use Promises.
-       // Postman's pm.sendRequest is callback-based. 
+       // ReqSpace's pm.sendRequest is callback-based. 
        postMessage({ type: 'sendRequest', req, executionId });
        // We can't synchronously block a callback in a web worker easily without SharedArrayBuffer.
        // We'll leave a stub for now.

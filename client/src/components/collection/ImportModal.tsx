@@ -43,7 +43,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('');
   const [fileParsed, setFileParsed] = useState<any>(null);
   const [fileName, setFileName] = useState('');
-  const [importFormat, setImportFormat] = useState<'postman' | 'openapi' | 'environment'>('postman');
+  const [importFormat, setImportFormat] = useState<'reqSpace' | 'openapi' | 'environment'>('reqSpace');
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -63,10 +63,10 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
           setFileParsed(parsed);
           if (parsed.openapi || parsed.swagger) {
             setImportFormat('openapi');
-          } else if (parsed._postman_variable_scope === 'environment') {
+          } else if (parsed._reqSpace_variable_scope === 'environment') {
             setImportFormat('environment');
           } else {
-            setImportFormat('postman');
+            setImportFormat('reqSpace');
           }
           setError('');
         } else {
@@ -79,7 +79,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
     reader.readAsText(file);
   };
 
-  const importPostmanCollection = async (json: any) => {
+  const importReqSpaceCollection = async (json: any) => {
     if (!activeWorkspace) return;
     const { createCollection, fetchCollectionsData, toggleCollectionOpen } = useCollectionStore.getState();
 
@@ -150,7 +150,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
     await fetchCollectionsData(activeWorkspace._id);
   };
 
-  const importPostmanEnvironment = async (json: any) => {
+  const importReqSpaceEnvironment = async (json: any) => {
     if (!activeWorkspace) return;
     try {
       const { setEnvironments, environments } = await import('../../store/environmentStore').then(m => m.useEnvironmentStore.getState());
@@ -297,9 +297,9 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
         if (importFormat === 'openapi') {
           await importOpenApiSpec(fileParsed);
         } else if (importFormat === 'environment') {
-          await importPostmanEnvironment(fileParsed);
+          await importReqSpaceEnvironment(fileParsed);
         } else {
-          await importPostmanCollection(fileParsed);
+          await importReqSpaceCollection(fileParsed);
         }
       } else if (activeTab === 'openapi') {
         if (!openApiRaw.trim()) { setError('Please enter OpenAPI / Swagger definition.'); setLoading(false); return; }
@@ -433,14 +433,14 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
                   <>
                     <div className="font-medium text-emerald-400 text-sm mb-1">✓ {fileName}</div>
                     <div className="text-xs text-gray-400">
-                      Format: <span className="text-orange-400 font-semibold">{importFormat === 'openapi' ? 'OpenAPI / Swagger' : importFormat === 'environment' ? 'Postman Environment' : 'Postman Collection'}</span>
+                      Format: <span className="text-orange-400 font-semibold">{importFormat === 'openapi' ? 'OpenAPI / Swagger' : importFormat === 'environment' ? 'ReqSpace Environment' : 'ReqSpace Collection'}</span>
                       {fileParsed.name ? ` ("${fileParsed.name}")` : fileParsed.info?.name ? ` ("${fileParsed.info.name}")` : (fileParsed.info?.title ? ` ("${fileParsed.info.title}")` : '')}
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="text-sm font-medium text-gray-200 mb-1">
-                      Drag & drop Postman Collection or OpenAPI / Swagger file
+                      Drag & drop ReqSpace Collection or OpenAPI / Swagger file
                     </div>
                     <div className="text-xs text-gray-400">Supports .json, .yaml, .yml</div>
                   </>

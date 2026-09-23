@@ -7,7 +7,7 @@ let mainWindow;
 let serverProcess;
 
 // ── Config file (persists user's choice) ─────────────────────────────────────
-const configDir = path.join(app.getPath('userData'), 'postman-clone');
+const configDir = path.join(app.getPath('userData'), 'reqspace');
 const configFile = path.join(configDir, 'config.json');
 
 function readConfig() {
@@ -35,7 +35,7 @@ function startLocalServer(onReady) {
     return;
   }
 
-  const sqliteDbPath = path.join(configDir, 'postman.sqlite');
+  const sqliteDbPath = path.join(configDir, 'reqSpace.sqlite');
   const serverEntry = path.join(process.resourcesPath, 'server', 'dist', 'index.js');
 
   console.log('Starting local server:', serverEntry);
@@ -44,6 +44,9 @@ function startLocalServer(onReady) {
   serverProcess = spawn(process.execPath, [serverEntry], {
     env: {
       ...process.env,
+      // Without this, process.execPath launches another Electron app instance
+      // instead of running the server script as plain Node.
+      ELECTRON_RUN_AS_NODE: '1',
       PORT: String(port),
       NODE_ENV: 'production',
       CLIENT_DIST_PATH: path.join(process.resourcesPath, 'client', 'dist'),
@@ -52,11 +55,21 @@ function startLocalServer(onReady) {
     },
   });
 
+  // onReady must fire exactly once — firing it again after the window has
+  // already loaded reloads the app out from under the user.
+  let readyFired = false;
+  const fireReady = () => {
+    if (readyFired) return;
+    readyFired = true;
+    clearTimeout(fallbackTimer);
+    onReady(`http://localhost:${port}`);
+  };
+
   serverProcess.stdout.on('data', (d) => {
     const msg = d.toString();
     console.log('[server]', msg.trim());
     if (msg.includes('Server running')) {
-      onReady(`http://localhost:${port}`);
+      fireReady();
     }
   });
 
@@ -64,8 +77,8 @@ function startLocalServer(onReady) {
     console.error('[server-err]', d.toString().trim());
   });
 
-  // Fallback: load after 4 seconds even if we missed the ready message
-  setTimeout(() => onReady(`http://localhost:${port}`), 4000);
+  // Fallback: load anyway if we missed the ready message
+  const fallbackTimer = setTimeout(fireReady, 8000);
 }
 
 // ── Create main window ────────────────────────────────────────────────────────
@@ -74,11 +87,15 @@ function createWindow() {
     width: 1280,
     height: 800,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      // This window can be pointed at an arbitrary remote server URL, so it
+      // must not have Node access: a compromised or hostile server would
+      // otherwise get code execution on the user's machine.
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
     },
     autoHideMenuBar: true,
-    title: 'Postman Clone',
+    title: 'reqSpace',
   });
 
   const savedConfig = readConfig();

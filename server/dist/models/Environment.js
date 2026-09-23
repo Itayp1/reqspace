@@ -46,6 +46,7 @@ const EnvironmentSchema = new mongoose_1.Schema({
     workspaceId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Workspace', required: true },
     name: { type: String, required: true, trim: true },
     isGlobal: { type: Boolean, default: false },
+    order: { type: Number, default: 0 },
     variables: { type: [EnvironmentVariableSchema], default: [] },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });

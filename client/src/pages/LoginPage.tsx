@@ -46,12 +46,13 @@ export default function LoginPage() {
         {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
 
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Email</label>
+          <label className="block text-sm font-medium mb-1">Username or Email</label>
           <input
-            type="email"
+            type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full p-2 border border-border rounded focus:outline-none focus:border-primary"
+            placeholder="admin or test@example.com"
             required
           />
         </div>
@@ -82,9 +83,11 @@ export default function LoginPage() {
           </button>
         )}
 
-        <div className="mt-4 text-center text-sm text-text-muted">
-          Don't have an account? <Link to="/register" className="text-primary hover:underline">Register</Link>
-        </div>
+        {config?.allowSelfRegistration !== false && (
+          <div className="mt-4 text-center text-sm text-text-muted">
+            Don't have an account? <Link to="/register" className="text-primary hover:underline">Register</Link>
+          </div>
+        )}
       </form>
     </div>
   );

@@ -2,7 +2,7 @@
 
 > A modern, lightweight, and open-source web-based API testing platform.
 
-Reqspace (formerly Postman Web Clone) is a comprehensive API testing environment designed to run natively in your browser. It provides all the essential features you need to design, test, and manage APIs, backed by a powerful Node.js server that supports multiple database types and robust authentication.
+Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment designed to run natively in your browser. It provides all the essential features you need to design, test, and manage APIs, backed by a powerful Node.js server that supports multiple database types and robust authentication.
 
 ## ✨ Features
 

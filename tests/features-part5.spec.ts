@@ -2,8 +2,21 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Environment Tabs & Common Variables', () => {
   test('should open environment in a tab', async ({ page }) => {
-    // 1. Go to app
-    await page.goto('http://localhost:3005');
+    const suffix = Math.floor(Math.random() * 1000000);
+
+    // 1. Go to app and register/login
+    await page.goto('http://localhost:3005/');
+    try {
+      await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 3000 });
+      await page.locator('text=Register').click();
+      await page.fill('input[type="text"]', `Test User ${suffix}`);
+      await page.fill('input[placeholder="admin or test@example.com"]', `test${suffix}@test.com`);
+      await page.fill('input[type="password"]', 'password123');
+      await page.click('button[type="submit"]');
+    } catch {
+      // Already logged in
+    }
+    await expect(page.getByRole('button', { name: 'Collections' })).toBeVisible({ timeout: 5000 });
     await page.waitForLoadState('networkidle');
 
     // 2. Click the Environments tab in the sidebar
@@ -16,7 +29,8 @@ test.describe('Environment Tabs & Common Variables', () => {
     const tab = page.locator('.bg-white', { hasText: 'Globals (Common)' });
     await expect(tab).toBeVisible();
 
-    // 5. Create a new environment
+    // 5. Create a new environment (goes through a native prompt() dialog)
+    page.once('dialog', dialog => dialog.accept('New Environment'));
     await page.getByTitle('New Environment').click();
     await page.waitForTimeout(500); // Wait for tab to appear
 

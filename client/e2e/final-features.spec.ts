@@ -5,7 +5,7 @@ test.describe('Final Features Validation (3 Tests per Feature)', () => {
     await page.goto('/register');
     const uniqueEmail = `finaltest${Date.now()}@example.com`;
     await page.fill('input[type="text"]', 'Final User');
-    await page.fill('input[type="email"]', uniqueEmail);
+    await page.fill('input[placeholder="admin or test@example.com"]', uniqueEmail);
     await page.fill('input[type="password"]', 'password123');
     await page.click('button[type="submit"]');
     await page.waitForURL('**/');
@@ -49,8 +49,8 @@ test.describe('Final Features Validation (3 Tests per Feature)', () => {
   test('Feature 79: Sort Folders & Requests - 3 Tests', async ({ page }) => {
     // 1. Create collection
     await page.click('button:has-text("+ Create Collection")');
-    await page.fill('input[placeholder="Collection name:"]', 'Sortable Collection');
-    await page.keyboard.press('Enter');
+    await page.fill('input[placeholder="Enter collection name:"]', 'Sortable Collection');
+    await page.click('button:has-text("Save")');
 
     // 2. Check that it exists
     await expect(page.locator('text=Sortable Collection')).toBeVisible();

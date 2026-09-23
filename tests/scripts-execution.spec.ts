@@ -48,8 +48,8 @@ test.describe('Request Scripts (Pre & Post) Execution Lifecycle', () => {
     // 5. Navigate to the app and login
     await page.goto('http://localhost:3005');
     try {
-      await expect(page.locator('text=Login to Postman Web')).toBeVisible({ timeout: 2000 });
-      await page.fill('input[type="email"]', `script${suffix}@test.com`);
+      await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 2000 });
+      await page.fill('input[placeholder="admin or test@example.com"]', `script${suffix}@test.com`);
       await page.fill('input[type="password"]', 'password123');
       await page.click('button[type="submit"]');
     } catch (e) {

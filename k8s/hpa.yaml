@@ -1,12 +1,12 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: postman-web-hpa
+  name: reqspace-web-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: postman-web
+    name: reqspace-web
   minReplicas: 2
   maxReplicas: 10
   metrics:

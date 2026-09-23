@@ -30,11 +30,13 @@ export function setCookieToken(res: Response, token: string, ttlDays: number) {
 
 /** Creates personal workspace for a new user */
 export async function createPersonalWorkspace(user: any) {
-  await WorkspaceRepository.create({
+  const workspace = await WorkspaceRepository.create({
     name: `${user.name}'s Workspace`,
     description: 'Personal workspace',
     ownerId: user.id || user._id,
   });
+  const { EnvironmentRepository } = await import('../repositories/EnvironmentRepository');
+  await EnvironmentRepository.upsertGlobal(workspace.id || (workspace as any)._id, []);
 }
 
 /** Main auth middleware – validates JWT from cookie and optionally handles header auth */

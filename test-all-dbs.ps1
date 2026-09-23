@@ -1,11 +1,15 @@
+# Reads real connection strings from environment variables instead of hardcoding
+# credentials in source. Set these before running (values live only in your shell):
+#   $env:TEST_DB_POSTGRES_URL, $env:TEST_DB_MONGODB_URL, $env:TEST_DB_MYSQL_URL
 $ErrorActionPreference = "Stop"
 
 $tests = @(
-    @{ Type = "sqlite"; Connection = "sqlite://data.db" },
-    @{ Type = "postgres"; Connection = "postgresql://REDACTED:REDACTED@REDACTED.neon.tech/REDACTED" },
-    @{ Type = "mongodb"; Connection = "mongodb+srv://REDACTED:REDACTED@REDACTED.mongodb.net/REDACTED" },
-    @{ Type = "mysql"; Connection = "mysql://REDACTED:REDACTED@REDACTED.freesqldatabase.com:3306/REDACTED" }
+    @{ Type = "sqlite"; Connection = "sqlite://data.db" }
 )
+if ($env:TEST_DB_POSTGRES_URL) { $tests += @{ Type = "postgres"; Connection = $env:TEST_DB_POSTGRES_URL } }
+if ($env:TEST_DB_MONGODB_URL) { $tests += @{ Type = "mongodb"; Connection = $env:TEST_DB_MONGODB_URL } }
+if ($env:TEST_DB_MYSQL_URL) { $tests += @{ Type = "mysql"; Connection = $env:TEST_DB_MYSQL_URL } }
+if ($tests.Count -eq 1) { Write-Host "Only sqlite will run — set TEST_DB_POSTGRES_URL / TEST_DB_MONGODB_URL / TEST_DB_MYSQL_URL to also test those backends." }
 
 Write-Host "Rebuilding Server..."
 Set-Location server
@@ -31,7 +35,7 @@ foreach ($test in $tests) {
     
     # Restart PM2
     Write-Host "Restarting PM2..."
-    pm2 restart postman-clone | Out-Null
+    pm2 restart reqspace | Out-Null
     
     # Wait for healthy
     Write-Host "Waiting for server to become healthy..."
@@ -49,7 +53,7 @@ foreach ($test in $tests) {
     
     if (-not $isHealthy) {
         Write-Host "❌ Server failed to become healthy with $($test.Type)"
-        pm2 logs postman-clone --lines 30
+        pm2 logs reqspace --lines 30
         throw "Health check failed"
     }
     
@@ -72,6 +76,6 @@ foreach ($test in $tests) {
 # Restore original env
 $originalEnv | Set-Content $envPath
 Write-Host "Restarting PM2 with original env..."
-pm2 restart postman-clone | Out-Null
+pm2 restart reqspace | Out-Null
 
 Write-Host "`n🎉 ALL DATABASES TESTED SUCCESSFULLY! 🎉"

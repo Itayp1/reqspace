@@ -16,7 +16,7 @@ const os_1 = __importDefault(require("os"));
 let tmpDir;
 let configFilePath;
 beforeEach(() => {
-    tmpDir = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'postman-test-'));
+    tmpDir = fs_1.default.mkdtempSync(path_1.default.join(os_1.default.tmpdir(), 'reqspace-test-'));
     configFilePath = path_1.default.join(tmpDir, 'db-config.json');
     process.env.DB_CONFIG_FILE = configFilePath;
     // Clear cached env vars

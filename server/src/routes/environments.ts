@@ -4,6 +4,7 @@ import { requireWorkspaceRole } from '../middleware/rbac';
 import { Environment } from '../models/Environment';
 
 import { NextFunction } from "express";
+import { emitToWorkspace } from '../socketUtils';
 const router = Router();
 
 async function checkEnvPermission(req: AuthRequest, res: Response, next: NextFunction) {
@@ -24,7 +25,7 @@ router.get('/workspaces/:workspaceId/environments',
   async (req: AuthRequest, res: Response) => {
     const envs = await Environment.find({
       workspaceId: req.params.workspaceId,
-    }).sort({ isGlobal: -1, createdAt: 1 }).lean();
+    }).sort({ isGlobal: -1, order: 1, createdAt: 1 }).lean();
     return res.json(envs);
   }
 );
@@ -42,9 +43,35 @@ router.post('/workspaces/:workspaceId/environments',
       variables: variables ?? [],
       createdBy: req.user!._id,
     });
+    emitToWorkspace(req.params.workspaceId, 'environment:created', env);
     return res.status(201).json(env);
   }
 );
+
+// ── PUT /api/environments/reorder ──────────────────────────────────────────────
+router.put('/environments/reorder', async (req: AuthRequest, res: Response) => {
+  const { items } = req.body;
+  if (!items || !Array.isArray(items)) return res.status(400).json({ message: 'Invalid items array' });
+  if (items.length === 0) return res.json({ success: true });
+
+  const sample = await Environment.findById(items[0].id);
+  if (!sample) return res.status(404).json({ message: 'Environment not found' });
+  const workspaceId = String(sample.workspaceId);
+
+  if (!req.user?.isSuperAdmin) {
+    const Workspace = require('../models/Workspace').Workspace;
+    const ws = await Workspace.findById(workspaceId);
+    if (!ws) return res.status(404).json({ message: 'Workspace not found' });
+    const member = ws.members.find((m: any) => String(m.userId) === String(req.user!._id));
+    if (!member || member.role === 'viewer') return res.status(403).json({ message: 'Forbidden' });
+  }
+
+  for (const item of items) {
+    await Environment.findByIdAndUpdate(item.id, { order: item.order });
+  }
+  emitToWorkspace(workspaceId, 'environment:updated', undefined);
+  return res.json({ success: true });
+});
 
 // ── GET /api/environments/:id ───────────────────────────────────────────────
 router.get('/environments/:id', async (req: AuthRequest, res: Response) => {
@@ -57,12 +84,14 @@ router.get('/environments/:id', async (req: AuthRequest, res: Response) => {
 router.put('/environments/:id', checkEnvPermission, async (req: AuthRequest, res: Response) => {
   const env = await Environment.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!env) return res.status(404).json({ message: 'Environment not found' });
+  emitToWorkspace(req.params.workspaceId, 'environment:updated', env);
   return res.json(env);
 });
 
 // ── DELETE /api/environments/:id ────────────────────────────────────────────
 router.delete('/environments/:id', checkEnvPermission, async (req: AuthRequest, res: Response) => {
   await Environment.findByIdAndDelete(req.params.id);
+  emitToWorkspace(req.params.workspaceId, 'environment:deleted', req.params.id);
   return res.json({ message: 'Environment deleted' });
 });
 
@@ -93,6 +122,7 @@ router.post('/environments/:id/duplicate', checkEnvPermission, async (req: AuthR
     name: `${env.name} (copy)`,
     createdBy: req.user!._id,
   });
+  emitToWorkspace(targetWorkspaceId, 'environment:created', duplicate);
   return res.status(201).json(duplicate);
 });
 

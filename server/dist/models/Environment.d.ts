@@ -10,6 +10,7 @@ export interface IEnvironment extends Document {
     workspaceId: mongoose.Types.ObjectId;
     name: string;
     isGlobal: boolean;
+    order?: number;
     variables: IEnvironmentVariable[];
     createdBy: mongoose.Types.ObjectId;
     createdAt: Date;

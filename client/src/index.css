@@ -3,7 +3,7 @@
 @custom-variant dark (&:where([class~="dark"], [class~="dark"] *));
 
 @theme {
-  --color-primary: #ff6c37; /* Postman orange */
+  --color-primary: #ff6c37; /* ReqSpace orange */
   --color-background: #ffffff;
   --color-surface: #f9f9f9;
   --color-border: #e6e6e6;

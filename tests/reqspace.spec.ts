@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Postman Web Clone E2E', () => {
+test.describe('reqSpace Clone E2E', () => {
   // Use a random suffix to avoid collisions in DB
   const suffix = Math.floor(Math.random() * 100000);
   const workspaceName = `Test Workspace ${suffix}`;
@@ -13,10 +13,10 @@ test.describe('Postman Web Clone E2E', () => {
 
     // 2. Register or Login
     try {
-      await expect(page.locator('text=Login to Postman Web')).toBeVisible({ timeout: 5000 });
+      await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 5000 });
       await page.locator('text=Register').click();
       await page.fill('input[type="text"]', `Test User ${suffix}`);
-      await page.fill('input[type="email"]', `test${suffix}@test.com`);
+      await page.fill('input[placeholder="admin or test@example.com"]', `test${suffix}@test.com`);
       await page.fill('input[type="password"]', 'password123');
       await page.click('button[type="submit"]');
     } catch {
@@ -60,10 +60,11 @@ test.describe('Postman Web Clone E2E', () => {
     await page.locator('text=Add Request').first().click();
     
     // Fill the prompt for Request name
-    const requestPromptInput = page.locator('input[placeholder="Request name:"]');
+    const requestPromptInput = page.locator('input[placeholder="My Request"]');
     await expect(requestPromptInput).toBeVisible();
     await requestPromptInput.fill(requestName);
     await page.locator('button:has-text("Save")').click();
+    await page.locator(`text=${requestName}`).first().click();
 
     // 6. Setup and Send the Request
     // Wait for the request tab to open by checking the UrlBar
@@ -88,25 +89,31 @@ test.describe('Postman Web Clone E2E', () => {
     await expect(page.locator(`button[title="Save Request"]:has-text("Save*")`)).not.toBeVisible();
 
     // 9. Environment variables
-    // Click Manage Environments button (gear icon in TopBar)
-    await page.getByTitle('Manage Environments').click();
+    // 9. Environment variables
+    await page.locator('button:has-text("Envs")').click();
     
-    // Create new environment
-    await page.getByTitle('Create Environment').click();
-    await page.fill('input[placeholder="Environment Name"]', `Test Env ${suffix}`);
+    // Handle native prompt for environment name
+    page.once('dialog', dialog => dialog.accept(`Test Env ${suffix}`));
+    await page.getByTitle('New Environment').click();
+    
+    // Click the new environment in the sidebar to open it in a tab
+    await page.locator(`text=Test Env ${suffix}`).first().click();
+    
+    // Wait for the environment tab to be active
     // Add variable
-    // Wait for the environment to be active in the modal
-    await expect(page.locator('.bg-surface:has-text("Variables")')).toBeVisible();
-    await page.fill('input[placeholder="Key"]', 'BASE_URL');
-    await page.fill('input[placeholder="Value"]', 'https://jsonplaceholder.typicode.com');
-    // Save environment
-    await page.locator('button:has-text("Save")').first().click();
+    await page.locator('text=+ Add a new variable').click();
+    const keyInput = page.locator('input[placeholder="New key"]').first();
+    await expect(keyInput).toBeVisible();
+    await keyInput.fill('BASE_URL');
     
-    // Close modal
-    await page.locator('button > svg.lucide-x').first().click();
+    const valueInput = page.locator('input[placeholder="Initial value"]').first();
+    await valueInput.fill('https://jsonplaceholder.typicode.com');
+    await page.locator('button:has-text("Save")').click();
     
     // Select the new environment in the top dropdown
-    const envSelect = page.locator('select').nth(1);
+    // Wait, the dropdown is in the TopBar. We can find it by its text or placeholder.
+    // In TopBar, it's a select element
+    const envSelect = page.locator('select').filter({ hasText: 'No Environment' }).first();
     await envSelect.selectOption({ label: `Test Env ${suffix}` });
     
     // Verify it's selected
@@ -117,14 +124,14 @@ test.describe('Postman Web Clone E2E', () => {
     await page.locator('button:has-text("Members")').click();
     
     // Type email
-    await page.fill('input[placeholder="User email to invite..."]', 'testuser@test.com');
+    await page.fill('input[placeholder="Search user by name or email..."]', 'testuser@test.com');
     await page.locator('select').last().selectOption({ label: 'Viewer' });
-    await page.locator('button:has-text("Invite")').click();
+    await page.locator('button:has-text("Add")').click();
     
     // Verify member added (it might say User not found if testuser@test.com doesn't exist, 
     // but the API call is made. The test should not fail if the user is missing in DB, 
     // but let's check for either success or error to ensure the UI responds)
-    // Actually, let's just close it.
-    await page.locator('button > svg.lucide-x').first().click();
+    // Close modal using Escape key
+    await page.keyboard.press('Escape');
   });
 });

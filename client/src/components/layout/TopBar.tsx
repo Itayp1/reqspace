@@ -19,7 +19,7 @@ export default function TopBar() {
   const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('postman_theme') as 'dark' | 'light') || 'dark';
+    return (localStorage.getItem('reqspace_theme') as 'dark' | 'light') || 'dark';
   });
   const [isQuickLookOpen, setIsQuickLookOpen] = useState(false);
   const eyeRef = useRef<HTMLDivElement>(null);
@@ -42,7 +42,7 @@ export default function TopBar() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('postman_theme', theme);
+    localStorage.setItem('reqspace_theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
@@ -92,7 +92,7 @@ export default function TopBar() {
 
   return (
     <>
-      <div className="h-12 border-b border-border bg-surface flex items-center justify-end px-4 gap-3">
+      <div className="min-h-[3rem] py-2 border-b border-border bg-surface flex flex-wrap items-center justify-end px-4 gap-x-3 gap-y-2">
         {/* Theme Toggle Button */}
         <button
           onClick={toggleTheme}

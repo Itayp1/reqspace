@@ -12,7 +12,7 @@ export function runPreRequestScript(script?: string, collectionId?: string, iter
   let nextRequest: string | null | undefined = undefined;
   
   try {
-    const postman = {
+    const reqSpace = {
       setNextRequest: (requestNameOrId: string | null) => {
         nextRequest = requestNameOrId;
       }
@@ -128,8 +128,8 @@ export function runPreRequestScript(script?: string, collectionId?: string, iter
       }
     };
     
-    const fn = new Function('pm', 'postman', '_', 'moment', 'CryptoJS', 'console', script);
-    fn(pm, postman, _, moment, CryptoJS, consoleMock);
+    const fn = new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script);
+    fn(pm, reqSpace, _, moment, CryptoJS, consoleMock);
   } catch (e) {
     console.error('Pre-request script error', e);
   }
@@ -157,7 +157,7 @@ export function runTestScript(
       // ignore
     }
 
-    const postman = {
+    const reqSpace = {
       setNextRequest: (requestNameOrId: string | null) => {
         nextRequest = requestNameOrId;
       }
@@ -303,8 +303,8 @@ export function runTestScript(
       }
     };
 
-    const runFn = new Function('pm', 'postman', '_', 'moment', 'CryptoJS', 'console', script);
-    runFn(pm, postman, _, moment, CryptoJS, consoleMock);
+    const runFn = new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script);
+    runFn(pm, reqSpace, _, moment, CryptoJS, consoleMock);
   } catch (err: any) {
     testResults.push({ name: 'Script Execution', passed: false, error: err.message || String(err) });
   }

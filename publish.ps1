@@ -1,10 +1,10 @@
 # ==============================================================================
-# Script to build and publish the Postman Clone to Docker Hub
+# Script to build and publish the reqSpace to Docker Hub
 # ==============================================================================
 
 # Replace this with your actual Docker Hub username and repo name!
 $DOCKER_USERNAME = "your_dockerhub_username"
-$IMAGE_NAME = "postman-clone"
+$IMAGE_NAME = "reqspace"
 $TAG = "latest"
 
 $FULL_IMAGE_NAME = "$DOCKER_USERNAME/$IMAGE_NAME:$TAG"

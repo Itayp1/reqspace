@@ -67,6 +67,6 @@ export const useSettingsStore = create<SettingsStore>()(
         return { settings: next };
       }),
     }),
-    { name: 'postman-global-settings' }
+    { name: 'reqspace-global-settings' }
   )
 );

@@ -69,6 +69,8 @@ router.post('/', async (req, res) => {
         ownerId: user._id,
         members: [{ userId: user._id, role: 'owner', joinedAt: new Date() }],
     });
+    const { EnvironmentRepository } = await Promise.resolve().then(() => __importStar(require('../repositories/EnvironmentRepository')));
+    await EnvironmentRepository.upsertGlobal(String(workspace._id), []);
     return res.status(201).json(workspace);
 });
 // ── GET /api/workspaces/:id ─────────────────────────────────────────────────

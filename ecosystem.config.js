@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "postman-clone",
+      name: "reqspace",
       script: "deploy.js",
       watch: ["client/src", "client/public", "server/src", "client/package.json", "server/package.json", "deploy.js"],
       ignore_watch: ["node_modules", "client/node_modules", "server/node_modules", "client/dist", "server/dist", ".git"],

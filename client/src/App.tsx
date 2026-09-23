@@ -4,6 +4,7 @@ import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 import { useSettingsStore } from './store/settingsStore';
 import MainLayout from './components/layout/MainLayout';
+import { SocketSync } from './components/common/SocketSync';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import OAuthCallbackPage from './pages/OAuthCallbackPage';
@@ -215,6 +216,7 @@ function App() {
   return (
     <>
       <ForcePasswordChangeModal />
+      <SocketSync />
       <ContextMenuProvider>
         <BrowserRouter>
           <Routes>

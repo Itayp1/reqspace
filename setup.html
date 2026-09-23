@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Postman Clone — First Run Setup</title>
+  <title>reqSpace — First Run Setup</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -114,7 +114,7 @@
 <body>
   <div class="card">
     <div class="logo">🚀</div>
-    <h2>Welcome to Postman Clone</h2>
+    <h2>Welcome to reqSpace</h2>
     <p class="subtitle">First-time setup — choose how to run the application</p>
 
     <!-- Step 1: Choose mode -->
@@ -128,7 +128,7 @@
         <div class="option-card" id="opt-server" onclick="selectMode('server')">
           <div class="option-icon">🌐</div>
           <div class="option-title">Remote Server</div>
-          <div class="option-desc">Connect to an existing Postman Clone server on your network.</div>
+          <div class="option-desc">Connect to an existing reqSpace server on your network.</div>
         </div>
       </div>
 
@@ -152,7 +152,7 @@
   </div>
 
   <script>
-    const { ipcRenderer } = require('electron');
+    const ipcRenderer = { send: (_channel, choice) => window.reqspaceSetup.choose(choice) };
     let selectedMode = 'local';
 
     function selectMode(mode) {

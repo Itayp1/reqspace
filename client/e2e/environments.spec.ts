@@ -5,7 +5,7 @@ test.describe('Environment Management', () => {
     await page.goto('/register');
     const uniqueEmail = `envtest${Date.now()}@example.com`;
     await page.fill('input[type="text"]', 'Env User');
-    await page.fill('input[type="email"]', uniqueEmail);
+    await page.fill('input[placeholder="admin or test@example.com"]', uniqueEmail);
     await page.fill('input[type="password"]', 'password123');
     await page.click('button[type="submit"]');
     await page.waitForURL('/');
@@ -13,35 +13,27 @@ test.describe('Environment Management', () => {
   });
 
   test('Create, edit, and delete an environment', async ({ page }) => {
-    await page.click('button[title="Manage Environments"]');
-    await expect(page.locator('h2:has-text("Manage Environments")')).toBeVisible();
+    // Open the Envs tab in the sidebar
+    await page.getByRole('button', { name: /^envs$/i }).click();
 
-    await page.locator('.fixed button:has(svg.lucide-plus)').first().click();
-    
-    const nameInput = page.locator('input[value="New Environment"]');
-    await nameInput.fill('Staging Env');
+    // Creating an environment goes through a native prompt() dialog, and it
+    // auto-opens as a tab in the editor.
+    page.once('dialog', dialog => dialog.accept('Staging Env'));
+    await page.getByTitle('New Environment').click();
+    const envRow = page.locator('div', { hasText: /^Staging Env$/ }).first();
+    await expect(envRow).toBeVisible();
 
-    const keyInput = page.locator('input[placeholder="New key"]');
-    await keyInput.fill('API_URL');
-    
-    const valueInput = page.locator('input[placeholder="Initial value"]');
-    await valueInput.fill('https://staging.api.com');
-    
-    await page.click('button:has-text("Save")');
-    
-    // Close the modal by clicking the X button (or clicking outside, but let's click X)
-    await page.click('button:has(svg.lucide-x)');
-    
-    await expect(page.locator('h2:has-text("Manage Environments")')).not.toBeVisible();
-    
-    // Open modal again to verify it was saved
-    await page.click('button[title="Manage Environments"]');
-    await expect(page.locator('.fixed :text("Staging Env")').first()).toBeVisible();
-    
-    const envItem = page.locator('.fixed div.group', { hasText: 'Staging Env' }).first();
-    await envItem.hover();
-    await envItem.locator('button.text-red-500').click();
-    
-    await expect(page.locator('.fixed :text("Staging Env")')).not.toBeVisible();
+    // Add a variable in the environment editor tab and save
+    await page.locator('text=+ Add a new variable').click();
+    await page.locator('input[placeholder="New key"]').fill('API_URL');
+    await page.locator('input[placeholder="Initial value"]').fill('https://staging.api.com');
+    await page.getByRole('button', { name: 'Save' }).click();
+
+    // Delete via the row's right-click context menu (native confirm() dialog)
+    page.once('dialog', dialog => dialog.accept());
+    await envRow.click({ button: 'right' });
+    await page.getByText('Delete', { exact: true }).click();
+
+    await expect(page.locator('div', { hasText: /^Staging Env$/ })).toHaveCount(0);
   });
 });

@@ -138,6 +138,9 @@ export const CodeGenModal: React.FC<CodeGenModalProps> = ({ onClose }) => {
     navigator.clipboard.writeText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Clipboard API can be denied (permissions, insecure context) — fail visibly instead of silently
+      console.error('Failed to copy code to clipboard');
     });
   };
 

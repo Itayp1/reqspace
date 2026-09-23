@@ -12,6 +12,7 @@ export interface IEnvironment extends Document {
   workspaceId: mongoose.Types.ObjectId;
   name: string;
   isGlobal: boolean;
+  order?: number;
   variables: IEnvironmentVariable[];
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -34,6 +35,7 @@ const EnvironmentSchema = new Schema<IEnvironment>(
     workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true },
     name: { type: String, required: true, trim: true },
     isGlobal: { type: Boolean, default: false },
+    order: { type: Number, default: 0 },
     variables: { type: [EnvironmentVariableSchema], default: [] },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },

@@ -44,6 +44,7 @@ interface CollectionStore {
 
   // Open/close tree nodes
   toggleCollectionOpen: (id: string) => void;
+  openCollection: (id: string) => void;
 
   // Fetch
   fetchCollectionsData: (workspaceId: string) => Promise<void>;
@@ -88,6 +89,11 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       next.add(id);
     }
     return { openCollectionIds: next };
+  }),
+
+  openCollection: (id: string) => set((state) => {
+    if (state.openCollectionIds.has(id)) return {};
+    return { openCollectionIds: new Set(state.openCollectionIds).add(id) };
   }),
 
   fetchCollectionsData: async (workspaceId: string) => {
@@ -216,6 +222,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const { db } = await import('../db');
     await db.folders.put(res.data);
     set((state) => ({ folders: [...state.folders, res.data] }));
+    get().openCollection(collectionId);
   },
 
   renameFolder: async (id, name) => {
@@ -267,6 +274,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const { db } = await import('../db');
     await db.requests.put(res.data);
     set((state) => ({ requests: [...state.requests, res.data] }));
+    get().openCollection(collectionId);
     return res.data;
   },
 

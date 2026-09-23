@@ -14,7 +14,7 @@ const SNIPPETS = [
   { label: 'Response body contains string', code: 'pm.test("Body matches string", function () {\n    pm.expect(pm.response.text()).to.include("string_you_want_to_search");\n});' },
   { label: 'JSON value check', code: 'pm.test("Your test name", function () {\n    var jsonData = pm.response.json();\n    pm.expect(jsonData.value).to.eql(100);\n});' },
   { label: 'Response time is less than 200ms', code: 'pm.test("Response time is less than 200ms", function () {\n    pm.expect(pm.response.responseTime).to.be.below(200);\n});' },
-  { label: 'Send a request', code: 'pm.sendRequest("https://postman-echo.com/get", function (err, response) {\n    console.log(response.json());\n});' },
+  { label: 'Send a request', code: 'pm.sendRequest("https://reqspace-echo.com/get", function (err, response) {\n    console.log(response.json());\n});' },
 ];
 
 export function ScriptEditor({ value, onChange }: ScriptEditorProps) {

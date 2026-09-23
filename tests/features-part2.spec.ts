@@ -6,10 +6,10 @@ test.describe('Features Part 2: Import & Export', () => {
     const testSuffix = Math.floor(Math.random() * 1000000);
     await page.goto('http://localhost:3005/');
     try {
-      await expect(page.locator('text=Login to Postman Web')).toBeVisible({ timeout: 3000 });
+      await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 3000 });
       await page.locator('text=Register').click();
       await page.fill('input[type="text"]', `Test User ${testSuffix}`);
-      await page.fill('input[type="email"]', `test${testSuffix}@test.com`);
+      await page.fill('input[placeholder="admin or test@example.com"]', `test${testSuffix}@test.com`);
       await page.fill('input[type="password"]', 'password123');
       await page.click('button[type="submit"]');
     } catch {
@@ -68,7 +68,7 @@ Authorization: Bearer mytoken123
 
 {"name": "Alice"}`;
 
-    await page.fill('textarea[placeholder*="Paste your raw HTTP"]', rawHttp);
+    await page.fill('textarea[placeholder*="HTTP/1.1"]', rawHttp);
     await page.click('button:has-text("Import")');
 
     await expect(page.locator('text=POST /api/v1/users')).toBeVisible();
@@ -92,10 +92,13 @@ Authorization: Bearer mytoken123
   });
 
   test('CodeGen (cURL Export)', async ({ page }) => {
+    // Need an open request tab for the URL bar (and its Code Snippet button) to render
+    await page.getByRole('button', { name: 'Create a Request' }).click();
+
     // Open CodeGen
-    await page.locator('button[title="Generate Code"]').click();
+    await page.locator('button[title="Code Snippet"]').click();
     await expect(page.locator('text=Generate Code')).toBeVisible();
-    
+
     // Click copy
     await page.click('button:has-text("Copy")');
     await expect(page.locator('text=Copied!')).toBeVisible();

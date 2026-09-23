@@ -14,7 +14,7 @@ export default function MainLayout() {
     <div className="flex flex-col md:flex-row h-screen bg-background text-text overflow-hidden relative">
       {/* Mobile Header with Hamburger */}
       <div className="md:hidden flex items-center justify-between p-3 bg-surface border-b border-border z-10 shrink-0">
-        <span className="font-bold">Postman Web</span>
+        <span className="font-bold">reqSpace</span>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 text-text-muted hover:text-text">
           {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
         </button>

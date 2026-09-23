@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: postman-web
+  name: reqspace-web
 spec:
   selector:
-    app: postman-web
+    app: reqspace-web
   ports:
   - port: 80
     targetPort: 3000

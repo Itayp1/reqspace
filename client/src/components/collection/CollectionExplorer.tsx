@@ -723,7 +723,7 @@ export const CollectionExplorer: React.FC = () => {
     const colFolders = folders.filter(f => f.collectionId === id);
     const colRequests = requests.filter(r => r.collectionId === id);
 
-    // Build Postman Collection v2.1 format
+    // Build ReqSpace Collection v2.1 format
     const buildItems = (parentFolderId: string | null): any[] => {
       const items: any[] = [];
       // Add sub-folders
@@ -825,13 +825,13 @@ export const CollectionExplorer: React.FC = () => {
       return items;
     };
 
-    const postmanCollection: any = {
-      info: { name: collection.name, schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+    const reqSpaceCollection: any = {
+      info: { name: collection.name, schema: 'https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json' },
       item: buildItems(null),
     };
     
     if (collection.variables && collection.variables.length > 0) {
-      postmanCollection.variable = collection.variables.map(v => ({
+      reqSpaceCollection.variable = collection.variables.map(v => ({
         key: v.key,
         value: v.value || '',
         type: 'string'
@@ -846,14 +846,14 @@ export const CollectionExplorer: React.FC = () => {
       events.push({ listen: 'test', script: { type: 'text/javascript', exec: collection.testScript.split('\n') } });
     }
     if (events.length > 0) {
-      postmanCollection.event = events;
+      reqSpaceCollection.event = events;
     }
 
-    const blob = new Blob([JSON.stringify(postmanCollection, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(reqSpaceCollection, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${name.replace(/\s+/g, '_')}.postman_collection.json`;
+    a.download = `${name.replace(/\s+/g, '_')}.reqSpace_collection.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

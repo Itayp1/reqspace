@@ -42,6 +42,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     members: [{ userId: user._id, role: 'owner', joinedAt: new Date() }],
   });
 
+  const { EnvironmentRepository } = await import('../repositories/EnvironmentRepository');
+  await EnvironmentRepository.upsertGlobal(String(workspace._id), []);
+
   return res.status(201).json(workspace);
 });
 

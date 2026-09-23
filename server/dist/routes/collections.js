@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
@@ -7,6 +40,7 @@ const Collection_1 = require("../models/Collection");
 const Folder_1 = require("../models/Folder");
 const Request_1 = require("../models/Request");
 const AuditLogRepository_1 = require("../repositories/AuditLogRepository");
+const socketUtils_1 = require("../socketUtils");
 const router = (0, express_1.Router)();
 async function checkPermissionByItem(req, res, next, Model, minRole) {
     if (req.user?.isSuperAdmin)
@@ -48,16 +82,19 @@ router.post('/workspaces/:workspaceId/collections', (0, rbac_1.requireWorkspaceR
         order: count,
         createdBy: req.user._id,
     });
+    (0, socketUtils_1.emitToWorkspace)(req.params.workspaceId, 'collection:created', collection);
     return res.status(201).json(collection);
 });
 router.put('/collections/:id', (req, res, next) => checkPermissionByItem(req, res, next, Collection_1.Collection, 'editor'), async (req, res) => {
     const collection = await Collection_1.Collection.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    (0, socketUtils_1.emitToWorkspace)(req.resolvedWorkspaceId, 'collection:updated', collection);
     return res.json(collection);
 });
 router.delete('/collections/:id', (req, res, next) => checkPermissionByItem(req, res, next, Collection_1.Collection, 'editor'), async (req, res) => {
     await Folder_1.Folder.deleteMany({ collectionId: req.params.id });
     await Request_1.Request.deleteMany({ collectionId: req.params.id });
     await Collection_1.Collection.findByIdAndDelete(req.params.id);
+    (0, socketUtils_1.emitToWorkspace)(req.resolvedWorkspaceId, 'collection:deleted', req.params.id);
     return res.json({ message: 'Collection deleted' });
 });
 // ── Folders ──────────────────────────────────────────────────────────────────
@@ -79,18 +116,22 @@ router.post('/collections/:collectionId/folders', async (req, res) => {
         parentFolderId: parentFolderId ?? null,
         name, description, preRequestScript, testScript, order: count,
     });
+    Collection_1.Collection.findById(req.params.collectionId).then(col => { if (col)
+        (0, socketUtils_1.emitToWorkspace)(String(col.workspaceId), 'folder:created', folder); });
     return res.status(201).json(folder);
 });
 router.put('/folders/:id', (req, res, next) => checkPermissionByItem(req, res, next, Folder_1.Folder, 'editor'), async (req, res) => {
     const folder = await Folder_1.Folder.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!folder)
         return res.status(404).json({ message: 'Folder not found' });
+    (0, socketUtils_1.emitToWorkspace)(req.resolvedWorkspaceId, 'folder:updated', folder);
     return res.json(folder);
 });
 router.delete('/folders/:id', (req, res, next) => checkPermissionByItem(req, res, next, Folder_1.Folder, 'editor'), async (req, res) => {
     await Folder_1.Folder.deleteMany({ parentFolderId: req.params.id });
     await Request_1.Request.deleteMany({ folderId: req.params.id });
     await Folder_1.Folder.findByIdAndDelete(req.params.id);
+    (0, socketUtils_1.emitToWorkspace)(req.resolvedWorkspaceId, 'folder:deleted', req.params.id);
     return res.json({ message: 'Folder deleted' });
 });
 // ── Requests ─────────────────────────────────────────────────────────────────
@@ -121,6 +162,8 @@ router.post('/collections/:collectionId/requests', async (req, res) => {
             details: { requestId: request._id, requestName: request.name }
         }).catch(() => { });
     }
+    if (col)
+        (0, socketUtils_1.emitToWorkspace)(String(col.workspaceId), 'request:created', request);
     return res.status(201).json(request);
 });
 router.get('/requests/:id', async (req, res) => {
@@ -133,10 +176,12 @@ router.put('/requests/:id', (req, res, next) => checkPermissionByItem(req, res, 
     const request = await Request_1.Request.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!request)
         return res.status(404).json({ message: 'Request not found' });
+    (0, socketUtils_1.emitToWorkspace)(req.resolvedWorkspaceId, 'request:updated', request);
     return res.json(request);
 });
 router.delete('/requests/:id', (req, res, next) => checkPermissionByItem(req, res, next, Request_1.Request, 'editor'), async (req, res) => {
     await Request_1.Request.findByIdAndDelete(req.params.id);
+    (0, socketUtils_1.emitToWorkspace)(req.resolvedWorkspaceId, 'request:deleted', req.params.id);
     return res.json({ message: 'Request deleted' });
 });
 // ── POST /api/requests/:id/comments ───────────────────────────────────────
@@ -185,7 +230,35 @@ router.put('/reorder', async (req, res) => {
     const Model = ModelMap[type];
     if (!Model)
         return res.status(400).json({ message: 'Invalid type' });
+    if (!items?.length)
+        return res.json({ message: 'Reordered' });
+    // Resolve each item's workspace and confirm the user may edit there —
+    // this route previously had no membership/role check at all.
+    const { getUserWorkspaceRole } = await Promise.resolve().then(() => __importStar(require('../middleware/rbac')));
+    const docs = await Model.find({ _id: { $in: items.map(i => i.id) } }).lean();
+    const workspaceIds = new Set();
+    for (const doc of docs) {
+        let workspaceId = doc.workspaceId ? String(doc.workspaceId) : null;
+        if (!workspaceId && doc.collectionId) {
+            const coll = await Collection_1.Collection.findById(doc.collectionId).lean();
+            workspaceId = coll ? String(coll.workspaceId) : null;
+        }
+        if (!workspaceId)
+            return res.status(400).json({ message: 'Could not resolve workspace for item' });
+        workspaceIds.add(workspaceId);
+    }
+    if (!req.user.isSuperAdmin) {
+        for (const workspaceId of workspaceIds) {
+            const role = await getUserWorkspaceRole(String(req.user._id), workspaceId);
+            if (!role || role === 'viewer') {
+                return res.status(403).json({ message: 'Editor role required in this workspace' });
+            }
+        }
+    }
     await Promise.all(items.map(({ id, order }) => Model.findByIdAndUpdate(id, { order })));
+    for (const workspaceId of workspaceIds) {
+        (0, socketUtils_1.emitToWorkspace)(workspaceId, 'workspace:reordered', undefined);
+    }
     return res.json({ message: 'Reordered' });
 });
 exports.default = router;

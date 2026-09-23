@@ -172,10 +172,10 @@ export function UrlBar() {
       } else if (auth?.type === 'ntlm') {
         // NTLM is complex, for now we will pass it to proxy so the proxy can handle it if it supports it.
         // We set a custom header that the proxy can interpret.
-        reqHeaders['x-postman-ntlm-username'] = auth.ntlm?.username || '';
-        reqHeaders['x-postman-ntlm-password'] = auth.ntlm?.password || '';
-        reqHeaders['x-postman-ntlm-domain'] = auth.ntlm?.domain || '';
-        reqHeaders['x-postman-ntlm-workstation'] = auth.ntlm?.workstation || '';
+        reqHeaders['x-reqspace-ntlm-username'] = auth.ntlm?.username || '';
+        reqHeaders['x-reqspace-ntlm-password'] = auth.ntlm?.password || '';
+        reqHeaders['x-reqspace-ntlm-domain'] = auth.ntlm?.domain || '';
+        reqHeaders['x-reqspace-ntlm-workstation'] = auth.ntlm?.workstation || '';
       }
 
       // Apply request settings
@@ -458,7 +458,7 @@ export function UrlBar() {
       </div>
 
       {/* URL Bar */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+      <div className="flex flex-col md:flex-row md:items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <div className="flex bg-gray-100 dark:bg-gray-900 rounded-md border border-gray-300 dark:border-gray-700 flex-1 overflow-hidden transition-colors focus-within:border-blue-500">
           <select
             className="bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm font-semibold outline-none border-r border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
@@ -500,7 +500,7 @@ export function UrlBar() {
 
         {/* Save Button Group (Only for Editors) */}
         {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || useAuthStore.getState().user?.isSuperAdmin) && (
-          <div className={`flex items-stretch rounded-md border transition-colors focus-within:ring-2 focus-within:ring-gray-200 ${isDirty ? 'border-orange-400' : 'border-gray-300 dark:border-gray-700'}`}>
+          <div className={`flex flex-1 md:flex-none items-stretch rounded-md border transition-colors focus-within:ring-2 focus-within:ring-gray-200 ${isDirty ? 'border-orange-400' : 'border-gray-300 dark:border-gray-700'}`}>
             <button
               onClick={() => handleSaveClick(false)}
               className={`flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium outline-none rounded-l-md ${
@@ -529,7 +529,7 @@ export function UrlBar() {
         )}
 
         {/* Send Button */}
-        <div className="flex gap-1">
+        <div className="flex gap-1 w-full md:w-auto justify-end">
           {isLoading ? (
             <button
               onClick={() => {
@@ -538,7 +538,7 @@ export function UrlBar() {
                   (window as any).__abortController = null;
                 }
               }}
-              className="flex items-center justify-center gap-2 px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+              className="flex flex-1 md:flex-none items-center justify-center gap-2 px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
             >
               <Activity size={16} className="opacity-0" />
               <span>Cancel</span>
@@ -554,7 +554,7 @@ export function UrlBar() {
               </button>
               <button
                 onClick={handleSend}
-                className="flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                className="flex flex-1 md:flex-none items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
               >
                 <Play size={16} />
                 Send

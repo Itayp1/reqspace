@@ -4,7 +4,7 @@ import type { Workspace } from '../store/authStore';
 import type { Collection, Folder, ApiRequest } from '../store/collectionStore';
 import type { Environment } from '../store/environmentStore';
 
-export class PostmanDB extends Dexie {
+export class ReqSpaceDB extends Dexie {
   workspaces!: Table<Workspace, string>;
   collections!: Table<Collection, string>;
   folders!: Table<Folder, string>;
@@ -12,7 +12,7 @@ export class PostmanDB extends Dexie {
   environments!: Table<Environment, string>;
 
   constructor() {
-    super('PostmanWebDB');
+    super('ReqSpaceWebDB');
     this.version(1).stores({
       workspaces: '_id, name',
       collections: '_id, workspaceId, name',
@@ -23,4 +23,4 @@ export class PostmanDB extends Dexie {
   }
 }
 
-export const db = new PostmanDB();
+export const db = new ReqSpaceDB();

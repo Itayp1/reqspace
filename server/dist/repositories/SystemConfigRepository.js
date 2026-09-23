@@ -77,19 +77,31 @@ exports.SystemConfigRepository = {
         return sqlToRecord(c);
     },
     async updateConfig(data) {
+        // Merge rather than replace: a caller that PUTs only { auth: { mode: 'both' } }
+        // must not silently wipe out unrelated fields like allowSelfRegistration.
+        const current = await this.getConfig();
+        if (!current)
+            return null;
+        const merged = {
+            auth: {
+                ...current.auth,
+                ...(data.auth || {}),
+                googleOAuth: { ...current.auth.googleOAuth, ...(data.auth?.googleOAuth || {}) },
+                smtp: { ...current.auth.smtp, ...(data.auth?.smtp || {}) },
+            },
+            history: { ...current.history, ...(data.history || {}) },
+            proxy: { ...current.proxy, ...(data.proxy || {}) },
+        };
         if ((0, connect_1.isMongo)()) {
-            const c = await SystemConfig_1.SystemConfig.findOneAndUpdate({}, data, { new: true, upsert: true }).lean();
+            const c = await SystemConfig_1.SystemConfig.findOneAndUpdate({}, { $set: merged }, { new: true, upsert: true }).lean();
             return c ? mongoToRecord(c) : null;
         }
         const existing = await sql_models_1.SqlSystemConfig.findOne();
         if (!existing)
             return null;
-        if (data.auth)
-            existing.auth = JSON.stringify(data.auth);
-        if (data.history)
-            existing.history = JSON.stringify(data.history);
-        if (data.proxy)
-            existing.proxy = JSON.stringify(data.proxy);
+        existing.auth = JSON.stringify(merged.auth);
+        existing.history = JSON.stringify(merged.history);
+        existing.proxy = JSON.stringify(merged.proxy);
         await existing.save();
         return this.getConfig();
     },

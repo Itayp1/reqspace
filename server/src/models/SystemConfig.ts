@@ -60,8 +60,8 @@ const SystemConfigSchema = new Schema<ISystemConfig>({
     }
   },
   history: {
-    maxRequestBodyKB: { type: Number, default: 5120 }, // 5MB
-    maxTotalPerUserMB: { type: Number, default: 100 },
+    maxRequestBodyKB: { type: Number, default: 300 }, // 5MB
+    maxTotalPerUserMB: { type: Number, default: 5 },
     cleanupPolicy: { type: String, enum: ['fifo'], default: 'fifo' },
   },
   proxy: {
@@ -88,8 +88,8 @@ export async function ensureSystemConfig() {
         jwtRefreshHoursBeforeExpiry: 24,
       },
       history: {
-        maxRequestBodyKB: 5120,
-        maxTotalPerUserMB: 100,
+        maxRequestBodyKB: 300,
+        maxTotalPerUserMB: 5,
         cleanupPolicy: 'fifo',
       },
       proxy: {

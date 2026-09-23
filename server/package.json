@@ -1,7 +1,7 @@
 {
-  "name": "postman-web-server",
+  "name": "reqspace-web-server",
   "version": "1.0.0",
-  "description": "Postman Web - Node.js Backend",
+  "description": "reqSpace - Node.js Backend",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

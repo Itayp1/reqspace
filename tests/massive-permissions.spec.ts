@@ -26,7 +26,7 @@ test.describe('Massive Permissions & UX Efficiency Suite', () => {
         });
         
         // Variation 3: Performance/Zero-Lag Check
-        test(`Switching to ${method} request for ${role} is instantaneous (Zero Lag)`, async () => {
+        test(`Switching to ${method} request for ${role} is instantaneous (Zero Lag) [${action}]`, async () => {
            // We measure UI render time < 50ms for instantaneous switch
            const start = Date.now();
            // simulate click

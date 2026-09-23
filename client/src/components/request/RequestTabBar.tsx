@@ -1,10 +1,29 @@
 import React, { useState, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useRequestStore } from '../../store/requestStore';
 import { Plus, X, Settings } from 'lucide-react';
 
 export const RequestTabBar: React.FC = () => {
-  const { tabs, activeTabId, selectTab, closeTab, newTab, closeAllToRight, closeAllToLeft, closeOtherTabs } = useRequestStore();
+  // Selector + shallow compare: this bar only needs the tab list/active id
+  // and stable action refs — without this it re-renders on every keystroke
+  // typed anywhere in the request editor (URL, headers, body, scripts...),
+  // since those all flow through the same store's activeRequest/tabs fields.
+  const { tabs, activeTabId, selectTab, closeTab, newTab, closeAllToRight, closeAllToLeft, closeOtherTabs, reorderTabs } = useRequestStore(
+    useShallow((state) => ({
+      tabs: state.tabs,
+      activeTabId: state.activeTabId,
+      selectTab: state.selectTab,
+      closeTab: state.closeTab,
+      newTab: state.newTab,
+      closeAllToRight: state.closeAllToRight,
+      closeAllToLeft: state.closeAllToLeft,
+      closeOtherTabs: state.closeOtherTabs,
+      reorderTabs: state.reorderTabs,
+    }))
+  );
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, tabId: string } | null>(null);
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<{ id: string, pos: 'before'|'after' } | null>(null);
 
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
@@ -21,6 +40,41 @@ export const RequestTabBar: React.FC = () => {
       case 'PATCH': return 'text-purple-400';
       default: return 'text-gray-400';
     }
+  };
+
+  
+  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    e.dataTransfer.setData('text/plain', tabId);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedTabId(tabId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault();
+    if (tabId === draggedTabId) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pos = x < rect.width / 2 ? 'before' : 'after';
+    
+    setDragOverTabId({ id: tabId, pos });
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTabId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedTabId || draggedTabId === targetId || !dragOverTabId) {
+      setDraggedTabId(null);
+      setDragOverTabId(null);
+      return;
+    }
+    
+    reorderTabs(draggedTabId, targetId, dragOverTabId.pos);
+    setDraggedTabId(null);
+    setDragOverTabId(null);
   };
 
   const handleClose = (e: React.MouseEvent, tab: any) => {
@@ -42,6 +96,11 @@ export const RequestTabBar: React.FC = () => {
           return (
             <div
               key={tab.tabId}
+                draggable
+                onDragStart={(e) => handleDragStart(e, tab.tabId!)}
+                onDragOver={(e) => handleDragOver(e, tab.tabId!)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, tab.tabId!)}
               onAuxClick={(e) => {
                  if (e.button === 1) handleClose(e, tab);
               }}

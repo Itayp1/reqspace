@@ -1,4 +1,4 @@
-# Postman Clone - Testing Guide
+# reqSpace - Testing Guide
 
 This project contains a comprehensive automated test suite utilizing [Playwright](https://playwright.dev/). The suite is designed to cover the entire feature set, including role-based access control (RBAC), UI stability, authentication mechanisms, and core workflows.
 
@@ -10,7 +10,7 @@ npm run build --prefix client
 npm run build --prefix server
 
 # Start the application
-pm2 restart postman-clone
+pm2 restart reqspace
 # OR node server/dist/index.js
 ```
 
@@ -30,7 +30,7 @@ You can run specific test files if you are only working on a particular componen
   ```
 - **Core E2E User Journey:**
   ```bash
-  npx playwright test tests/postman.spec.ts
+  npx playwright test tests/reqspace.spec.ts
   ```
 - **Specific Feature Segments:**
   ```bash
@@ -45,7 +45,7 @@ If the code changes in the future, you may need to update the corresponding test
 1. **`comprehensive-permissions.spec.ts`**
    - **What it covers:** The full Role matrix (`viewer`, `runner`, `tester`, `editor`, `admin`, `owner`) cross-multiplied by all Actions (`create_collection`, `edit_request`, `run_request`, `delete_workspace`, etc.). Also covers UI zoom/resize stability tests and the `UID` Header Auth flow.
    - **When to update:** If you add a new role, modify minimum permission levels for actions, or change the authentication `uid` header logic.
-2. **`postman.spec.ts`**
+2. **`reqspace.spec.ts`**
    - **What it covers:** The main E2E flow (Register -> Create Workspace -> Create Collection -> Add Request -> Send Request -> View Response).
    - **When to update:** If the main user journey changes, or if critical DOM elements (like the New Request button) are renamed or restructured.
 3. **`features-part[1-5].spec.ts`**

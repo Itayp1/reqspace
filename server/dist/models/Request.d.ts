@@ -8,6 +8,9 @@ export interface IKeyValueItem {
     value: string;
     description?: string;
     enabled: boolean;
+    type?: 'text' | 'file';
+    fileName?: string;
+    fileData?: string;
 }
 export interface IRequestAuth {
     type: AuthType;

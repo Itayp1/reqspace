@@ -1,16 +1,16 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: postman-web-ingress
+  name: reqspace-web-ingress
 spec:
   rules:
-  - host: postman.local
+  - host: reqspace.local
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: postman-web
+            name: reqspace-web
             port:
               number: 80

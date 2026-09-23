@@ -4,7 +4,7 @@ const fs = require('fs');
 const json = {
   "info": {
     "name": "TESTS",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "schema": "https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {

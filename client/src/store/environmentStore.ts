@@ -22,6 +22,7 @@ interface EnvironmentStore {
   setEnvironments: (envs: Environment[]) => void;
   setActiveEnvironmentId: (id: string | null) => void;
   setGlobalEnvironment: (env: Environment | null) => void;
+  fetchEnvironments: (workspaceId: string) => Promise<void>;
 }
 
 export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
@@ -31,4 +32,13 @@ export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
   setEnvironments: (environments) => set({ environments }),
   setActiveEnvironmentId: (activeEnvironmentId) => set({ activeEnvironmentId }),
   setGlobalEnvironment: (globalEnvironment) => set({ globalEnvironment }),
+  fetchEnvironments: async (workspaceId: string) => {
+    try {
+      const api = (await import('../api/axios')).default;
+      const res = await api.get(`/workspaces/${workspaceId}/environments`);
+      const globals = res.data.filter((e: any) => e.isGlobal);
+      const locals = res.data.filter((e: any) => !e.isGlobal);
+      set({ globalEnvironment: globals.length > 0 ? globals[0] : null, environments: locals });
+    } catch(err) {}
+  },
 }));

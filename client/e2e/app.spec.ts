@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Postman Clone E2E', () => {
+test.describe('reqSpace E2E', () => {
   const testId = Date.now();
   const testUser = {
     name: `User ${testId}`,
@@ -13,13 +13,13 @@ test.describe('Postman Clone E2E', () => {
     // 1. Register
     await page.goto('/register');
     await page.fill('input[type="text"]', testUser.name);
-    await page.fill('input[type="email"]', testUser.email);
+    await page.fill('input[placeholder="admin or test@example.com"]', testUser.email);
     await page.fill('input[type="password"]', testUser.password);
     await page.click('button[type="submit"]');
 
     // Should redirect to main app screen (URL /)
     await page.waitForURL('**/');
-    await expect(page.locator('text=Postman Web')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Collections' })).toBeVisible();
 
     // 2. Workspace check
     // Wait for workspace selector to have the auto-created workspace
@@ -88,7 +88,7 @@ test.describe('Postman Clone E2E', () => {
     // 8. Test cURL Import
     await page.click('button[title="Import"]');
     await page.click('button:has-text("cURL")');
-    await page.fill('textarea', 'curl -X GET "https://api.github.com/zen"');
+    await page.fill('textarea[placeholder*="curl -X GET"]', 'curl -X GET "https://api.github.com/zen"');
     await page.click('button:has-text("Import")');
     
     // Verify it closed and set the URL in the editor

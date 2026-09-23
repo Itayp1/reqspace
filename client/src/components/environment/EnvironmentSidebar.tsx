@@ -10,7 +10,7 @@ import { CopyToWorkspaceModal } from '../collection/CopyToWorkspaceModal';
 
 export default function EnvironmentSidebar() {
   const { environments, globalEnvironment, setEnvironments } = useEnvironmentStore();
-  const { openEnvironmentTab } = useRequestStore();
+  const { openEnvironmentTab, closeEnvironmentTab } = useRequestStore();
   const { activeWorkspace } = useAuthStore();
   const { showContextMenu } = useContextMenu();
   const [copyEnv, setCopyEnv] = useState<{ id: string, name: string } | null>(null);
@@ -45,6 +45,7 @@ export default function EnvironmentSidebar() {
     try {
       await api.delete(`/environments/${id}`);
       setEnvironments(environments.filter(e => e._id !== id));
+      closeEnvironmentTab(id);
     } catch (e) {
       console.error(e);
     }

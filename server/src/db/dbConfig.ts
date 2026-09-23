@@ -65,7 +65,7 @@ export function getDbConfig(): DbConfig {
         process.env.MONGODB_URI ||
         process.env.MONGO_URI ||
         fileConfig.connectionString ||
-        'mongodb://localhost:27017/postman-web',
+        'mongodb://localhost:27017/reqspace-web',
     };
   }
 

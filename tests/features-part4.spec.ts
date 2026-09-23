@@ -5,10 +5,10 @@ test.describe('Features Part 4: UI, Scripts & Advanced', () => {
     const testSuffix = Math.floor(Math.random() * 1000000);
     await page.goto('http://localhost:3005/');
     try {
-      await expect(page.locator('text=Login to Postman Web')).toBeVisible({ timeout: 3000 });
+      await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 3000 });
       await page.locator('text=Register').click();
       await page.fill('input[type="text"]', `Test User ${testSuffix}`);
-      await page.fill('input[type="email"]', `test${testSuffix}@test.com`);
+      await page.fill('input[placeholder="admin or test@example.com"]', `test${testSuffix}@test.com`);
       await page.fill('input[type="password"]', 'password123');
       await page.click('button[type="submit"]');
     } catch {
@@ -22,12 +22,13 @@ test.describe('Features Part 4: UI, Scripts & Advanced', () => {
     await page.fill('input[placeholder="Enter collection name:"]', 'Vars Collection');
     await page.click('button:has-text("Save")');
 
-    // Right click and Edit Variables
+    // Right click and Edit -> Variables tab (default tab for collections)
     await page.click('text=Vars Collection', { button: 'right' });
-    await page.click('text=Variables');
-    
-    await expect(page.locator('text=Collection Variables')).toBeVisible();
-    await page.click('button:has-text("Close")');
+    await page.click('text=Edit');
+
+    await expect(page.locator('text=Edit Collection')).toBeVisible();
+    await expect(page.locator('text=+ Add a new variable')).toBeVisible();
+    await page.click('button:has-text("Cancel")');
   });
 
   test('Collection Scripts (Feature 85, 86)', async ({ page }) => {
@@ -68,10 +69,10 @@ test.describe('Features Part 4: UI, Scripts & Advanced', () => {
 
     // Go to Body
     await page.click('button:has-text("Body")');
-    await page.click('button:has-text("raw")');
+    await page.click('label:has-text("raw")'); // body mode is a radio group, not buttons
 
     // Beautify button
-    await expect(page.locator('button[title="Beautify JSON"]')).toBeVisible();
+    await expect(page.locator('button[title*="Beautify"]')).toBeVisible();
   });
 
   test('Visual Payload & Save Response (Features 78, 80)', async ({ page }) => {
@@ -91,7 +92,7 @@ test.describe('Features Part 4: UI, Scripts & Advanced', () => {
 
     // Save Response button is usually shown when a response arrives, but we know the feature is there.
     // Instead we can just send a dummy request and see it.
-    await page.fill('input[placeholder="Enter request URL"]', 'https://postman-echo.com/get');
+    await page.fill('input[placeholder="Enter request URL"]', 'https://httpbin.org/get');
     await page.click('button:has-text("Send")');
 
     // Wait for response status 200 OK

@@ -1,4 +1,4 @@
-# Agent Guidelines for Postman Project
+# Agent Guidelines for ReqSpace Project
 
 ## Background Tasks & Terminals
 - **NEVER** leave background tasks, development servers (`npm run dev`), or test runners executing indefinitely after you have finished your active goal.

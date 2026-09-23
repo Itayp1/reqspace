@@ -9,6 +9,7 @@ import mongoose from 'mongoose';
 
 import { NextFunction } from "express";
 import { UserRole } from "../models/User";
+import { emitToWorkspace } from '../socketUtils';
 const router = Router();
 
 async function checkPermissionByItem(req: AuthRequest, res: Response, next: NextFunction, Model: any, minRole: UserRole) {
@@ -53,12 +54,14 @@ router.post('/workspaces/:workspaceId/collections',
       order: count,
       createdBy: req.user!._id,
     });
+    emitToWorkspace(req.params.workspaceId, 'collection:created', collection);
     return res.status(201).json(collection);
   }
 );
 
 router.put('/collections/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'), async (req: AuthRequest, res: Response) => {
     const collection = await Collection.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
     return res.json(collection);
   }
 );
@@ -67,6 +70,7 @@ router.delete('/collections/:id', (req: AuthRequest, res: Response, next: NextFu
     await Folder.deleteMany({ collectionId: req.params.id });
     await ApiRequest.deleteMany({ collectionId: req.params.id });
     await Collection.findByIdAndDelete(req.params.id);
+    emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:deleted', req.params.id);
     return res.json({ message: 'Collection deleted' });
   }
 );
@@ -94,21 +98,24 @@ router.post('/collections/:collectionId/folders',
       parentFolderId: parentFolderId ?? null,
       name, description, preRequestScript, testScript, order: count,
     });
-    return res.status(201).json(folder);
+    Collection.findById(req.params.collectionId).then(col => { if (col) emitToWorkspace(String(col.workspaceId), 'folder:created', folder); });
+      return res.status(201).json(folder);
   }
 );
 
 router.put('/folders/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Folder, 'editor'), async (req: AuthRequest, res: Response) => {
   const folder = await Folder.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
-  return res.json(folder);
+    emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
+    return res.json(folder);
 });
 
 router.delete('/folders/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Folder, 'editor'), async (req: AuthRequest, res: Response) => {
   await Folder.deleteMany({ parentFolderId: req.params.id });
   await ApiRequest.deleteMany({ folderId: req.params.id });
   await Folder.findByIdAndDelete(req.params.id);
-  return res.json({ message: 'Folder deleted' });
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:deleted', req.params.id);
+    return res.json({ message: 'Folder deleted' });
 });
 
 // ── Requests ─────────────────────────────────────────────────────────────────
@@ -146,25 +153,28 @@ router.post('/collections/:collectionId/requests',
       }).catch(() => {});
     }
 
-    return res.status(201).json(request);
+    if (col) emitToWorkspace(String(col.workspaceId), 'request:created', request);
+      return res.status(201).json(request);
   }
 );
 
 router.get('/requests/:id', async (req: AuthRequest, res: Response) => {
   const request = await ApiRequest.findById(req.params.id).lean();
   if (!request) return res.status(404).json({ message: 'Request not found' });
-  return res.json(request);
+    return res.json(request);
 });
 
 router.put('/requests/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'editor'), async (req: AuthRequest, res: Response) => {
   const request = await ApiRequest.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!request) return res.status(404).json({ message: 'Request not found' });
-  return res.json(request);
+    emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
+    return res.json(request);
 });
 
 router.delete('/requests/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'editor'), async (req: AuthRequest, res: Response) => {
   await ApiRequest.findByIdAndDelete(req.params.id);
-  return res.json({ message: 'Request deleted' });
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'request:deleted', req.params.id);
+    return res.json({ message: 'Request deleted' });
 });
 
 // ── POST /api/requests/:id/comments ───────────────────────────────────────
@@ -218,10 +228,38 @@ router.put('/reorder', async (req: AuthRequest, res: Response) => {
   };
   const Model = ModelMap[type] as mongoose.Model<any>;
   if (!Model) return res.status(400).json({ message: 'Invalid type' });
+  if (!items?.length) return res.json({ message: 'Reordered' });
+
+  // Resolve each item's workspace and confirm the user may edit there —
+  // this route previously had no membership/role check at all.
+  const { getUserWorkspaceRole } = await import('../middleware/rbac');
+  const docs = await Model.find({ _id: { $in: items.map(i => i.id) } }).lean();
+  const workspaceIds = new Set<string>();
+  for (const doc of docs as any[]) {
+    let workspaceId = doc.workspaceId ? String(doc.workspaceId) : null;
+    if (!workspaceId && doc.collectionId) {
+      const coll = await Collection.findById(doc.collectionId).lean();
+      workspaceId = coll ? String((coll as any).workspaceId) : null;
+    }
+    if (!workspaceId) return res.status(400).json({ message: 'Could not resolve workspace for item' });
+    workspaceIds.add(workspaceId);
+  }
+
+  if (!req.user!.isSuperAdmin) {
+    for (const workspaceId of workspaceIds) {
+      const role = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
+      if (!role || role === 'viewer') {
+        return res.status(403).json({ message: 'Editor role required in this workspace' });
+      }
+    }
+  }
 
   await Promise.all(
     items.map(({ id, order }) => Model.findByIdAndUpdate(id, { order }))
   );
+  for (const workspaceId of workspaceIds) {
+    emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
+  }
   return res.json({ message: 'Reordered' });
 });
 
