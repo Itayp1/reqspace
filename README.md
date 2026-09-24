@@ -138,7 +138,7 @@ The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ socket
 
 1. **Database Indexing (in place):** Sequelize models under `server/src/db/sql-models/` declare indexes on `workspaceId`, `collectionId`, and `folderId`, plus compound indexes on `order` / `parentFolderId`. Sequelize emits the dialect-specific `CREATE INDEX` on sync for PostgreSQL, MySQL, SQLite, and MSSQL.
 2. **Lazy loading and pagination (not started):** List endpoints still return whole trees. Cursor pagination and expand-to-load are not implemented.
-3. **Realtime sync (full refetch):** `SocketSync` refetches the workspace tree on structural events and on window focus. Granular `request:updated`-style store patches are not implemented. The socket URL is `api.defaults.baseURL` with `/api` stripped, which breaks if that base URL is versioned (`/api/v1`).
+3. **Realtime sync applies the event payload.** `SocketSync` writes the received collection, folder, request, environment, or reorder list into the store. It loads the full tree only when the socket connects. The socket origin is `VITE_SOCKET_URL`, or the page origin when that variable is unset.
 4. **RBAC and config caching (not started):** Membership and system config are read from the database on the request path. There is no Redis or in-memory cache.
 5. **Horizontal WebSockets (not started):** There is no Redis adapter. `k8s/deployment.yaml` sets `replicas: 2` and an HPA with no sticky sessions, so a second replica cannot share Socket.io rooms. Single-node `io.to(room).emit` is what runs today.
 
@@ -343,10 +343,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * ⚠️ **Prerequisite:** both realtime defects in Stage 0 (now fixed).
   * **Also needs:** sticky sessions on the Ingress (k8s currently runs `replicas: 2` + HPA **without** them), and the shared rate-limit store from `CR#8`.
 
-* [ ] **Granular delta updates instead of full refetch** — `CR#22`
-  * **Where:** `client/src/components/common/SocketSync.tsx`
-  * **Why:** every structural event — and every window focus — triggers `fetchCollectionsData` for the entire workspace tree. At 400k workspaces this dominates load far more than the adapter does. The socket URL is also derived via `api.defaults.baseURL?.replace('/api', '')`, which breaks on a versioned base URL such as `http://host/api/v1`.
-  * **Do:** apply the received document to the store directly; derive the socket URL from an explicit config value.
+* [x] **Granular delta updates instead of full refetch** — `CR#22`
+  * ✅ **Done:** `SocketSync` upserts or removes the document carried by `collection:*`, `folder:*`, `request:*`, and `environment:*`. Reorder events carry `{ type, items }` or `{ items }` and only those `order` fields change. Window focus no longer refetches the tree. A full load still runs once on socket connect, to cover time spent offline. The socket origin is `VITE_SOCKET_URL` when set, otherwise `window.location.origin` — it is not derived by stripping `/api` from the axios base URL.
 
 * [x] **Foreign-key indexes are documented but not enforced**
   * ✅ **Done:** `indexes` added to the Sequelize models under `server/src/db/sql-models/` for `workspaceId`, `collectionId`, `folderId` plus compound indexes on `order`/`parentFolderId` (and history `userId+workspaceId`, audit `targetId`).

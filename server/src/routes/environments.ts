@@ -71,7 +71,7 @@ router.put('/environments/reorder', async (req: AuthRequest, res: Response) => {
   for (const item of items) {
     await EnvironmentRepository.update(item.id, { order: item.order });
   }
-  emitToWorkspace(workspaceId, 'environment:updated', undefined);
+  emitToWorkspace(workspaceId, 'environment:updated', { items });
   return res.json({ success: true });
 });
 

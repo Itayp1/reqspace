@@ -297,7 +297,7 @@ router.put('/reorder', async (req: AuthRequest, res: Response) => {
 
   await Promise.all(items.map(({ id, order }) => (repo as any).update(id, { order })));
   for (const workspaceId of workspaceIds) {
-    emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
+    emitToWorkspace(workspaceId, 'workspace:reordered', { type, items });
   }
   return res.json({ message: 'Reordered' });
 });
