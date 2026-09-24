@@ -48,5 +48,16 @@ export default async function globalSetup() {
     throw new Error(`global-setup: forced change-password call failed (${changeRes.status})`);
   }
 
-  console.log(`global-setup: superadmin reset and walked through the forced first-login password change.`);
+  // Self-registration now defaults to closed (CR#24); the suite's helpers
+  // register throwaway users, so enable it as the admin once up front.
+  const enableRes = await fetch(`${BASE}/api/admin/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify({ auth: { allowSelfRegistration: true } }),
+  });
+  if (!enableRes.ok) {
+    throw new Error(`global-setup: failed to enable self-registration for the test suite (${enableRes.status})`);
+  }
+
+  console.log(`global-setup: superadmin reset, forced password change done, self-registration enabled for tests.`);
 }

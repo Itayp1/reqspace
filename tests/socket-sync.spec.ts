@@ -29,7 +29,14 @@ import { test, expect } from '@playwright/test';
 // 19. Warning dialog appears on Ctrl+S for conflicted Environments (Overwrite / Save as New)
 
 test.describe('Socket Live Sync & Real-time Collaboration', () => {
-  test('Unnecessary socket emissions are suppressed when only one user is in the workspace', async ({ browser }) => {
+  // NOTE: the previous "emissions are suppressed when alone" assertion was
+  // removed. That local `room.size > 1` suppression is exactly the bug that
+  // breaks a Redis adapter across replicas (each node sees size 1), so the fix
+  // always emits and lets the client dedupe via optimistic updates. This test
+  // now only asserts the important guarantee: a peer in the room receives the
+  // broadcast. Fine-grained `:updated`/`:deleted` delivery is covered at the
+  // API level in socket-realtime.spec.ts.
+  test('a peer connected to the same workspace receives collection broadcasts', async ({ browser }) => {
     test.setTimeout(60000);
     const suffix = `${Date.now()}`.slice(-9);
     const context = await browser.newContext();
@@ -51,17 +58,7 @@ test.describe('Socket Live Sync & Real-time Collaboration', () => {
     await expect(page.getByRole('button', { name: 'Collections' })).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(1500); // let the socket connect and join the workspace room
 
-    // ── Alone in the workspace: the server must not broadcast ────────────────
-    frames.length = 0;
-    await page.locator('button[title="New Collection"]').click();
-    await page.fill('input[placeholder="Enter collection name:"]', 'Solo Collection');
-    await page.click('button:has-text("Save")');
-    await expect(page.locator('text=Solo Collection')).toBeVisible();
-    await page.waitForTimeout(1500);
-
-    expect(frames.filter(f => f.includes('collection:created'))).toHaveLength(0);
-
-    // ── Second client in the same workspace: broadcasts resume ───────────────
+    // ── Second client in the same workspace: broadcasts are delivered ────────
     const page2 = await context.newPage();
     await page2.goto('http://localhost:3005/');
     await expect(page2.getByRole('button', { name: 'Collections' })).toBeVisible({ timeout: 10000 });
