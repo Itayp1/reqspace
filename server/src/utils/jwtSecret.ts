@@ -8,10 +8,23 @@ const SECRET_FILE = path.resolve(__dirname, '../../.jwt-secret.local');
 
 const KNOWN_INSECURE_VALUES = new Set([
   'changeme',
+  'change_me_in_production',
   'change_me_in_production_very_long_secret_key',
+  'secret',
+  'jwt_secret',
+  'your-secret-key',
 ]);
 
+// Below this length a brute-force / dictionary attack against HS256 becomes
+// realistic. Only enforced in production — local dev can use a short one.
+const MIN_SECRET_LENGTH = 32;
+
 let cached: string | null = null;
+
+/** Test-only: clears the memoised secret so a fresh env var takes effect. */
+export function _resetJwtSecretCacheForTests(): void {
+  cached = null;
+}
 
 /**
  * Resolves the JWT signing secret. A real JWT_SECRET in .env always wins.
@@ -25,7 +38,25 @@ export function resolveJwtSecret(): string {
   if (cached) return cached;
 
   const fromEnv = process.env.JWT_SECRET;
-  if (fromEnv && !KNOWN_INSECURE_VALUES.has(fromEnv)) {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (fromEnv) {
+    // A known placeholder is never acceptable, in any environment — it is
+    // published in this repo's history (and in k8s/secret.yaml), so anyone
+    // can forge a session for any user, superadmin included, the moment a
+    // deployment is left on it.
+    if (KNOWN_INSECURE_VALUES.has(fromEnv)) {
+      throw new Error(
+        `JWT_SECRET is set to a known placeholder value ("${fromEnv}"). ` +
+        'Generate a real one: openssl rand -hex 32',
+      );
+    }
+    if (isProd && fromEnv.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        `JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters in production (got ${fromEnv.length}). ` +
+        'Generate a real one: openssl rand -hex 32',
+      );
+    }
     cached = fromEnv;
     return cached;
   }
@@ -34,7 +65,7 @@ export function resolveJwtSecret(): string {
   // different key, so sessions break behind a load balancer and tokens can't be
   // validated across nodes (CR#6). Refuse to boot without a real shared secret,
   // unless a single-node deployment explicitly opts in.
-  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_EPHEMERAL_JWT_SECRET !== 'true') {
+  if (isProd && process.env.ALLOW_EPHEMERAL_JWT_SECRET !== 'true') {
     throw new Error(
       'JWT_SECRET must be set to a strong, shared value in production. ' +
       'Set JWT_SECRET (same value on every replica), or set ALLOW_EPHEMERAL_JWT_SECRET=true for a deliberate single-node deployment.',
