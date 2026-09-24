@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
@@ -179,10 +180,33 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
   return res.json({ message: 'Password changed successfully' });
 });
 
+// ── GET /api/auth/google/state ──────────────────────────────────────────────
+// Issues the OAuth `state` in an httpOnly cookie. The client must send that
+// same value to Google and back on the callback so a forged callback cannot
+// complete a login the browser did not start (CR#4).
+router.get('/google/state', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(16).toString('hex');
+  res.cookie('oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 10 * 60 * 1000,
+  });
+  return res.json({ state });
+});
+
 // ── POST /api/auth/google ───────────────────────────────────────────────────
 router.post('/google', loginLimiter, async (req: Request, res: Response) => {
-  const { code, redirectUri } = req.body;
+  const { code, redirectUri, state } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
+
+  const expected = req.cookies?.oauth_state;
+  const provided = typeof state === 'string' ? state : '';
+  const stateOk = expected && provided.length === expected.length
+    && crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  res.clearCookie('oauth_state', { path: '/' });
+  if (!stateOk) return res.status(400).json({ message: 'Invalid OAuth state' });
 
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth.googleOAuth;

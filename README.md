@@ -290,10 +290,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Share-proxy is an open proxy for anonymous users** — `CR#3`
   * ✅ **Done:** `POST /api/share/:shortId/proxy` only forwards a URL whose origin and path match a request in the shared collection, rejects `localProxy`, and is rate-limited (30/min per IP). `GET /api/share/:shortId` drops variables, scripts, auth, and credential headers. New links use a 128-bit `shortId`.
 
-* [ ] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
-  * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error.
-  * **Where:** `POST /api/auth/google` in `server/src/routes/auth.ts` (+ the client callback page)
-  * **Do:** issue a random `state` in a cookie and verify it on callback (needs a matching client change).
+* [x] **OAuth: add `state`/CSRF** — `CR#4`
+  * ✅ **Done:** `redirect_uri` is allowlisted (`GOOGLE_ALLOWED_REDIRECT_URIS`) and token errors are not echoed. `GET /api/auth/google/state` sets an httpOnly `oauth_state` cookie; login and register send that value to Google, and `POST /api/auth/google` rejects a callback whose `state` does not match the cookie.
 
 * [x] **Default admin credentials, shared JWT secret, insecure TLS** — `CR#6`
   * ✅ **Done:** production refuses to bootstrap `admin`/`admin`; `jwtSecret.ts` refuses a per-pod ephemeral secret in production (require `JWT_SECRET`, opt out with `ALLOW_EPHEMERAL_JWT_SECRET`); Mongo `tlsInsecure` is opt-in via `MONGO_TLS_INSECURE`. (Populating a real value in `k8s/secret.yaml` remains a deploy-time action.)
@@ -328,9 +326,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * ✅ **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`) and correct client-error statuses (413) are in place in `server/src/index.ts`.
   * **Do:** cap the proxy response size and client-supplied timeout, add a CSP, rate-limit `POST /api/proxy`, and move the in-memory rate limiter to a shared store (alongside the Redis work) so it holds across replicas.
 
-* [ ] **SSRF: gaps in coverage** — `CR#25` (parser + proxy protocol check done)
-  * ✅ **Done:** `ssrf.ts` now blocks NAT64 (`64:ff9b:`), IPv4-mapped forms, integer/hex/octal literals (`0x7f000001`) and trailing-dot hosts (offline unit tests in `server/src/tests/ssrf.test.ts`); `proxy.ts` asserts `http:`/`https:` before dispatching.
-  * **Do:** make `server/src/routes/capture.ts` forward via `createSafeLookup` instead of the global `fetch` (currently only a pre-flight `assertSsrfSafe`, which is TOCTOU / DNS-rebind vulnerable); add a test that a redirect to a private host is refused.
+* [x] **SSRF: gaps in coverage** — `CR#25`
+  * ✅ **Done:** `ssrf.ts` blocks NAT64, IPv4-mapped forms, integer/hex/octal literals, and trailing-dot hosts. `proxy.ts` asserts `http:`/`https:` before dispatching. `capture.ts` forwards with undici and `createSafeLookup` (no global `fetch`, redirects are manual). `assertRedirectTargetSafe` refuses a `Location` that points at a private host; covered in `server/src/tests/ssrf.test.ts`.
 
 * [ ] **Secrets persisted to `localStorage`** — `CR#21`
   * **Where:** `client/src/store/requestStore.ts` (persists all tabs including `auth.bearer.token`, basic passwords, bodies), `client/src/store/cookieStore.ts` (also ships a dummy `sess_default_123`), `client/src/store/settingsStore.ts` (local proxy password)
