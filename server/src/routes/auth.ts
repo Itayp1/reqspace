@@ -7,6 +7,9 @@ import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
+import { publicCertificates } from '../utils/secretBox';
+import { isMongo } from '../db/connect';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
@@ -138,7 +141,7 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
     settings: user.settings,
-    clientCertificates: user.clientCertificates,
+    clientCertificates: publicCertificates(user.clientCertificates),
     authType: user.authType,
   });
 });
@@ -322,16 +325,16 @@ router.post('/certificates', authenticate, async (req: AuthRequest, res: Respons
   
   try {
     const newCert = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: isMongo() ? new mongoose.Types.ObjectId().toString() : uuidv4(),
       hostname,
       cert,
       key,
       passphrase,
-      createdAt: new Date()
+      createdAt: new Date(),
     };
     const updatedCerts = [...(user.clientCertificates || []), newCert];
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.status(201).json(updatedUser!.clientCertificates);
+    return res.status(201).json(publicCertificates(updatedUser!.clientCertificates));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
@@ -343,7 +346,7 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
   try {
     const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.json(updatedUser!.clientCertificates);
+    return res.json(publicCertificates(updatedUser!.clientCertificates));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }

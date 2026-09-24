@@ -333,9 +333,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Information disclosure and open registration** — `CR#24`
   * ✅ **Done:** `allowSelfRegistration` now defaults to **false**, and `GET /api/health` masks the raw `dbError` in production.
 
-* [ ] **Client certificates stored in plaintext** — *P3*
-  * **Where:** client-certificate records in the DB hold private keys as clear text
-  * **Do:** encrypt at rest with a server-held key, or store a reference and keep the material out of the DB.
+* [x] **Client certificates stored in plaintext** — *P3*
+  * ✅ **Done:** `UserRepository` seals `cert`, `key`, and `passphrase` with AES-256-GCM (`server/src/utils/secretBox.ts`) before write and opens them only in process. The key is `CERT_ENCRYPTION_KEY` (64 hex chars) or a SHA-256 of `JWT_SECRET`. `GET /api/auth/me` and the certificate routes return hostname and id only. Covered by `server/src/tests/secretBox.test.ts`. Legacy plaintext rows still decrypt.
 
 ### 🔵 Stage 3 — Scale (blocked on Stage 0)
 

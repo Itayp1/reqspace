@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import { isMongo } from '../db/connect';
 import { escapeRegex } from '../utils/escapeRegex';
+import { openCertificates, sealCertificates } from '../utils/secretBox';
 import { User, IUser } from '../models/User';
 import { SqlUser } from '../db/sql-models';
 import bcrypt from 'bcryptjs';
@@ -37,7 +38,7 @@ function sqlToRecord(u: SqlUser): IUserRecord {
     status: u.status,
     avatar: u.avatar,
     settings: typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings,
-      clientCertificates: typeof u.clientCertificates === 'string' ? JSON.parse(u.clientCertificates) : (u.clientCertificates || []),
+      clientCertificates: openCertificates(typeof u.clientCertificates === 'string' ? JSON.parse(u.clientCertificates) : (u.clientCertificates || [])),
     historyUsedBytes: Number(u.historyUsedBytes),
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
@@ -58,7 +59,7 @@ function mongoToRecord(u: any): IUserRecord {
     status: u.status,
     avatar: u.avatar,
     settings: u.settings,
-      clientCertificates: u.clientCertificates || [],
+      clientCertificates: openCertificates(u.clientCertificates || []),
     historyUsedBytes: u.historyUsedBytes,
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
@@ -115,14 +116,16 @@ export const UserRepository = {
   },
 
   async update(id: string, data: Partial<IUserRecord & { passwordHash: string }>): Promise<IUserRecord | null> {
+    const sealed = data.clientCertificates ? sealCertificates(data.clientCertificates) : undefined;
     if (isMongo()) {
-      const u = await User.findByIdAndUpdate(id, data, { new: true }).lean();
+      const patch = sealed ? { ...data, clientCertificates: sealed } : data;
+      const u = await User.findByIdAndUpdate(id, patch, { new: true }).lean();
       return u ? mongoToRecord(u) : null;
     }
     await SqlUser.update({
       ...data,
       settings: data.settings ? JSON.stringify(data.settings) : undefined,
-        clientCertificates: data.clientCertificates ? JSON.stringify(data.clientCertificates) : undefined,
+      clientCertificates: sealed ? JSON.stringify(sealed) : undefined,
     }, { where: { id } });
     return this.findById(id);
   },
