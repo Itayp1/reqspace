@@ -1,0 +1,97 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  smoke-matrix:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: reqspace
+          POSTGRES_DB: reqspace
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: reqspace
+          MYSQL_DATABASE: reqspace
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -proot -preqspace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install & build server
+        run: |
+          npm ci --prefix server
+          npm run build --prefix server
+      - name: Smoke all four backends
+        run: |
+          start() {
+            local name="$1" port="$2"
+            shift 2
+            env "$@" PORT="$port" NODE_ENV=development node server/dist/index.js > "/tmp/$name.log" 2>&1 &
+            echo $! > "/tmp/$name.pid"
+            for i in $(seq 1 40); do
+              curl -sf "http://localhost:$port/api/health" >/dev/null && echo "$name up" && return
+              sleep 1
+            done
+            echo "$name failed"; cat "/tmp/$name.log"; exit 1
+          }
+          start sqlite 3011 DB_TYPE=sqlite DB_STORAGE_PATH=/tmp/nightly-sqlite.sqlite
+          start postgres 3012 DB_TYPE=postgres DB_HOST=localhost DB_PORT=5432 DB_NAME=reqspace DB_USER=postgres DB_PASSWORD=reqspace
+          start mysql 3013 DB_TYPE=mysql DB_HOST=localhost DB_PORT=3306 DB_NAME=reqspace DB_USER=root DB_PASSWORD=reqspace
+          start mongodb 3014 DB_TYPE=mongodb MONGO_URI=mongodb://localhost:27017/reqspace-nightly
+          bash scripts/smoke-core.sh http://localhost:3011
+          bash scripts/smoke-core.sh http://localhost:3012
+          bash scripts/smoke-core.sh http://localhost:3013
+          bash scripts/smoke-core.sh http://localhost:3014
+      - name: Stop servers
+        if: always()
+        run: |
+          for n in sqlite postgres mysql mongodb; do kill "$(cat /tmp/$n.pid)" 2>/dev/null || true; done
+
+  full-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install & build
+        run: |
+          npm ci --prefix server
+          npm run build --prefix server
+          npm ci --prefix client
+          npm run build --prefix client
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Start sqlite server
+        run: |
+          DB_TYPE=sqlite DB_STORAGE_PATH=/tmp/nightly-full.sqlite NODE_ENV=development PORT=3005 \
+            node server/dist/index.js > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+          for i in $(seq 1 30); do curl -sf http://localhost:3005/api/health && break; sleep 1; done
+      - name: Full Playwright suite (sqlite)
+        run: PLAYWRIGHT_BASE_URL=http://localhost:3005 npx playwright test
+      - name: Stop server
+        if: always()
+        run: kill "$(cat /tmp/server.pid)" 2>/dev/null || true

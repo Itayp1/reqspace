@@ -152,12 +152,12 @@ Drive a real browser against a real server against a real database, and assert o
 
 Two defects that used to ship green are fixed, and a UI test would have seen both:
 
-* `:updated` / `:deleted` broadcasts — fixed; `tests/socket-realtime.spec.ts` covers collection update and delete with two clients. Folder, request, environment, and reorder emits are still untested.
+* `:updated` / `:deleted` broadcasts — fixed; `tests/socket-realtime.spec.ts` covers collection update and delete, plus folder, request, environment, and reorder, with two clients.
 * SQL login — the core authenticated path is verified on SQLite and MongoDB. The old failure was the first call after login, which a public register/login test never hits.
 
 ### Rule 1 — two browser contexts, always, for anything realtime
 
-A single-browser test **cannot** detect a dead broadcast. The client updates its own tree optimistically, so the acting user sees the change whether or not the server emitted anything; `emitToWorkspace` additionally suppresses emission entirely when the room holds one socket. A one-browser realtime test passes vacuously against completely broken code.
+A single-browser test **cannot** detect a dead broadcast. The client updates its own tree optimistically, so the acting user sees the change whether or not the server emitted anything. `emitToWorkspace` sends to the room with no local size check, so a one-socket room still emits and a second client is what proves the event left the server.
 
 ```ts
 const alice = await browser.newContext();
@@ -207,7 +207,7 @@ projects: [
 
 Skip a leg when its connection string is absent rather than failing — contributors without a local MySQL should still get a useful run — but **CI must run all four**, and must fail if a leg was skipped there.
 
-Note that `baseURL` is currently commented out in `playwright.config.ts` and specs hardcode `http://localhost:3005`. Moving to a matrix requires routing every spec through `baseURL` first; that refactor is a prerequisite, not an afterthought.
+`playwright.config.ts` sets `baseURL` (default `http://localhost:3005`, overridable with `PLAYWRIGHT_BASE_URL`). Specs call `serverOrigin()`, which reads the active project's `baseURL`. `PW_DB_MATRIX=1` adds sqlite, postgres, mysql, and mongodb projects on ports 3011–3014. Smoke against all four and the full suite on sqlite run from `.github/workflows/nightly.yml`.
 
 ### Rule 4 — tier the matrix so it stays fast enough to run
 
@@ -232,7 +232,7 @@ Corollary: never commit a passing placeholder. `tests/socket-sync.spec.ts` used 
 Integration coverage does not remove the need for a small number of targeted tests where the failure is unreachable from a browser:
 
 * **`ssrf.ts` parsing** — unit tests for NAT64, hex literals, trailing-dot hosts, IPv4-mapped forms. No UI path reaches these.
-* **Multi-node broadcast** — the old `size > 1` guard was removed from `socketUtils.ts`. A Redis adapter is still not wired up. Proving a broadcast crosses processes needs two server processes against one Redis, which a single-node run cannot show.
+* **Multi-node broadcast** — the old `size > 1` guard is gone, and `@socket.io/redis-adapter` attaches when `REDIS_URL` is set. Proving a broadcast crosses processes still needs two server processes against one Redis, which a single-node run cannot show.
 * **SSO account creation** — needs a stub for Google's token endpoint.
 
 ## 📋 Active Tasks & Roadmap
@@ -351,12 +351,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 ### ⚪ Stage 4 — Quality, tests and cleanup
 
-* [ ] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
-  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh` (crosses the first authenticated request); `ssrf.ts` unit tests; a two-client `socket-realtime` spec (`collection:updated`/`:deleted`); an `api-authorization` spec (viewer → 403 via the API, non-member → 403 read); `global-setup` enables registration; the obsolete socket-sync suppression assertion was replaced; the deprecated `globals.ts-jest` config was migrated to `transform`.
-  * **Do (remaining):**
-    1. Route every spec through `baseURL` (currently hardcoded `http://localhost:3005`) and add one Playwright project per backend — the DB matrix (smoke on all four, full suite nightly).
-    2. Cover the remaining `emitToWorkspace` call sites with two-client tests (folders, requests, environments, reorder — collections are covered).
-    3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
+* [x] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
+  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh`; `ssrf.ts` unit tests; two-client `socket-realtime` coverage for collection update/delete plus folder, request, environment, and reorder; `api-authorization` for viewer writes, non-member reads, `POST /api/admin/import`, WSDL import, and logout clearing the `token` cookie. Specs take their origin from `serverOrigin()` / `baseURL`. `PW_DB_MATRIX=1` defines one Playwright project per backend. `.github/workflows/nightly.yml` smokes all four databases and runs the full Playwright suite on sqlite.
 
 * [x] **Client dependency weight** — `CR#23`
   * ✅ **Done:** `date-fns` is removed (nothing imported it). `moment` is the only date library, and it loads with `lodash`, `crypto-js`, and `chai` inside the script sandbox bundle (`/vendor/sandbox-runtime.js`), not in the initial app bundle. User scripts still receive the full `_` object, because they can call any lodash method. Handlebars is copied from the `handlebars` package to `/vendor/handlebars.min.js` and the visualizer iframe no longer contacts jsDelivr. The iframe is `sandbox="allow-scripts"` (no `allow-same-origin`).

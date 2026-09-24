@@ -1,10 +1,11 @@
+import { serverOrigin } from './helpers/baseUrl';
 import { test, expect } from '@playwright/test';
 
 test.describe('Features Part 1: Environments, History, Settings', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate and register (unique account per test — beforeEach runs once per test)
     const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9);
-    await page.goto('http://localhost:3005/');
+    await page.goto(`${serverOrigin()}/`);
     try {
       await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 3000 });
       await page.locator('text=Register').click();

@@ -32,8 +32,8 @@ export default defineConfig({
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    /* Base URL to use in actions like `await page.goto('')`. */
-    // baseURL: 'http://localhost:3000',
+    /* Specs read this same origin via tests/helpers/baseUrl.ts (PLAYWRIGHT_BASE_URL). */
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -44,10 +44,17 @@ export default defineConfig({
   },
 
   /* Configure projects for major browsers */
-  projects: [
+  projects: process.env.PW_DB_MATRIX === '1'
+    ? [
+        { name: 'sqlite', use: { ...devices['Desktop Chrome'], baseURL: process.env.PLAYWRIGHT_SQLITE_URL || 'http://localhost:3011' } },
+        { name: 'postgres', use: { ...devices['Desktop Chrome'], baseURL: process.env.PLAYWRIGHT_POSTGRES_URL || 'http://localhost:3012' } },
+        { name: 'mysql', use: { ...devices['Desktop Chrome'], baseURL: process.env.PLAYWRIGHT_MYSQL_URL || 'http://localhost:3013' } },
+        { name: 'mongodb', use: { ...devices['Desktop Chrome'], baseURL: process.env.PLAYWRIGHT_MONGODB_URL || 'http://localhost:3014' } },
+      ]
+    : [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005' },
     },
 
     // {

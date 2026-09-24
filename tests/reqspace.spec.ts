@@ -1,3 +1,4 @@
+import { serverOrigin } from './helpers/baseUrl';
 import { test, expect } from '@playwright/test';
 
 test.describe('reqSpace Clone E2E', () => {
@@ -9,7 +10,7 @@ test.describe('reqSpace Clone E2E', () => {
 
   test('Full User Journey', async ({ page }) => {
     // 1. Navigate to the app
-    await page.goto('http://localhost:3005/');
+    await page.goto(`${serverOrigin()}/`);
 
     // 2. Register or Login
     try {

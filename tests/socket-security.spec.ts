@@ -1,10 +1,10 @@
+import { serverOrigin } from './helpers/baseUrl';
 import { test, expect, APIRequestContext } from '@playwright/test';
 // Node-side socket, reaching directly into the client's socket.io-client
 // install — this probes the server's own connection-time auth/authz checks
 // without going through the browser or the UI.
 import { io as ioClient } from '../client/node_modules/socket.io-client';
 
-const BASE = 'http://localhost:3005';
 
 /**
  * Regression coverage for the workspace-room auth hole in server/src/index.ts:
@@ -17,19 +17,19 @@ const BASE = 'http://localhost:3005';
 
 async function registerAndGetCookie(request: APIRequestContext, label: string) {
   const suffix = `${label}${Date.now()}${Math.floor(Math.random() * 1000)}`;
-  const res = await request.post(`${BASE}/api/auth/register`, {
+  const res = await request.post(`${serverOrigin()}/api/auth/register`, {
     data: { name: `Sec ${suffix}`, email: `sec${suffix}@test.com`, password: 'password123' },
   });
   expect(res.ok()).toBeTruthy();
   const cookie = res.headers()['set-cookie']?.split(';')[0] || '';
 
-  const workspacesRes = await request.get(`${BASE}/api/workspaces`, { headers: { cookie } });
+  const workspacesRes = await request.get(`${serverOrigin()}/api/workspaces`, { headers: { cookie } });
   const workspaces = await workspacesRes.json();
   return { cookie, workspaceId: workspaces[0]._id as string };
 }
 
 function connectSocket(cookie: string) {
-  return ioClient(BASE, {
+  return ioClient(serverOrigin(), {
     path: '/ws',
     extraHeaders: cookie ? { cookie } : {},
     forceNew: true,
@@ -63,7 +63,7 @@ test.describe('Socket.IO authorization (workspace rooms must not leak to non-mem
 
     await new Promise(r => setTimeout(r, 400)); // let the (rejected) join settle
 
-    const createRes = await request.post(`${BASE}/api/workspaces/${owner.workspaceId}/collections`, {
+    const createRes = await request.post(`${serverOrigin()}/api/workspaces/${owner.workspaceId}/collections`, {
       headers: { cookie: owner.cookie },
       data: { name: 'Security Probe A' },
     });
@@ -94,7 +94,7 @@ test.describe('Socket.IO authorization (workspace rooms must not leak to non-mem
 
     await new Promise(r => setTimeout(r, 400));
 
-    const createRes = await request.post(`${BASE}/api/workspaces/${owner.workspaceId}/collections`, {
+    const createRes = await request.post(`${serverOrigin()}/api/workspaces/${owner.workspaceId}/collections`, {
       headers: { cookie: owner.cookie },
       data: { name: 'Security Probe B' },
     });
@@ -120,7 +120,7 @@ test.describe('Socket.IO authorization (workspace rooms must not leak to non-mem
 
     await new Promise(r => setTimeout(r, 300));
 
-    const createRes = await request.post(`${BASE}/api/workspaces/${owner.workspaceId}/collections`, {
+    const createRes = await request.post(`${serverOrigin()}/api/workspaces/${owner.workspaceId}/collections`, {
       headers: { cookie: owner.cookie },
       data: { name: 'Security Probe C' },
     });

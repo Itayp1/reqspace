@@ -1,3 +1,4 @@
+import { serverOrigin } from './helpers/baseUrl';
 import { test, expect } from '@playwright/test';
 
 test.describe('Environment Tabs & Common Variables', () => {
@@ -5,7 +6,7 @@ test.describe('Environment Tabs & Common Variables', () => {
     const suffix = Math.floor(Math.random() * 1000000);
 
     // 1. Go to app and register/login
-    await page.goto('http://localhost:3005/');
+    await page.goto(`${serverOrigin()}/`);
     try {
       await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 3000 });
       await page.locator('text=Register').click();

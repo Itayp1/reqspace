@@ -1,6 +1,7 @@
+import { serverOrigin, BASE } from './baseUrl';
+export { BASE };
 import { APIRequestContext, expect } from '@playwright/test';
 
-export const BASE = 'http://localhost:3005';
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin';
 /** What server/reset-admin-for-tests.js resets the password to (the server's
  * own first-boot default), before the forced change-password flow runs. */
@@ -18,7 +19,7 @@ export const ADMIN_PASSWORD_AFTER_RESET = 'AdminReset!2026';
  * the reset + forced password change. Returns the session cookie + user id
  * for the caller to reuse across requests. */
 export async function loginAsSuperAdmin(request: APIRequestContext) {
-  const res = await request.post(`${BASE}/api/auth/login`, {
+  const res = await request.post(`${serverOrigin()}/api/auth/login`, {
     data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD_AFTER_RESET },
   });
   expect(res.ok(), 'superadmin login failed — did global-setup run?').toBeTruthy();

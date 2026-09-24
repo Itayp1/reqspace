@@ -1,10 +1,11 @@
+import { serverOrigin } from './helpers/baseUrl';
 import { test, expect } from '@playwright/test';
 
 test.describe('Request Scripts (Pre & Post) Execution Lifecycle', () => {
   test('Should execute Pre-request and Test scripts correctly', async ({ request, page }) => {
     // 1. Create a dummy user and workspace via API for testing
     const suffix = Math.floor(Math.random() * 100000);
-    const userRes = await request.post('http://localhost:3005/api/auth/register', {
+    const userRes = await request.post(`${serverOrigin()}/api/auth/register`, {
       data: { name: `Script User ${suffix}`, email: `script${suffix}@test.com`, password: 'password123' }
     });
     const headers = {
@@ -12,14 +13,14 @@ test.describe('Request Scripts (Pre & Post) Execution Lifecycle', () => {
     };
 
     // 2. Create Workspace
-    const wsRes = await request.post('http://localhost:3005/api/workspaces', {
+    const wsRes = await request.post(`${serverOrigin()}/api/workspaces`, {
       data: { name: 'Scripts Workspace' },
       headers
     });
     const ws = await wsRes.json();
 
     // 3. Create Collection with Collection-level script
-    const colRes = await request.post(`http://localhost:3005/api/workspaces/${ws._id}/collections`, {
+    const colRes = await request.post(`${serverOrigin()}/api/workspaces/${ws._id}/collections`, {
       data: { 
         name: 'Scripts Collection',
         preRequestScript: 'pm.environment.set("colLevelVar", "hello-from-col");',
@@ -30,7 +31,7 @@ test.describe('Request Scripts (Pre & Post) Execution Lifecycle', () => {
     const col = await colRes.json();
 
     // 4. Create Request with Pre-script and Post-script
-    const reqRes = await request.post(`http://localhost:3005/api/collections/${col._id}/requests`, {
+    const reqRes = await request.post(`${serverOrigin()}/api/collections/${col._id}/requests`, {
       data: { 
         name: 'My Scripted Request',
         method: 'GET',
@@ -46,7 +47,7 @@ test.describe('Request Scripts (Pre & Post) Execution Lifecycle', () => {
     expect(apiReq.testScript).toContain('Status is 200');
 
     // 5. Navigate to the app and login
-    await page.goto('http://localhost:3005');
+    await page.goto(`${serverOrigin()}`);
     try {
       await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 2000 });
       await page.fill('input[placeholder="admin or test@example.com"]', `script${suffix}@test.com`);
