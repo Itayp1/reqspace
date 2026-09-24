@@ -5,10 +5,10 @@ import { Workspace } from '../models/Workspace';
 import { logAudit, AuditLogRepository } from '../repositories/AuditLogRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
-import { Collection } from '../models/Collection';
-import { Folder } from '../models/Folder';
-import { Request as ApiRequest } from '../models/Request';
-import { Environment } from '../models/Environment';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { FolderRepository } from '../repositories/FolderRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
@@ -265,29 +265,41 @@ router.post('/test-smtp', async (req: AuthRequest, res: Response) => {
 });
 
 // ── GET /api/admin/export/:workspaceId ──────────────────────────────
+// FIX-1: this used to query `Folder.find({ workspaceId })` and
+// `ApiRequest.find({ workspaceId })` — neither model has a `workspaceId`
+// field (both are scoped by `collectionId`), so those queries always
+// returned []. The export therefore silently shipped zero folders and zero
+// requests while reporting success. Go through the collections that belong
+// to the workspace first, then folders/requests by collectionId, via the
+// repositories so this works on every backend, not just Mongo.
 router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
   try {
     const workspaceId = req.params.workspaceId as string;
     const workspace = await WorkspaceRepository.findById(workspaceId);
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
 
-    const collections = await Collection.find({ workspaceId }).lean();
-    const folders = await Folder.find({ workspaceId }).lean();
-    const requests = await ApiRequest.find({ workspaceId }).lean();
-    const environments = await Environment.find({ workspaceId }).lean();
-        const config = await SystemConfigRepository.getConfig();
+    const collections = await CollectionRepository.findByWorkspace(workspaceId);
+    const folders = (
+      await Promise.all(collections.map((c) => FolderRepository.findByCollection(c.id)))
+    ).flat();
+    const requests = (
+      await Promise.all(collections.map((c) => RequestRepository.findByCollection(c.id)))
+    ).flat();
+    const environments = await EnvironmentRepository.findByWorkspace(workspaceId);
+    const config = await SystemConfigRepository.getConfig();
 
     const dump = {
+      version: 1,
       workspace,
       collections,
       folders,
       requests,
       environments,
-            config
+      config,
     };
 
     await logAudit(req.user!._id as any, 'admin.export', { ip: req.ip, targetId: workspaceId as any });
-    
+
     // Set headers to trigger a download of the JSON file
     res.setHeader('Content-disposition', `attachment; filename=reqspace-export-${workspaceId}-${new Date().toISOString().split('T')[0]}.json`);
     res.setHeader('Content-type', 'application/json');
@@ -298,17 +310,95 @@ router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/admin/import/:workspaceId ─────────────────────────────
+// FIX-1: this used to blindly `insertMany` the dump with a `workspaceId`
+// field stapled on — Folder and Request don't have that field, so Mongoose
+// silently dropped it, and every folder/request landed with no real link to
+// anything (parentFolderId / collectionId still pointed at ids from the
+// *source* workspace). Import in dependency order — collections, then
+// folders parents-first, then requests — remapping every id through the
+// repositories so the new tree actually matches the export.
 router.post('/import/:workspaceId', async (req: AuthRequest, res: Response) => {
   try {
     const workspaceId = req.params.workspaceId as string;
+    const workspace = await WorkspaceRepository.findById(workspaceId);
+    if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
+
     const dump = req.body;
-    
-    // In a real scenario we should validate and insert. 
-    // Since this is a dump, we can insert collections, folders, requests, environments, globals.
-    if (dump.collections) await Collection.insertMany(dump.collections.map((c: any) => ({ ...c, workspaceId, _id: undefined })));
-    if (dump.folders) await Folder.insertMany(dump.folders.map((f: any) => ({ ...f, workspaceId, _id: undefined })));
-    if (dump.requests) await ApiRequest.insertMany(dump.requests.map((r: any) => ({ ...r, workspaceId, _id: undefined })));
-    if (dump.environments) await Environment.insertMany(dump.environments.map((e: any) => ({ ...e, workspaceId, _id: undefined })));
+    if (dump.version !== 1) {
+      return res.status(400).json({ message: 'Unsupported or missing export version' });
+    }
+
+    const idMap = new Map<string, string>(); // old id → new id
+
+    for (const c of dump.collections ?? []) {
+      const created = await CollectionRepository.create({
+        workspaceId,
+        name: c.name,
+        description: c.description,
+        variables: c.variables,
+        preRequestScript: c.preRequestScript,
+        testScript: c.testScript,
+        order: c.order,
+        createdBy: String(req.user!._id),
+      });
+      idMap.set(String(c._id ?? c.id), created.id);
+    }
+
+    // Folders must be inserted parents-first so parentFolderId can be remapped.
+    const remainingFolders = [...(dump.folders ?? [])];
+    let progressed = true;
+    while (remainingFolders.length && progressed) {
+      progressed = false;
+      for (let i = remainingFolders.length - 1; i >= 0; i--) {
+        const f = remainingFolders[i];
+        const oldParent = f.parentFolderId ? String(f.parentFolderId) : null;
+        if (oldParent && !idMap.has(oldParent)) continue; // parent not inserted yet
+        const newCollectionId = idMap.get(String(f.collectionId));
+        if (!newCollectionId) { remainingFolders.splice(i, 1); continue; } // orphaned: source collection missing from dump
+        const created = await FolderRepository.create({
+          collectionId: newCollectionId,
+          parentFolderId: oldParent ? idMap.get(oldParent) ?? null : null,
+          name: f.name,
+          description: f.description,
+          preRequestScript: f.preRequestScript,
+          testScript: f.testScript,
+          order: f.order,
+        });
+        idMap.set(String(f._id ?? f.id), created.id);
+        remainingFolders.splice(i, 1);
+        progressed = true;
+      }
+    }
+
+    for (const r of dump.requests ?? []) {
+      const newCollectionId = idMap.get(String(r.collectionId));
+      if (!newCollectionId) continue; // orphaned: source collection missing from dump
+      await RequestRepository.create({
+        collectionId: newCollectionId,
+        folderId: r.folderId ? idMap.get(String(r.folderId)) ?? null : null,
+        name: r.name,
+        method: r.method,
+        url: r.url,
+        params: r.params,
+        headers: r.headers,
+        auth: r.auth,
+        body: r.body,
+        preRequestScript: r.preRequestScript,
+        testScript: r.testScript,
+        description: r.description,
+        order: r.order,
+        createdBy: String(req.user!._id),
+      });
+    }
+
+    for (const e of dump.environments ?? []) {
+      await EnvironmentRepository.create({
+        workspaceId,
+        name: e.name,
+        variables: e.variables,
+        createdBy: String(req.user!._id),
+      });
+    }
 
     // Deliberately ignore dump.config: importing a *workspace* must never
     // rewrite system-wide settings (SMTP creds, OAuth secrets, proxy) — that
