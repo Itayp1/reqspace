@@ -19,6 +19,17 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ message: 'Invalid HTTP method' });
   }
 
+  // Only http/https may be proxied — block file:, gopher:, data:, etc. (CR#25).
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return res.status(400).json({ message: 'Invalid URL' });
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return res.status(400).json({ message: 'Only http and https URLs are allowed' });
+  }
+
   const startTime = Date.now();
 
   try {

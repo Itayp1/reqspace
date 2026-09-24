@@ -14,18 +14,27 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/dist/"
+    ],
     "testMatch": [
       "**/tests/**/*.test.ts"
     ],
     "moduleNameMapper": {
       "^../db/connect$": "<rootDir>/src/tests/__mocks__/connect.ts"
     },
-    "globals": {
-      "ts-jest": {
-        "tsconfig": {
-          "esModuleInterop": true
+    "transform": {
+      "^.+\\.ts$": [
+        "ts-jest",
+        {
+          "tsconfig": {
+            "esModuleInterop": true
+          }
         }
-      }
+      ]
     }
   },
   "dependencies": {
