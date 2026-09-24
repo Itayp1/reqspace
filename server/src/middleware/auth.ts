@@ -29,13 +29,29 @@ function cookieSecure(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
-export function setCookieToken(res: Response, token: string, ttlDays: number) {
-  res.cookie('token', token, {
+// The attributes that identify the auth cookie. `clearCookie` only removes a
+// cookie when these match what was used to set it — a mismatch on secure /
+// sameSite / path leaves the session cookie in place (CR#16), so both helpers
+// derive their options from here.
+function authCookieOptions() {
+  return {
     httpOnly: true,
     secure: cookieSecure(),
-    sameSite: 'lax',
+    sameSite: 'lax' as const,
+    path: '/',
+  };
+}
+
+export function setCookieToken(res: Response, token: string, ttlDays: number) {
+  res.cookie('token', token, {
+    ...authCookieOptions(),
     maxAge: ttlDays * 24 * 60 * 60 * 1000,
   });
+}
+
+/** Clears the auth cookie using the exact attributes it was set with. */
+export function clearAuthCookie(res: Response) {
+  res.clearCookie('token', authCookieOptions());
 }
 
 /** Creates personal workspace for a new user */
@@ -102,13 +118,13 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     try {
       payload = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload;
     } catch {
-      res.clearCookie('token');
+      clearAuthCookie(res);
       return res.status(401).json({ message: 'Session expired' });
     }
 
-    const user = await User.findById(payload.sub);
+    const user = await UserRepository.findById(String(payload.sub));
     if (!user || user.status !== 'active') {
-      res.clearCookie('token');
+      clearAuthCookie(res);
       return res.status(401).json({ message: 'User not found or suspended' });
     }
 

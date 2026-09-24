@@ -4,4 +4,5 @@ metadata:
   name: reqspace-web-config
 data:
   NODE_ENV: "production"
+  PORT: "3005"
   MONGO_URI: "mongodb://mongodb-0.mongodb:27017/reqspace?replicaSet=rs0"

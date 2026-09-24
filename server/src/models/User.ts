@@ -2,7 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export type UserRole = 'viewer' | 'editor' | 'owner';
 export type UserStatus = 'active' | 'suspended' | 'pending';
-export type AuthType = 'password' | 'header';
+export type AuthType = 'password' | 'header' | 'sso';
 
 export interface IClientCertificate {
   _id: mongoose.Types.ObjectId;
@@ -61,7 +61,7 @@ const UserSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, default: null },
-    authType: { type: String, enum: ['password', 'header'], required: true },
+    authType: { type: String, enum: ['password', 'header', 'sso'], required: true },
     isSuperAdmin: { type: Boolean, default: false },
     status: { type: String, enum: ['active', 'suspended', 'pending'], default: 'active' },
     avatar: { type: String },

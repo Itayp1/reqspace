@@ -7,5 +7,5 @@ spec:
     app: reqspace-web
   ports:
   - port: 80
-    targetPort: 3000
+    targetPort: 3005
   type: ClusterIP

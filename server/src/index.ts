@@ -178,7 +178,7 @@ async function bootstrap() {
   const { getDbConfig } = await import('./db/dbConfig');
   const { connectDb } = await import('./db/connect');
 
-  const port = parseInt(process.env.PORT ?? '3000', 10);
+  const port = parseInt(process.env.PORT ?? '3005', 10);
 
   // Start listening first — so the client can load and show errors
   server.listen(port, () => {

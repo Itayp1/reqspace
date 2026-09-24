@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
-import { authenticate, AuthRequest, signToken, setCookieToken, createPersonalWorkspace } from '../middleware/auth';
+import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
 
@@ -117,8 +117,8 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
 });
 
 // ── POST /api/auth/logout ───────────────────────────────────────────────────
-router.post('/logout', (req: Request, res: Response) => {
-  res.clearCookie('token');
+router.post('/logout', (_req: Request, res: Response) => {
+  clearAuthCookie(res);
   return res.json({ message: 'Logged out' });
 });
 

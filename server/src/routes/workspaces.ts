@@ -3,6 +3,7 @@ import { authenticate, AuthRequest, createPersonalWorkspace } from '../middlewar
 import { requireWorkspaceRole } from '../middleware/rbac';
 import { Workspace } from '../models/Workspace';
 import { User, UserRole } from '../models/User';
+import { escapeRegex } from '../utils/escapeRegex';
 import mongoose from 'mongoose';
 
 const router = Router();
@@ -114,7 +115,9 @@ router.post(
     const targetUser = await User.findOne({ 
       $or: [
         { email: queryStr },
-        { name: { $regex: new RegExp(`^${email}$`, 'i') } }
+        // Escape the input before building the regex — raw interpolation here
+        // was a ReDoS vector and broke on regex metacharacters (CR#10).
+        { name: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') } }
       ]
     });
     if (!targetUser) return res.status(404).json({ message: 'User not found' });

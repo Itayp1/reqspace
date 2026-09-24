@@ -1,12 +1,9 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { User } from '../models/User';
+import { escapeRegex } from '../utils/escapeRegex';
 
 const router = Router();
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 router.get('/search', authenticate, async (req: AuthRequest, res: Response) => {
   const q = req.query.q as string;

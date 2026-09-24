@@ -13,7 +13,6 @@ import { emitToWorkspace } from '../socketUtils';
 const router = Router();
 
 async function checkPermissionByItem(req: AuthRequest, res: Response, next: NextFunction, Model: any, minRole: UserRole) {
-  if (req.user?.isSuperAdmin) return next();
   try {
     const item = await Model.findById(req.params.id || req.params.collectionId);
     if (!item) return res.status(404).json({ message: 'Item not found' });
@@ -24,6 +23,13 @@ async function checkPermissionByItem(req: AuthRequest, res: Response, next: Next
     }
     if (!workspaceId) return res.status(400).json({ message: 'No workspace attached' });
     req.params.workspaceId = String(workspaceId);
+    // Expose the resolved workspace id so update/delete handlers (which only
+    // have the item id in the URL) can address the correct socket room.
+    // Without this, every `emitToWorkspace((req as any).resolvedWorkspaceId, …)`
+    // broadcast was a silent no-op (CR#9). Resolve it even for a superadmin —
+    // who bypasses the role check but must still trigger the broadcast.
+    (req as any).resolvedWorkspaceId = String(workspaceId);
+    if (req.user?.isSuperAdmin) return next();
     return requireWorkspaceRole(minRole)(req, res, next);
   } catch(e) { next(e); }
 }
