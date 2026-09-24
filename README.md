@@ -124,6 +124,101 @@ To support enterprise-grade scale (e.g., **400k+ Workspaces, 2M+ Collections, 20
 4. **RBAC & Configuration Caching:** Frequently accessed data, such as workspace membership (roles) and system configurations, will be offloaded to an in-memory caching layer (or Redis) to reduce load on the primary relational/document database during heavy proxy traffic.
 5. **High-Concurrency WebSockets (10,000+ Active Users):** To support 10k+ simultaneous live connections without CPU/Memory exhaustion on a single instance, the Socket.io implementation requires **Horizontal Scaling**. This means deploying multiple server replicas behind a Load Balancer (with Sticky Sessions) and using a **Redis Adapter**. The Redis Adapter ensures that a realtime event generated on Server Node A is seamlessly broadcasted to the relevant users connected to Server Node B.
 
+## 🧪 Testing Strategy (target architecture)
+
+> The direction below is a decision, not a suggestion: **UI-driven integration tests are the backbone of this suite, and the whole backbone runs against every supported database.** What exists today does neither — see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them) for how the current suite reported green on live defects.
+
+### Why UI-first integration is the right default here
+
+Drive a real browser against a real server against a real database, and assert on what the user sees. If a collection rename shows up in a second user's tree, then the route, the RBAC middleware, the repository, the DB dialect, the socket broadcast and the client store all worked. One assertion covers the entire stack, and it stays true when the internals are refactored.
+
+This is not a theoretical preference. Of the three defects that shipped past the current suite, a UI-level integration test would have caught **two immediately**:
+
+* the dead `:updated` / `:deleted` broadcasts — a second browser's tree visibly fails to refresh
+* the SQL login defect — under `DB_TYPE=sqlite`, the UI dies on the first authenticated call after login
+
+Both are invisible to the tests that exist, and neither needs a clever assertion — only a test that performs the ordinary action and looks at the screen.
+
+### Rule 1 — two browser contexts, always, for anything realtime
+
+A single-browser test **cannot** detect a dead broadcast. The client updates its own tree optimistically, so the acting user sees the change whether or not the server emitted anything; `emitToWorkspace` additionally suppresses emission entirely when the room holds one socket. A one-browser realtime test passes vacuously against completely broken code.
+
+```ts
+const alice = await browser.newContext();
+const bob   = await browser.newContext();   // separate context, not a second tab
+// alice renames a collection → assert bob's sidebar shows the new name
+```
+
+Every realtime scenario gets an observer that did **not** perform the action. Where the assertion is about a peer seeing a change, the peer is the subject of the assertion.
+
+### Rule 2 — the UI cannot test authorization, so don't try
+
+This is the one place where "if it works in the UI, the backend works" breaks down, and it breaks down badly.
+
+The UI hides buttons a role may not use. So a UI test confirms the button is hidden — and **never sends the request**. An endpoint that accepts that request anyway is invisible to every UI test that will ever be written. That is precisely what happened: `comprehensive-permissions.spec.ts` covers the full role × action matrix through the interface, and every authorization hole in `CR#7`, `CR#11`, `CR#12` and `CR#14` sits underneath it untouched.
+
+So the suite is **two layers, deliberately**:
+
+| Layer | Tool | Covers | Size |
+|---|---|---|---|
+| Integration (backbone) | Playwright, real browser | Every user-facing flow, end to end, per DB | Large |
+| API contract | Playwright `request` fixture, no browser | Authorization, SSRF, input validation, error codes | Small but non-negotiable |
+
+The API layer's job is to send what the UI would never send: a viewer's cookie on a `DELETE`, a `workspaceId` the caller doesn't belong to, a body carrying fields the form doesn't expose. Same runner, same helpers, no browser. Rule of thumb — **if the UI can do it, test it through the UI; if the UI refuses to do it, that is exactly what the API test is for.**
+
+### Rule 3 — the database is a test matrix axis, not a config file edit
+
+Every supported backend must run the same tests. `getDbConfig()` reads `process.env.DB_TYPE` ahead of any config file, so a matrix leg is just a server process started with different environment variables — there is no need to rewrite `server/.env` and restart pm2, which is what `test-all-dbs.ps1` does today (it mutates a real config file, depends on a running pm2 daemon, and leaves the file rewritten if a run throws).
+
+Each leg must get:
+
+* its own environment — `DB_TYPE`, plus `DB_CONNECTION_STRING` / `MONGODB_URI` / `DB_STORAGE_PATH`
+* a **clean database**, created and dropped by the harness. Tests that pass only against an accumulated dev database are not portable, and a leg that inherits another leg's rows proves nothing.
+* its own `DB_CONFIG_FILE` path, so a stale `db-config.json` cannot leak settings across legs
+* its own server process on its own port, so legs can run in parallel and a crash is attributable
+
+Wire it as a Playwright project per backend, so one command runs the matrix and the report attributes each failure to a database:
+
+```ts
+// playwright.config.ts
+projects: [
+  { name: 'sqlite',   use: { baseURL: 'http://localhost:3011' } },
+  { name: 'postgres', use: { baseURL: 'http://localhost:3012' } },
+  { name: 'mysql',    use: { baseURL: 'http://localhost:3013' } },
+  { name: 'mongodb',  use: { baseURL: 'http://localhost:3014' } },
+]
+```
+
+Skip a leg when its connection string is absent rather than failing — contributors without a local MySQL should still get a useful run — but **CI must run all four**, and must fail if a leg was skipped there.
+
+Note that `baseURL` is currently commented out in `playwright.config.ts` and specs hardcode `http://localhost:3005`. Moving to a matrix requires routing every spec through `baseURL` first; that refactor is a prerequisite, not an afterthought.
+
+### Rule 4 — tier the matrix so it stays fast enough to run
+
+The full suite × four backends is too slow to sit in front of every push. Split by what each layer is actually protecting:
+
+| Tier | Scope | Runs against | When |
+|---|---|---|---|
+| Smoke | Register → login → **authenticated call** → workspace → collection → request → send → response | All 4 backends | Every push |
+| Full integration | Everything in `tests/` | One backend (sqlite — no external service) | Every push |
+| Full matrix | Everything in `tests/` | All 4 backends | Nightly, and before release |
+
+The smoke tier is what the current `test-all-dbs.ps1` was reaching for and missed: it stops at login, which is a **public** route, so it never touches the dialect-specific code in `middleware/auth.ts` where the SQL defect lives. **The first authenticated request is the single most valuable assertion in the entire matrix** — it is where Mongoose-only code paths fail on SQL, and where `isValidObjectId` rejects a UUID. It must be in the smoke tier, and every backend must run it.
+
+### Rule 5 — an integration test that passes before the fix is a bug
+
+These tests exist to catch specific, known-reachable failures. Write the test, run it against unpatched code, watch it fail, then fix. A realtime test that goes green on today's `master` is asserting on the wrong thing — which is exactly how the existing socket specs came to cover only `collection:created`.
+
+Corollary: never commit a passing placeholder. `socket-sync.spec.ts:3-29` records 18 tests that asserted `expect(true).toBe(true)` and reported real-time collaboration as verified. Use `test.fixme` for anything unwritten, so the runner reports it as outstanding.
+
+### What still needs non-integration tests
+
+Integration coverage does not remove the need for a small number of targeted tests where the failure is unreachable from a browser:
+
+* **`ssrf.ts` parsing** — unit tests for NAT64, hex literals, trailing-dot hosts, IPv4-mapped forms. No UI path reaches these.
+* **Multi-node broadcast** — the `size > 1` guard in `socketUtils.ts` reads only the local adapter room, so it is correct on one instance and wrong on two. Requires two server processes against one Redis, and cannot be observed on a single-node run at all.
+* **SSO account creation** — needs a stub for Google's token endpoint.
+
 ## 📋 Active Tasks & Roadmap
 
 Ordered by *what unblocks what*, not by ambition. The rule applied here: **fix what is silently broken, then make the advertised features true, then scale.** Findings referenced as `CR#n` come from [`CODE_REVIEW.md`](CODE_REVIEW.md) (2026-09-23; all items below re-verified against the source on 2026-09-24).
@@ -281,9 +376,18 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 ### ⚪ Stage 4 — Quality, tests and cleanup
 
-* [ ] **Test coverage gaps** — `CR#26`
-  * **Where:** Playwright in `tests/` and `client/e2e/`, Jest for DB
-  * **Do:** add unit tests for `ssrf.ts`, the proxy route, and the routes running under SQL. Jest's `globals.ts-jest` config is deprecated — migrate to the `transform` form.
+* [ ] **Test coverage gaps** — `CR#26` · **see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them) for the full analysis and per-test instructions**
+  * **Why this is not a routine backlog item:** the ~300-scenario suite reported green on all three Stage 0/1 defects above. It was not bad luck — the suite's structure created the blind spot. Both socket specs (`socket-sync.spec.ts:62`, `socket-security.spec.ts:119`) assert on `collection:created`, the one event family whose workspace id arrives in the URL path and therefore cannot hit the `resolvedWorkspaceId` bug; nothing in `tests/` or `client/e2e/` references `:updated` or `:deleted` at all. Meanwhile `test-all-dbs.ps1:65` runs only `auth.e2e.test.ts` per backend — register, login, wrong-password — three **unauthenticated** routes that use `UserRepository` and so pass on SQL, while the SQL defect sits in `middleware/auth.ts:109` on the authenticated path the loop never calls.
+  * **Target architecture:** see [*Testing Strategy*](#-testing-strategy-target-architecture) above — UI-driven integration as the backbone, a thin API layer for what the UI structurally cannot reach, and the database as a matrix axis.
+  * **Do:**
+    1. Add a CI workflow — the only workflow today is `docker-publish.yml`, so images ship without a test having run. Gate publishing on it.
+    2. Route every spec through `baseURL` instead of the hardcoded `http://localhost:3005`, then add one Playwright project per backend. This is the prerequisite for the DB matrix.
+    3. Build the smoke tier and run it on all four backends — critically including **the first authenticated request**, which is where the SQL defect lives and where the current loop stops short.
+    4. Cover every `emitToWorkspace` call site with a **two-browser-context** test (10 events; 1 covered). Write each one against unpatched code and confirm it fails first.
+    5. Add API-level authorization tests that call endpoints directly with a lower-privileged cookie — `CR#7`, `CR#11`, `CR#12`, `CR#14` are all reachable only by bypassing the UI, which is the only layer the permission specs check.
+    6. Add unit tests for `ssrf.ts` (NAT64, hex literals, trailing-dot hosts, IPv4-mapped forms) and for logout cookie clearing.
+    7. Replace the placeholder pattern documented at `socket-sync.spec.ts:3-29` — 18 tests that asserted `expect(true).toBe(true)` — with `test.fixme`, so unwritten scenarios report as outstanding instead of passing.
+    8. Migrate the deprecated `globals.ts-jest` config to the `transform` form.
 
 * [ ] **Client dependency weight** — `CR#23`
   * **Do:** `moment` **and** `date-fns` are both bundled; `lodash` is imported whole; `crypto-js` and `chai` ship to the browser for script support; Handlebars is fetched from jsDelivr at runtime (a third-party supply-chain and availability dependency). Consolidate on one date library, import lodash per-function, lazy-load the script-runtime libraries, and self-host Handlebars.
