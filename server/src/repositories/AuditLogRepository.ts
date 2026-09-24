@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import { isMongo } from '../db/connect';
 import { AuditLog } from '../models/AuditLog';
 import { SqlAuditLog } from '../db/sql-models';
@@ -68,6 +69,42 @@ export const AuditLogRepository = {
       return (await AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean()).map(mongoToRecord);
     }
     return (await SqlAuditLog.findAll({ where: filter, order: [['createdAt', 'DESC']], limit, offset: skip })).map(sqlToRecord);
+  },
+
+  async query(opts: { action?: string; userId?: string; from?: string; to?: string; limit: number; skip: number }): Promise<{ logs: IAuditLogRecord[]; total: number }> {
+    if (isMongo()) {
+      const filter: Record<string, unknown> = {};
+      if (opts.action) filter.action = opts.action;
+      if (opts.userId) filter.userId = opts.userId;
+      if (opts.from || opts.to) {
+        const createdAt: Record<string, Date> = {};
+        if (opts.from) createdAt.$gte = new Date(opts.from);
+        if (opts.to) createdAt.$lte = new Date(opts.to);
+        filter.createdAt = createdAt;
+      }
+      const [rows, total] = await Promise.all([
+        AuditLog.find(filter).sort({ createdAt: -1 }).skip(opts.skip).limit(opts.limit).lean(),
+        AuditLog.countDocuments(filter),
+      ]);
+      return { logs: rows.map(mongoToRecord), total };
+    }
+    const where: Record<string, unknown> = {};
+    if (opts.action) where.action = opts.action;
+    if (opts.userId) where.userId = opts.userId;
+    if (opts.from || opts.to) {
+      const createdAt: Record<symbol, Date> = {};
+      if (opts.from) createdAt[Op.gte] = new Date(opts.from);
+      if (opts.to) createdAt[Op.lte] = new Date(opts.to);
+      where.createdAt = createdAt;
+    }
+    const total = await SqlAuditLog.count({ where: where as any });
+    const rows = await SqlAuditLog.findAll({
+      where: where as any,
+      order: [['createdAt', 'DESC']],
+      limit: opts.limit,
+      offset: opts.skip,
+    });
+    return { logs: rows.map(sqlToRecord), total };
   },
 
   async count(filter: Record<string, any> = {}): Promise<number> {

@@ -1,4 +1,6 @@
+import { Op } from 'sequelize';
 import { isMongo } from '../db/connect';
+import { escapeRegex } from '../utils/escapeRegex';
 import { User, IUser } from '../models/User';
 import { SqlUser } from '../db/sql-models';
 import bcrypt from 'bcryptjs';
@@ -140,6 +142,44 @@ export const UserRepository = {
     }
     const users = await SqlUser.findAll({ where: filter as any });
     return users.map(sqlToRecord);
+  },
+
+  async search(opts: { search?: string; status?: string; limit: number; skip: number }): Promise<{ users: IUserRecord[]; total: number }> {
+    const limit = opts.limit;
+    const skip = opts.skip;
+    if (isMongo()) {
+      const query: Record<string, unknown> = {};
+      if (opts.status) query.status = opts.status;
+      if (opts.search) {
+        const safe = escapeRegex(opts.search);
+        query.$or = [
+          { name: { $regex: safe, $options: 'i' } },
+          { email: { $regex: safe, $options: 'i' } },
+        ];
+      }
+      const [users, total] = await Promise.all([
+        User.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        User.countDocuments(query),
+      ]);
+      return { users: users.map(mongoToRecord), total };
+    }
+    const where: any = {};
+    if (opts.status) where.status = opts.status;
+    if (opts.search) {
+      const like = `%${opts.search.replace(/[%_]/g, '')}%`;
+      where[Op.or] = [
+        { name: { [Op.like]: like } },
+        { email: { [Op.like]: like } },
+      ];
+    }
+    const total = await SqlUser.count({ where: where as any });
+    const users = await SqlUser.findAll({
+      where: where as any,
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset: skip,
+    });
+    return { users: users.map(sqlToRecord), total };
   },
 
   async count(): Promise<number> {

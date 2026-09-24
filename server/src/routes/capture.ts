@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
-import { Collection } from '../models/Collection';
-import { Request as ApiRequest } from '../models/Request';
 import { io } from '../index';
-import mongoose from 'mongoose';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getUserWorkspaceRole } from '../middleware/rbac';
-import { SystemConfig } from '../models/SystemConfig';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { isValidId } from '../utils/ids';
 import { assertSsrfSafe, SsrfBlockedError } from '../utils/ssrf';
 
 const router = Router();
@@ -21,7 +21,7 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
   const workspaceId = req.params.workspaceId as string;
   const targetPath = req.params[0];
 
-  if (!mongoose.Types.ObjectId.isValid(workspaceId)) {
+  if (!isValidId(workspaceId)) {
     return res.status(400).json({ message: 'Invalid workspace ID' });
   }
 
@@ -34,14 +34,15 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
 
   try {
     // 1. Find or create the "Captured Requests" collection
-    let collection = await Collection.findOne({ workspaceId, name: 'Captured Requests' });
+    const existing = await CollectionRepository.findByWorkspace(workspaceId);
+    let collection = existing.find(c => c.name === 'Captured Requests');
     if (!collection) {
-      collection = new Collection({
+      collection = await CollectionRepository.create({
         workspaceId,
         name: 'Captured Requests',
         description: 'Automatically captured proxy requests',
+        createdBy: String(req.user!._id),
       });
-      await collection.save();
     }
 
     // 2. Extract target URL from path or header
@@ -95,16 +96,15 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
     }
 
     // 5. Create Request Document
-    const newRequest = new ApiRequest({
-      collectionId: collection._id,
+    const newRequest = await RequestRepository.create({
+      collectionId: collection.id,
       name: `Captured: ${req.method} ${targetUrl ? new URL(finalUrl).hostname : finalUrl || 'Unknown'}`,
       method: req.method,
       url: finalUrl,
       headers,
       body: requestBody,
+      createdBy: String(req.user!._id),
     });
-    
-    await newRequest.save();
 
     // 6. Notify connected clients
     io.to(`workspace:${workspaceId}`).emit('collection:update', {
@@ -121,7 +121,7 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
     // 7. Forward request if target is known
     if (finalUrl) {
       try {
-        const systemConfig = await SystemConfig.findById('global');
+        const systemConfig = await SystemConfigRepository.getConfig();
         await assertSsrfSafe(finalUrl, systemConfig?.proxy?.allowPrivateTargets ?? false);
 
         const outHeaders = new Headers(req.headers as any);
@@ -149,10 +149,10 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
         return res.send(responseBody);
       } catch (err: any) {
         const status = err instanceof SsrfBlockedError ? 400 : 502;
-        return res.status(status).json({ error: 'Proxy forwarding failed', details: err.message, capturedId: newRequest._id });
+        return res.status(status).json({ error: 'Proxy forwarding failed', details: err.message, capturedId: newRequest.id });
       }
     } else {
-      return res.status(200).json({ message: 'Request captured successfully (no target to forward)', capturedId: newRequest._id });
+      return res.status(200).json({ message: 'Request captured successfully (no target to forward)', capturedId: newRequest.id });
     }
   } catch (err: any) {
     console.error('Capture error:', err);

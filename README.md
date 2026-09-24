@@ -12,7 +12,7 @@ Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment de
 - **🔐 Authentication:** Built-in JWT-based local authentication and **Google OAuth** integration. 
 - **👥 Role-Based Access Control (RBAC):** Admin dashboard to manage users, permissions, and system configurations directly from the UI.
 - **📜 History & Audit Logs:** Never lose a request. Everything is saved in your personal history, and system-wide changes are securely audited.
-- **📦 Multi-Database Connector:** The server can boot on **MongoDB (default), SQLite, PostgreSQL, MySQL, or MSSQL**. The authenticated core (login, workspaces, collections, folders, requests) is verified on SQLite and MongoDB. Environments, history, sharing, capture, and import/export still talk to Mongoose directly and fail when `DB_TYPE` is not `mongodb`.
+- **📦 Multi-Database Connector:** The server can boot on **MongoDB (default), SQLite, PostgreSQL, MySQL, or MSSQL**. Environments, history, sharing, capture, admin, and import/export go through repositories, so those routes no longer call Mongoose directly.
 - **🐳 Docker Ready:** Multi-stage image. It does not bundle a database; pass `DB_TYPE=sqlite` for a single-container run, or point it at MongoDB.
 
 ## 🛠️ Tech Stack
@@ -130,7 +130,7 @@ What the server actually does today, versus what is still only a plan. Open item
 3. **Request bodies are not validated with Zod.** `zod` is installed and unused. Field allowlists exist on the main collection/folder/request/workspace updates; they are not a schema layer.
 4. **The API server still sends proxied HTTP requests.** A redesign that would stop the central server from issuing those calls has not landed. `POST /api/proxy` runs on the server.
 5. **The proxy blocks internal and private targets.** `server/src/utils/ssrf.ts` rejects loopback, RFC1918, link-local, NAT64, IPv4-mapped forms, and non-dotted IP literals. It does not leave SSRF open for local-network testing. An admin message in that module says a system setting can allow it; that allow-switch is not a reason to treat private URLs as permitted by default.
-6. **SQL and MongoDB share a repository layer only on the core path.** Environments, history, share, capture, import/export, and parts of admin still use Mongoose models or `mongoose.Types.ObjectId`, which reject SQL UUIDs.
+6. **SQL and MongoDB share a repository layer on the request path.** Environments, history, share, capture, admin, import/export, and the proxy history write go through repositories. `mongoose.Types.ObjectId(workspaceId)` is no longer used to address a workspace.
 
 ## 🚀 Scalability & Performance (High-Scale Architecture)
 
@@ -267,10 +267,8 @@ Not new features. Things the code already claims to do and does not. Do these fi
 
 The Features list at the top of this file promises things the server does not deliver.
 
-* [ ] **Multi-database support — finish the remaining routes** — `CR#1` (core done)
-  * ✅ **Done:** `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check in `utils/ids.ts`), `routes/workspaces.ts` and `routes/collections.ts` now go through the repositories. The authenticated core path (login → `/me` → workspace → collection → folder → request → comment → delete → logout) is verified on **both SQLite and MongoDB**.
-  * **Remaining — Where:** `routes/{environments,history,admin,capture,importExport,share}.ts` still call Mongoose models directly and will fail under `DB_TYPE≠mongodb`. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) schemas reconciled.
-  * **Do:** route those files through the repositories (extending `EnvironmentRepository`/`HistoryRepository` to the full shape) and fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
+* [x] **Multi-database support — finish the remaining routes** — `CR#1`
+  * ✅ **Done:** `environments`, `history`, `admin`, `capture`, `importExport`, `share`, and `shareProxy` go through repositories. SQL environments carry `isGlobal` and `order`; the variables-only global row is still merged into the list. History snapshots are stored in Mongo as `requestSnapshot`/`responseSnapshot` and in SQL inside `requestData`/`responseData` plus the method/url/status columns. Proxy history writes pass string ids. `server/src/tests/db.repositories.test.ts` passes on SQLite (53 tests).
 
 * [ ] **Import / Export / Runner are server-side stubs** — `CR#13`
   * **Where:** `server/src/routes/importExport.ts` (`GET /collections/:id/export` returns `{ item: [] }`), `server/src/routes/runner.ts` (near-empty)
@@ -302,9 +300,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Default admin credentials, shared JWT secret, insecure TLS** — `CR#6`
   * ✅ **Done:** production refuses to bootstrap `admin`/`admin`; `jwtSecret.ts` refuses a per-pod ephemeral secret in production (require `JWT_SECRET`, opt out with `ALLOW_EPHEMERAL_JWT_SECRET`); Mongo `tlsInsecure` is opt-in via `MONGO_TLS_INSECURE`. (Populating a real value in `k8s/secret.yaml` remains a deploy-time action.)
 
-* [ ] **Mass assignment and cross-workspace writes** — `CR#7` (main routes done)
-  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` now allowlist writable fields (no `workspaceId`/`collectionId` reassignment) and no longer leak `err.message`.
-  * **Do:** `POST /api/history/:id/save` still creates a request in a client-supplied `collectionId` with no membership check, and `POST /api/import/wsdl` still has no `requireWorkspaceRole` — add the guards.
+* [x] **Mass assignment and cross-workspace writes** — `CR#7`
+  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` allowlist writable fields. `POST /api/history/:id/save` loads the collection and requires an editor role in its workspace. `POST /api/import/wsdl` uses `requireWorkspaceRole('editor')`, which reads `workspaceId` from the body. Environment updates only accept `name`, `variables`, `order`, and `isGlobal`.
 
 * [x] **History endpoints have no workspace RBAC** — `CR#11`
   * ✅ **Done:** `GET`/`DELETE /workspaces/:workspaceId/history` now require `requireWorkspaceRole('viewer')`, and the workspace-scoped clear decrements `historyUsedBytes` by the bytes actually freed instead of zeroing the user's whole counter. (The `Types.ObjectId(workspaceId)` SQL issue folds into the `CR#1` follow-up for `history.ts`.)
