@@ -1,20 +1,50 @@
 import { Router, Request, Response } from 'express';
 import { SharedLinkRepository } from '../repositories/SharedLinkRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { rateLimit } from '../middleware/rateLimit';
 import { createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
+const publicProxyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: 'Too many requests for this shared link — please try again later.',
+});
+
+function urlIsInCollection(requested: string, storedUrls: string[]): boolean {
+  let requestedUrl: URL;
+  try { requestedUrl = new URL(requested); } catch { return false; }
+  return storedUrls.some(stored => {
+    if (!stored) return false;
+    if (stored === requested) return true;
+    try {
+      const template = stored.replace(/\{\{[^}]+\}\}/g, 'placeholder');
+      const storedUrl = new URL(template);
+      return storedUrl.origin === requestedUrl.origin && storedUrl.pathname === requestedUrl.pathname;
+    } catch {
+      return false;
+    }
+  });
+}
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
-router.post('/:shortId/proxy', async (req: Request, res: Response) => {
+router.post('/:shortId/proxy', publicProxyLimiter, async (req: Request, res: Response) => {
   const link = await SharedLinkRepository.findByShortId(req.params.shortId as string);
   if (!link || link.expiresAt < new Date()) {
     return res.status(404).json({ message: 'Link not found or expired' });
   }
 
   const { method, url, headers = {}, body, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
-
   if (!url) return res.status(400).json({ message: 'url is required' });
+  if (localProxy) {
+    return res.status(400).json({ message: 'A caller-supplied proxy is not available on a shared link' });
+  }
+  const sharedRequests = await RequestRepository.findByCollection(link.collectionId);
+  if (!urlIsInCollection(String(url), sharedRequests.map(r => r.url))) {
+    return res.status(403).json({ message: 'This shared link can only call URLs that belong to the collection' });
+  }
+
   if (!ALLOWED_METHODS.includes(method?.toUpperCase())) {
     return res.status(400).json({ message: 'Invalid HTTP method' });
   }

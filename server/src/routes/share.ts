@@ -2,13 +2,35 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getUserWorkspaceRole } from '../middleware/rbac';
+import { rateLimit } from '../middleware/rateLimit';
 import { SharedLinkRepository } from '../repositories/SharedLinkRepository';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
 
 const router = Router();
+const publicShareLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: 'Too many requests for this shared link — please try again later.',
+});
 
-router.get('/:shortId', async (req: Request, res: Response) => {
+const SECRET_HEADER = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token)$/i;
+
+function publicCollection(collection: { variables?: unknown; preRequestScript?: string; testScript?: string }) {
+  return { ...collection, variables: [], preRequestScript: '', testScript: '' };
+}
+
+function publicRequest(request: { headers?: Array<{ key?: string }>; auth?: unknown; preRequestScript?: string; testScript?: string }) {
+  return {
+    ...request,
+    auth: { type: 'none' },
+    headers: (request.headers || []).filter(h => !SECRET_HEADER.test(h.key || '')),
+    preRequestScript: '',
+    testScript: '',
+  };
+}
+
+router.get('/:shortId', publicShareLimiter, async (req: Request, res: Response) => {
   const link = await SharedLinkRepository.findByShortId(req.params.shortId as string);
   if (!link) {
     return res.status(404).json({ message: 'Link not found or expired' });
@@ -26,8 +48,8 @@ router.get('/:shortId', async (req: Request, res: Response) => {
   const requests = await RequestRepository.findByCollection(collection.id);
 
   return res.json({
-    collection,
-    requests,
+    collection: publicCollection(collection),
+    requests: requests.map(publicRequest),
     expiresAt: link.expiresAt,
   });
 });
@@ -48,7 +70,7 @@ router.post('/collection/:id', authenticate, async (req: AuthRequest, res: Respo
     }
   }
 
-  const shortId = crypto.randomBytes(6).toString('hex');
+  const shortId = crypto.randomBytes(16).toString('hex');
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + days);
 

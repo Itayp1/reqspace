@@ -287,10 +287,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Header auth allows impersonation** — `CR#2`
   * ✅ **Done:** `X-Auth-User` is honoured only when the request source is trusted (`HEADER_AUTH_TRUSTED_IPS`, loopback by default) in `server/src/middleware/auth.ts`.
 
-* [ ] **Share-proxy is an open proxy for anonymous users** — `CR#3`
-  * **Where:** `server/src/routes/shareProxy.ts`, `server/src/routes/share.ts`
-  * **Why:** `POST /api/share/:shortId/proxy` requires no login, so a link holder can make the server issue arbitrary HTTP requests. `GET /api/share/:shortId` returns every request **including headers, tokens and scripts**.
-  * **Do:** restrict the public proxy to URLs present in the shared collection (or remove it); strip auth / cookies / variables from the public payload; block `localProxy` on the public path; widen `shortId` beyond 48 bits and rate-limit it.
+* [x] **Share-proxy is an open proxy for anonymous users** — `CR#3`
+  * ✅ **Done:** `POST /api/share/:shortId/proxy` only forwards a URL whose origin and path match a request in the shared collection, rejects `localProxy`, and is rate-limited (30/min per IP). `GET /api/share/:shortId` drops variables, scripts, auth, and credential headers. New links use a 128-bit `shortId`.
 
 * [ ] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
   * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error.
