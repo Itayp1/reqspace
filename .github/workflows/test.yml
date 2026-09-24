@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install & build server
+        run: |
+          npm ci --prefix server
+          npm run build --prefix server
+
+      - name: Install & build client
+        run: |
+          npm ci --prefix client
+          npm run build --prefix client
+
+      - name: Start server (sqlite backend)
+        run: |
+          DB_TYPE=sqlite DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=development PORT=3005 \
+            node server/dist/index.js > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3005/api/health >/dev/null; then echo "server up"; break; fi
+            sleep 1
+          done
+          curl -sf http://localhost:3005/api/health || (echo "server failed to start"; cat /tmp/server.log; exit 1)
+
+      - name: Server tests (jest — unit + ssrf + live auth e2e)
+        run: npm test --prefix server
+
+      - name: Core smoke (crosses the auth boundary, sqlite)
+        run: bash scripts/smoke-core.sh http://localhost:3005
+
+      - name: Stop server
+        if: always()
+        run: kill "$(cat /tmp/server.pid)" 2>/dev/null || true

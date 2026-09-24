@@ -8,7 +8,38 @@ on:
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
+  # Gate publishing on the test suite — an image must never ship from a red
+  # build (CR#26). Runs the same build + jest + auth-crossing smoke as test.yml.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install & build
+        run: |
+          npm ci --prefix server
+          npm run build --prefix server
+          npm ci --prefix client
+          npm run build --prefix client
+      - name: Start server (sqlite backend)
+        run: |
+          DB_TYPE=sqlite DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=development PORT=3005 \
+            node server/dist/index.js > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3005/api/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://localhost:3005/api/health || (cat /tmp/server.log; exit 1)
+      - name: Server tests (jest)
+        run: npm test --prefix server
+      - name: Core smoke
+        run: bash scripts/smoke-core.sh http://localhost:3005
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     
     steps:
