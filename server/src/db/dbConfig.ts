@@ -75,7 +75,7 @@ export function getDbConfig(): DbConfig {
     connectionString: process.env.DB_CONNECTION_STRING || fileConfig.connectionString,
     host: process.env.DB_HOST || fileConfig.host || 'localhost',
     port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : (fileConfig.port ?? defaultPort(type)),
-    database: process.env.DB_NAME || fileConfig.database || 'postman_clone',
+    database: process.env.DB_NAME || fileConfig.database || 'reqspace',
     username: process.env.DB_USER || fileConfig.username || 'root',
     password: process.env.DB_PASSWORD || fileConfig.password || '',
   };

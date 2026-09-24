@@ -98,15 +98,15 @@ MONGO_URI=mongodb://localhost:27017/reqspace-web
 # DB_STORAGE_PATH=./data.sqlite
 
 # Postgres / MySQL / MSSQL — connection string, or discrete fields.
-# DB_CONNECTION_STRING=postgres://user:pass@localhost:5432/postman_clone
+# DB_CONNECTION_STRING=postgres://user:pass@localhost:5432/reqspace
 # DB_HOST=localhost
 # DB_PORT=5432
-# DB_NAME=postman_clone
+# DB_NAME=reqspace
 # DB_USER=root
 # DB_PASSWORD=
 ```
 
-Default ports when `DB_PORT` is omitted: MySQL `3306`, PostgreSQL `5432`, MSSQL `1433`. The SQL database name falls back to `postman_clone`.
+Default ports when `DB_PORT` is omitted: MySQL `3306`, PostgreSQL `5432`, MSSQL `1433`. The SQL database name falls back to `reqspace`.
 
 ## 🔑 Google OAuth Setup
 
@@ -375,9 +375,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Dockerfile and k8s hygiene** — `CR#17`
   * ✅ **Done:** the Dockerfile uses `npm ci`, a multi-stage build-tool-free runtime image, and a non-root `USER`. (k8s sticky sessions for socket.io are tracked under the Redis task above.)
 
-* [ ] **Dead code and naming** — *P3* (`server/dist` untracking done)
-  * ✅ **Done:** `server/dist` is no longer committed (gitignored).
-  * **Do:** `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`. (`runner.ts` was removed with `CR#13`.)
+* [x] **Dead code and naming** — *P3*
+  * ✅ **Done:** `server/dist` stays gitignored. `ensureDefaultAdmin` is gone; bootstrap lives in `index.ts`. `share.ts` no longer has `??` placeholders. `multer`, `http-proxy-middleware`, `archiver`, and `postman-collection` were unused and are removed. The Electron `appId` is `com.reqspace.app`. New SQL databases default to `reqspace`. (`runner.ts` was removed with `CR#13`.)
 
 * [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
   * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.
