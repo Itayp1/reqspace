@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
+import { requireRoleOnCollection } from '../middleware/resolveWorkspace';
 import { History } from '../models/History';
 import { User } from '../models/User';
 import { SystemConfig } from '../models/SystemConfig';
@@ -77,7 +78,12 @@ router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer')
 });
 
 // ── POST /api/history/:id/save – Save to Collection ─────────────────────────
-router.post('/history/:id/save', async (req: AuthRequest, res: Response) => {
+// SEC-2 hole #1: this used to create the request in whatever collectionId the
+// client sent, with no check that the caller is even a member of the
+// workspace that owns it — reachable by anyone with a valid session, just by
+// guessing or reusing a collection id. Resolve the collection's workspace and
+// require editor before writing into it.
+router.post('/history/:id/save', requireRoleOnCollection('editor'), async (req: AuthRequest, res: Response) => {
   const item = await History.findOne({
     _id: req.params.id,
     userId: req.user!._id,

@@ -1,9 +1,14 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireWorkspaceRole } from '../middleware/rbac';
+import { requireRoleOnCollection } from '../middleware/resolveWorkspace';
 import { Collection } from '../models/Collection';
 import { Folder } from '../models/Folder';
 import { Request as ApiRequest } from '../models/Request';
 import { SystemConfig } from '../models/SystemConfig';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { FolderRepository } from '../repositories/FolderRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
 import mongoose from 'mongoose';
@@ -11,14 +16,131 @@ import mongoose from 'mongoose';
 const router = Router();
 router.use(authenticate);
 
-// Import/Export Routes placeholder
-router.get('/collections/:id/export', async (req: AuthRequest, res: Response) => {
-  const collection = await Collection.findById(req.params.id);
-  res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
-});
+// ── GET /api/collections/:id/export — v1 collection export ─────────────────
+// SEC-2 hole #3: this used to be reachable by any authenticated user with no
+// role check at all, and returned a dummy `{ info, item: [] }` payload no
+// matter what the collection actually contained.
+router.get(
+  '/collections/:id/export',
+  requireRoleOnCollection('viewer', (req) => req.params.id),
+  async (req: AuthRequest, res: Response) => {
+    const collection = await CollectionRepository.findById(req.params.id);
+    if (!collection) return res.status(404).json({ message: 'Collection not found' });
 
-router.post('/collections/import', async (req: AuthRequest, res: Response) => {
-  res.json({ message: 'Import successful (stub)' });
+    const folders = await FolderRepository.findByCollection(collection.id);
+    const requests = await RequestRepository.findByCollection(collection.id);
+
+    const dump = {
+      version: 1,
+      collection: {
+        name: collection.name,
+        description: collection.description,
+        variables: collection.variables,
+        preRequestScript: collection.preRequestScript,
+        testScript: collection.testScript,
+      },
+      folders: folders.map((f) => ({
+        _id: f.id,
+        parentFolderId: f.parentFolderId,
+        name: f.name,
+        description: f.description,
+        preRequestScript: f.preRequestScript,
+        testScript: f.testScript,
+        order: f.order,
+      })),
+      requests: requests.map((r) => ({
+        _id: r.id,
+        folderId: r.folderId,
+        name: r.name,
+        method: r.method,
+        url: r.url,
+        params: r.params,
+        headers: r.headers,
+        auth: r.auth,
+        body: r.body,
+        preRequestScript: r.preRequestScript,
+        testScript: r.testScript,
+        description: r.description,
+        order: r.order,
+      })),
+    };
+
+    res.setHeader('Content-disposition', `attachment; filename=${collection.name.replace(/[^a-z0-9_-]+/gi, '_')}.json`);
+    res.setHeader('Content-type', 'application/json');
+    return res.json(dump);
+  }
+);
+
+// ── POST /api/collections/import — v1 collection import ────────────────────
+// SEC-2 hole #4: this used to be a stub with no persistence and no checks at
+// all (`{ workspaceId } = req.body` wasn't even read). Requires editor on the
+// target workspace (read from `req.body.workspaceId` — rbac.ts already falls
+// back to that) and re-creates the collection tree with fresh ids.
+router.post('/collections/import', requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
+  const { workspaceId, data } = req.body;
+  if (!data || data.version !== 1 || !data.collection) {
+    return res.status(400).json({ message: 'Invalid or unsupported collection export' });
+  }
+
+  const count = await CollectionRepository.countByWorkspace(workspaceId);
+  const collection = await CollectionRepository.create({
+    workspaceId,
+    name: data.collection.name || 'Imported Collection',
+    description: data.collection.description,
+    variables: data.collection.variables,
+    preRequestScript: data.collection.preRequestScript,
+    testScript: data.collection.testScript,
+    createdBy: String(req.user!._id),
+    order: count,
+  });
+
+  const idMap = new Map<string, string>();
+
+  // Folders must be created parents-first so parentFolderId can be remapped.
+  const remaining = [...(data.folders ?? [])];
+  let progressed = true;
+  while (remaining.length && progressed) {
+    progressed = false;
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      const f = remaining[i];
+      const oldParent = f.parentFolderId ? String(f.parentFolderId) : null;
+      if (oldParent && !idMap.has(oldParent)) continue;
+      const created = await FolderRepository.create({
+        collectionId: collection.id,
+        parentFolderId: oldParent ? idMap.get(oldParent) ?? null : null,
+        name: f.name,
+        description: f.description,
+        preRequestScript: f.preRequestScript,
+        testScript: f.testScript,
+        order: f.order,
+      });
+      idMap.set(String(f._id ?? f.id), created.id);
+      remaining.splice(i, 1);
+      progressed = true;
+    }
+  }
+
+  for (const r of data.requests ?? []) {
+    const oldFolder = r.folderId ? String(r.folderId) : null;
+    await RequestRepository.create({
+      collectionId: collection.id,
+      folderId: oldFolder ? idMap.get(oldFolder) ?? null : null,
+      name: r.name,
+      method: r.method,
+      url: r.url,
+      params: r.params,
+      headers: r.headers,
+      auth: r.auth,
+      body: r.body,
+      preRequestScript: r.preRequestScript,
+      testScript: r.testScript,
+      description: r.description,
+      order: r.order,
+      createdBy: String(req.user!._id),
+    });
+  }
+
+  return res.status(201).json({ message: 'Import successful', collectionId: collection.id });
 });
 
 router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => {
@@ -121,7 +243,10 @@ router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response)
 });
 
 // ──────── POST /api/import/wsdl ────────────────────────────────────────────────────
-router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
+// SEC-2 hole #2: this used to create a collection in whatever `workspaceId`
+// the client sent with no membership check at all — reachable by any
+// authenticated user, in any workspace, just by guessing or reusing an id.
+router.post('/import/wsdl', requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
   const { url, workspaceId } = req.body;
   if (!url || !workspaceId) {
     return res.status(400).json({ message: 'url and workspaceId are required' });
