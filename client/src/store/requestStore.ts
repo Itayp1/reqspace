@@ -95,6 +95,23 @@ interface RequestStore {
 
 const historyMap: Record<string, { undo: ActiveRequest[], redo: ActiveRequest[], lastPush: number }> = {};
 
+const SECRET_HEADER = /^(authorization|proxy-authorization|cookie|x-api-key|api-key)$/i;
+
+function withoutSecrets(tab: ActiveRequest): ActiveRequest {
+  const headers = (tab.headers || []).map(h =>
+    SECRET_HEADER.test(h.key || '') ? { ...h, value: '' } : h
+  );
+  const auth = tab.auth ? {
+    ...tab.auth,
+    bearer: tab.auth.bearer ? { token: '' } : undefined,
+    basic: tab.auth.basic ? { ...tab.auth.basic, password: '' } : undefined,
+    apikey: tab.auth.apikey ? { ...tab.auth.apikey, value: '' } : undefined,
+    oauth2: tab.auth.oauth2 ? { ...tab.auth.oauth2, token: '', clientSecret: '' } : undefined,
+    ntlm: tab.auth.ntlm ? { ...tab.auth.ntlm, password: '' } : undefined,
+  } : tab.auth;
+  return { ...tab, headers, auth };
+}
+
 export const useRequestStore = create<RequestStore>()(
   persist(
     (set, get) => ({
@@ -325,7 +342,10 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
-      partialize: (state) => ({ tabs: state.tabs, activeTabId: state.activeTabId }),
+      partialize: (state) => ({
+        tabs: state.tabs.map(withoutSecrets),
+        activeTabId: state.activeTabId,
+      }),
       onRehydrateStorage: () => (state) => {
         if (state && state.activeTabId && state.tabs) {
           state.activeRequest = state.tabs.find(t => t.tabId === state.activeTabId) || null;

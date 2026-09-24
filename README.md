@@ -320,16 +320,15 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
   * **Do:** add request schemas route by route, starting with the mass-assignment routes above, then proxy / auth / admin bodies. While there, replace `req.user?: any` and the scattered `as any` casts with real types.
 
-* [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit done)
-  * ✅ **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`) and correct client-error statuses (413) are in place in `server/src/index.ts`.
-  * **Do:** cap the proxy response size and client-supplied timeout, add a CSP, rate-limit `POST /api/proxy`, and move the in-memory rate limiter to a shared store (alongside the Redis work) so it holds across replicas.
+* [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit/proxy caps done)
+  * ✅ **Done:** `helmet` now sends a CSP (`script-src 'self'`; styles allow inline because the UI still uses some). `POST /api/proxy` is limited to 60 requests/minute/IP, client timeouts are capped at 120s, and proxy responses stop at `MAX_PROXY_RESPONSE_BYTES` (default 5 MB) with status 413.
+  * **Do:** move the in-memory rate limiter to a shared store when Redis mode lands, so the limit holds across replicas.
 
 * [x] **SSRF: gaps in coverage** — `CR#25`
   * ✅ **Done:** `ssrf.ts` blocks NAT64, IPv4-mapped forms, integer/hex/octal literals, and trailing-dot hosts. `proxy.ts` asserts `http:`/`https:` before dispatching. `capture.ts` forwards with undici and `createSafeLookup` (no global `fetch`, redirects are manual). `assertRedirectTargetSafe` refuses a `Location` that points at a private host; covered in `server/src/tests/ssrf.test.ts`.
 
-* [ ] **Secrets persisted to `localStorage`** — `CR#21`
-  * **Where:** `client/src/store/requestStore.ts` (persists all tabs including `auth.bearer.token`, basic passwords, bodies), `client/src/store/cookieStore.ts` (also ships a dummy `sess_default_123`), `client/src/store/settingsStore.ts` (local proxy password)
-  * **Do:** strip credential fields from the persisted slice; keep them in memory or in the OS keychain for the Electron build. This is a prerequisite for the sandbox work to mean anything.
+* [x] **Secrets persisted to `localStorage`** — `CR#21`
+  * ✅ **Done:** `request-storage` drops bearer/basic/api-key/oauth/ntlm secrets and credential headers before write. Cookie values are kept in memory only, and the dummy `sess_default_123` cookie is gone. The proxy username and password are omitted from `reqspace-global-settings`. They remain in memory until reload. An OS keychain for the Electron build is still future work; nothing secret is written by these stores.
 
 * [x] **Information disclosure and open registration** — `CR#24`
   * ✅ **Done:** `allowSelfRegistration` now defaults to **false**, and `GET /api/health` masks the raw `dbError` in production.
