@@ -36,6 +36,9 @@ interface CollectionStore {
   folders: Folder[];
   requests: ApiRequest[];
   openCollectionIds: Set<string>;
+  collectionsNextCursor: string | null;
+  /** Per collection: null means that side has no further page. Missing key means not loaded. */
+  childCursors: Record<string, { folders: string | null; requests: string | null }>;
 
   // Basic setters
   setCollections: (collections: Collection[]) => void;
@@ -48,6 +51,9 @@ interface CollectionStore {
 
   // Fetch
   fetchCollectionsData: (workspaceId: string) => Promise<void>;
+  loadMoreCollections: (workspaceId: string) => Promise<void>;
+  ensureCollectionChildren: (collectionId: string) => Promise<void>;
+  loadMoreChildren: (collectionId: string) => Promise<void>;
 
   // Collection CRUD
   createCollection: (workspaceId: string, name: string) => Promise<Collection>;
@@ -76,6 +82,8 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   folders: [],
   requests: [],
   openCollectionIds: new Set<string>(),
+  collectionsNextCursor: null,
+  childCursors: {},
 
   setCollections: (collections) => set({ collections }),
   setFolders: (folders) => set({ folders }),
@@ -99,49 +107,75 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   fetchCollectionsData: async (workspaceId: string) => {
     try {
       const { db } = await import('../db');
-      
-      // 1. Optimistic local load
       const localCols = await db.collections.where('workspaceId').equals(workspaceId).toArray();
-      set({ collections: localCols });
-      
-      const colIds = localCols.map(c => c._id);
-      if (colIds.length > 0) {
-        const [localFolders, localReqs] = await Promise.all([
-          db.folders.where('collectionId').anyOf(colIds).toArray(),
-          db.requests.where('collectionId').anyOf(colIds).toArray()
-        ]);
-        set({ folders: localFolders, requests: localReqs });
-      }
+      set({ collections: localCols, collectionsNextCursor: null, childCursors: {} });
 
-      // 2. Fetch from server
-      const colRes = await api.get(`/workspaces/${workspaceId}/collections`);
-      const serverCols = colRes.data;
-      set({ collections: serverCols });
-      
-      // Update local db
+      const colRes = await api.get(`/workspaces/${workspaceId}/collections`, { params: { limit: 50 } });
+      const serverCols = colRes.data.items ?? colRes.data;
+      const nextCursor = colRes.data.nextCursor ?? null;
+      set({ collections: serverCols, collectionsNextCursor: nextCursor, folders: [], requests: [] });
       await db.collections.bulkPut(serverCols.map((c: any) => ({ ...c, workspaceId })));
-
-      let allFolders: Folder[] = [];
-      let allRequests: ApiRequest[] = [];
-
-      await Promise.all(serverCols.map(async (col: Collection) => {
-        const [fRes, rRes] = await Promise.all([
-          api.get(`/collections/${col._id}/folders`),
-          api.get(`/collections/${col._id}/requests`)
-        ]);
-        allFolders = allFolders.concat(fRes.data);
-        allRequests = allRequests.concat(rRes.data);
-      }));
-
-      set({ folders: allFolders, requests: allRequests });
-      
-      // Update local db
-      await db.folders.bulkPut(allFolders);
-      await db.requests.bulkPut(allRequests);
-      
     } catch (e) {
       console.error(e);
     }
+  },
+
+  loadMoreCollections: async (workspaceId: string) => {
+    const cursor = get().collectionsNextCursor;
+    if (!cursor) return;
+    const colRes = await api.get(`/workspaces/${workspaceId}/collections`, { params: { limit: 50, cursor } });
+    const serverCols = colRes.data.items ?? [];
+    set(state => ({
+      collections: [...state.collections, ...serverCols.filter((c: Collection) => !state.collections.some(existing => existing._id === c._id))],
+      collectionsNextCursor: colRes.data.nextCursor ?? null,
+    }));
+    const { db } = await import('../db');
+    await db.collections.bulkPut(serverCols.map((c: any) => ({ ...c, workspaceId })));
+  },
+
+  ensureCollectionChildren: async (collectionId: string) => {
+    if (get().childCursors[collectionId]) return;
+    set(state => ({
+      childCursors: { ...state.childCursors, [collectionId]: { folders: null, requests: null } },
+    }));
+    const [fRes, rRes] = await Promise.all([
+      api.get(`/collections/${collectionId}/folders`, { params: { limit: 50 } }),
+      api.get(`/collections/${collectionId}/requests`, { params: { limit: 50 } }),
+    ]);
+    const folders = fRes.data.items ?? fRes.data;
+    const requests = rRes.data.items ?? rRes.data;
+    set(state => ({
+      folders: [...state.folders.filter(f => f.collectionId !== collectionId), ...folders],
+      requests: [...state.requests.filter(r => r.collectionId !== collectionId), ...requests],
+      childCursors: {
+        ...state.childCursors,
+        [collectionId]: { folders: fRes.data.nextCursor ?? null, requests: rRes.data.nextCursor ?? null },
+      },
+    }));
+  },
+
+  loadMoreChildren: async (collectionId: string) => {
+    const cursors = get().childCursors[collectionId];
+    if (!cursors || (!cursors.folders && !cursors.requests)) return;
+    const [fRes, rRes] = await Promise.all([
+      cursors.folders
+        ? api.get(`/collections/${collectionId}/folders`, { params: { limit: 50, cursor: cursors.folders } })
+        : Promise.resolve(null),
+      cursors.requests
+        ? api.get(`/collections/${collectionId}/requests`, { params: { limit: 50, cursor: cursors.requests } })
+        : Promise.resolve(null),
+    ]);
+    set(state => ({
+      folders: fRes ? [...state.folders, ...(fRes.data.items ?? [])] : state.folders,
+      requests: rRes ? [...state.requests, ...(rRes.data.items ?? [])] : state.requests,
+      childCursors: {
+        ...state.childCursors,
+        [collectionId]: {
+          folders: fRes ? (fRes.data.nextCursor ?? null) : cursors.folders,
+          requests: rRes ? (rRes.data.nextCursor ?? null) : cursors.requests,
+        },
+      },
+    }));
   },
 
   // ── Collection ──────────────────────────────────────────────────────────────

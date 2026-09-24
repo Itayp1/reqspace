@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Request } from '../models/Request';
 import { SqlRequest } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { decodeCursor, mongoAfter, pageResult, sqlAfter } from '../utils/cursor';
 
 export interface IRequestRecord {
   _id: string; id: string;
@@ -73,6 +74,20 @@ export const RequestRepository = {
   async findByCollection(collectionId: string): Promise<IRequestRecord[]> {
     if (isMongo()) return (await Request.find({ collectionId }).sort({ order: 1 }).lean()).map(mongoToRecord);
     return (await SqlRequest.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  async findByCollectionPage(collectionId: string, limit: number, cursorRaw?: string) {
+    const cursor = decodeCursor(cursorRaw);
+    if (isMongo()) {
+      const rows = await Request.find({ collectionId, ...mongoAfter(cursor) }).sort({ order: 1, _id: 1 }).limit(limit + 1).lean();
+      return pageResult(rows.map(mongoToRecord), limit);
+    }
+    const rows = await SqlRequest.findAll({
+      where: { collectionId, ...sqlAfter(cursor) },
+      order: [['order', 'ASC'], ['id', 'ASC']],
+      limit: limit + 1,
+    });
+    return pageResult(rows.map(sqlToRecord), limit);
   },
 
   async findByFolder(folderId: string): Promise<IRequestRecord[]> {

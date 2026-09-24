@@ -134,10 +134,10 @@ What the server actually does today, versus what is still only a plan. Open item
 
 ## 🚀 Scalability & Performance (High-Scale Architecture)
 
-The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ sockets) are a target, not a measured capacity. Indexing, realtime deltas, optional Redis concurrency, and RBAC/config caching are implemented. Lazy loading is not.
+The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ sockets) are a target, not a measured capacity. Indexing, realtime deltas, optional Redis concurrency, RBAC/config caching, and cursor pagination are implemented.
 
 1. **Database Indexing (in place):** Sequelize models under `server/src/db/sql-models/` declare indexes on `workspaceId`, `collectionId`, and `folderId`, plus compound indexes on `order` / `parentFolderId`. Sequelize emits the dialect-specific `CREATE INDEX` on sync for PostgreSQL, MySQL, SQLite, and MSSQL.
-2. **Lazy loading and pagination (not started):** List endpoints still return whole trees. Cursor pagination and expand-to-load are not implemented.
+2. **Lazy loading and cursor pagination:** `GET /workspaces/:id/collections`, `GET /collections/:id/folders`, and `GET /collections/:id/requests` accept `limit` (max 100) and `cursor`. The response is `{ items, nextCursor }`. Without `limit` they still return the full array. The sidebar loads 50 collections and asks for the next page. Folders and requests for a collection load when that collection is opened, 50 at a time.
 3. **Realtime sync applies the event payload.** `SocketSync` writes the received collection, folder, request, environment, or reorder list into the store. It loads the full tree only when the socket connects. The socket origin is `VITE_SOCKET_URL`, or the page origin when that variable is unset.
 4. **RBAC and config caching:** `getUserWorkspaceRole` and `SystemConfigRepository.getConfig` keep a 30-second in-process cache. Saving a workspace drops that workspace's role entries. Saving system config drops the config entry. When Redis is active, the drop is published so other replicas clear the same keys.
 5. **Horizontal WebSockets:** When `REDIS_URL` is set and Redis answers, Socket.io uses the Redis adapter and rate limits share that store. Otherwise the process stays single-node. The Ingress pins a client with the `reqspace-route` cookie, and the Service uses `sessionAffinity: ClientIP`.
@@ -344,7 +344,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Foreign-key indexes are documented but not enforced**
   * ✅ **Done:** `indexes` added to the Sequelize models under `server/src/db/sql-models/` for `workspaceId`, `collectionId`, `folderId` plus compound indexes on `order`/`parentFolderId` (and history `userId+workspaceId`, audit `targetId`).
 
-* [ ] **Lazy loading and cursor pagination** — from the *Scalability* section; not started. Endpoints still return whole trees.
+* [x] **Lazy loading and cursor pagination** — from the *Scalability* section
+  * ✅ **Done:** collection, folder, and request list routes take `limit` and `cursor` and return `{ items, nextCursor }` (`server/src/utils/cursor.ts`). The sidebar requests 50 collections and shows “Load more collections” when `nextCursor` is set. Opening a collection loads its folders and requests; “Load more” fetches the next page. A call without `limit` still returns the whole array. Sidebar search only sees rows that have been loaded. Covered by `server/src/tests/cursor.test.ts` and a SQL page test in `db.repositories.test.ts`.
 
 * [x] **RBAC and config caching** — from the *Scalability* section
   * ✅ **Done:** `getUserWorkspaceRole` and `SystemConfigRepository.getConfig` cache for 30 seconds. A workspace save drops that workspace's role cache. A config save drops the config cache. With Redis active, the drop is published on `reqspace:cache` so other replicas drop it too. Covered by `server/src/tests/cache.test.ts`.

@@ -428,7 +428,9 @@ const CollectionNode = ({
   const [isRenaming, setIsRenaming] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const { showContextMenu } = useContextMenu();
-  const { folders, requests, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder } = useCollectionStore();
+  const { folders, requests, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder, childCursors, loadMoreChildren } = useCollectionStore();
+  const moreChildren = childCursors[collection._id];
+  const hasMoreChildren = !!(moreChildren?.folders || moreChildren?.requests);
 
   const childFolders = folders.filter(f => f.collectionId === collection._id && !f.parentFolderId).sort((a, b) => (a.order || 0) - (b.order || 0));
   const childRequests = requests.filter(r => r.collectionId === collection._id && !r.folderId).sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -579,6 +581,14 @@ const CollectionNode = ({
               onMove={onMoveRequest}
             />
           ))}
+          {hasMoreChildren && (
+            <button
+              className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200"
+              onClick={() => loadMoreChildren(collection._id)}
+            >
+              Load more
+            </button>
+          )}
           {/* Quick Add Request at bottom of collection */}
           <div
             className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-400 cursor-pointer rounded hover:bg-gray-800 mt-0.5"
@@ -599,6 +609,7 @@ export const CollectionExplorer: React.FC = () => {
   const {
     collections, folders, requests,
     createCollection, openCollectionIds, toggleCollectionOpen,
+    collectionsNextCursor, loadMoreCollections,
     deleteCollection, deleteFolder, deleteRequest,
     duplicateCollection, duplicateFolder,
   } = useCollectionStore();
@@ -846,13 +857,25 @@ export const CollectionExplorer: React.FC = () => {
                 key={collection._id}
                 collection={collection}
                 isOpen={openCollectionIds.has(collection._id) || !!filterLower}
-                onToggle={() => toggleCollectionOpen(collection._id)}
+                onToggle={() => {
+                  const opening = !openCollectionIds.has(collection._id);
+                  toggleCollectionOpen(collection._id);
+                  if (opening) useCollectionStore.getState().ensureCollectionChildren(collection._id);
+                }}
                 onPrompt={openPrompt}
                 onDelete={handleCollectionDelete}
                 onDuplicate={handleDuplicate}
                 onMoveRequest={handleMoveRequest}
               />
             ))
+          )}
+          {collectionsNextCursor && activeWorkspace && (
+            <button
+              className="w-full mt-2 px-2 py-1.5 text-xs rounded text-gray-300 hover:bg-gray-800"
+              onClick={() => loadMoreCollections(activeWorkspace._id)}
+            >
+              Load more collections
+            </button>
           )}
         </div>
       </div>

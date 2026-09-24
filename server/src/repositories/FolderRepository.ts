@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Folder } from '../models/Folder';
 import { SqlFolder } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { decodeCursor, mongoAfter, pageResult, sqlAfter } from '../utils/cursor';
 
 export interface IFolderRecord {
   _id: string; id: string;
@@ -33,6 +34,20 @@ export const FolderRepository = {
   async findByCollection(collectionId: string): Promise<IFolderRecord[]> {
     if (isMongo()) return (await Folder.find({ collectionId }).sort({ order: 1 }).lean()).map(mongoToRecord);
     return (await SqlFolder.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  async findByCollectionPage(collectionId: string, limit: number, cursorRaw?: string) {
+    const cursor = decodeCursor(cursorRaw);
+    if (isMongo()) {
+      const rows = await Folder.find({ collectionId, ...mongoAfter(cursor) }).sort({ order: 1, _id: 1 }).limit(limit + 1).lean();
+      return pageResult(rows.map(mongoToRecord), limit);
+    }
+    const rows = await SqlFolder.findAll({
+      where: { collectionId, ...sqlAfter(cursor) },
+      order: [['order', 'ASC'], ['id', 'ASC']],
+      limit: limit + 1,
+    });
+    return pageResult(rows.map(sqlToRecord), limit);
   },
 
   async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string; preRequestScript?: string; testScript?: string; order?: number }): Promise<IFolderRecord> {

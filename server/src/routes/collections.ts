@@ -8,6 +8,7 @@ import { logAudit } from '../repositories/AuditLogRepository';
 import { UserRole } from '../models/User';
 import { emitToWorkspace } from '../socketUtils';
 import { v4 as uuidv4 } from 'uuid';
+import { parseLimit } from '../utils/cursor';
 
 const router = Router();
 
@@ -60,6 +61,11 @@ router.use(authenticate);
 router.get('/workspaces/:workspaceId/collections',
   requireWorkspaceRole('viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = parseLimit(req.query.limit);
+    if (limit) {
+      const page = await CollectionRepository.findByWorkspacePage(req.params.workspaceId, limit, String(req.query.cursor || ''));
+      return res.json(page);
+    }
     const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
     return res.json(collections);
   }
@@ -108,6 +114,11 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
 router.get('/collections/:collectionId/folders',
   checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = parseLimit(req.query.limit);
+    if (limit) {
+      const page = await FolderRepository.findByCollectionPage(req.params.collectionId, limit, String(req.query.cursor || ''));
+      return res.json(page);
+    }
     const folders = await FolderRepository.findByCollection(req.params.collectionId);
     return res.json(folders);
   }
@@ -155,6 +166,11 @@ router.get('/collections/:collectionId/requests',
   checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
     let requests;
+    const limit = parseLimit(req.query.limit);
+    if (limit && req.query.folderId === undefined) {
+      const page = await RequestRepository.findByCollectionPage(req.params.collectionId, limit, String(req.query.cursor || ''));
+      return res.json(page);
+    }
     if (req.query.folderId !== undefined) {
       const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);
       requests = folderId === null
