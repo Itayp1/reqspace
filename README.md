@@ -223,11 +223,45 @@ Integration coverage does not remove the need for a small number of targeted tes
 
 Ordered by *what unblocks what*, not by ambition. The rule applied here: **fix what is silently broken, then make the advertised features true, then scale.** Findings referenced as `CR#n` come from [`CODE_REVIEW.md`](CODE_REVIEW.md) (2026-09-23; all items below re-verified against the source on 2026-09-24).
 
-This list now tracks the **remaining** work. Items delivered in the review-remediation effort (all of Stage 0, plus the multi-DB core path, the Stage 2 auth/security fixes, indexes, and the CI/test scaffolding) have been removed — see the git history / PR for those. Each task carries **Where** (the exact code to open) and **Do** (the change to make), so it can be picked up without re-reading the review.
+The **`### ✅ Completed`** block below lists what has already been delivered (do **not** redo these). Everything after it, under the stage headings, is the **remaining** work — each open task is a `[ ]` checkbox and carries **Where** (the exact code to open) and **Do** (the change to make), so it can be picked up without re-reading the review. Partially-done tasks keep a **Done:** line and describe only what is left.
 
-> **✅ Stage 0 (broken-in-place) is complete:** realtime `:updated`/`:deleted` broadcasts (`CR#9`), the Redis-unsafe `size>1` guard, `authType: 'sso'` (`CR#15a`), logout cookie flags (`CR#16`), member-invite regex (`CR#10`), and the unified `PORT` (`CR#17`) are all fixed and covered by tests.
+### ✅ Completed (review-remediation, merged — do not redo)
 
-### 🟠 Stage 1 — Make the README true
+**Stage 0 — broken in place (all done):**
+- [x] `CR#9` — realtime `:updated`/`:deleted` broadcasts fire (`resolvedWorkspaceId` assigned in `checkPermissionByItem`, incl. the superadmin path).
+- [x] Redis-unsafe `socketUtils` `size>1` guard removed (adapter-aware `io.to(room).emit`).
+- [x] `CR#15a` — `authType: 'sso'` accepted by the User model (Mongo + SQL).
+- [x] `CR#16` — `clearAuthCookie` clears the cookie with the same `secure`/`sameSite`/`path` flags it was set with.
+- [x] `CR#10` — member-invite no longer builds a regex from raw input (shared `escapeRegex` + exact-match lookup).
+- [x] `CR#17` — port unified on **3005** across server/.env/Dockerfile/k8s.
+
+**Stage 1 — multi-DB (core done):**
+- [x] `CR#1` (core) — `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check, `utils/ids.ts`), `routes/workspaces.ts`, `routes/collections.ts` go through the repositories; login → workspace → collection → folder → request verified on **both SQLite and MongoDB**.
+- [x] `CR#18` — `sync({alter})` only outside production; dead `/admin/db-config` DB-gate carve-out removed.
+
+**Stage 2 — security:**
+- [x] `CR#2` — identity header (`X-Auth-User`) honoured only from a trusted proxy source (`HEADER_AUTH_TRUSTED_IPS`, loopback by default).
+- [x] `CR#6` — production refuses a per-pod JWT secret and refuses to seed `admin/admin`; Mongo `tlsInsecure` is opt-in (`MONGO_TLS_INSECURE`).
+- [x] `CR#8` (baseline) — `helmet`, `trust proxy`, `5mb` body cap (`MAX_BODY_SIZE`), correct client-error statuses (413).
+- [x] `CR#4` (partial) — OAuth `redirect_uri` allowlisted server-side; token-endpoint response no longer leaked.
+- [x] `CR#7` (main routes) — writable fields allowlisted on collection/folder/request/workspace PUT and `PUT /api/auth/settings`.
+- [x] `CR#12` — comment deletion requires the author or an editor/owner.
+- [x] `CR#11` — history routes require workspace membership; `historyUsedBytes` decremented by bytes actually freed.
+- [x] `CR#14` — workspace import no longer overwrites global `SystemConfig`.
+- [x] `CR#15b` — min password length 8, current password required on non-forced change, bcrypt cost 12 everywhere.
+- [x] `CR#24` — self-registration defaults to closed; raw `dbError` masked in `/api/health` in production.
+- [x] `CR#25` (parser) — SSRF blocks numeric/hex/octal IPv4, NAT64, IPv4-mapped and trailing-dot hosts; `proxy.ts` rejects non-http(s).
+
+**Stage 3 — scale (started):**
+- [x] FK + compound indexes on the Sequelize models (workspaceId/collectionId/folderId + order/parent compounds, history, audit).
+
+**Stage 4 — tests & CI:**
+- [x] `CR#26` (scaffolding) — `test.yml` (build + jest + auth-crossing smoke) with `docker-publish` gated on it; `scripts/smoke-core.sh`; `ssrf.ts` unit tests; two-client `socket-realtime` spec; `api-authorization` spec; `global-setup` enables registration; obsolete socket-sync suppression assertion replaced; `globals.ts-jest` migrated to `transform`.
+- [x] Stopped committing `server/dist`; Dockerfile uses `npm ci`, build-tool-free runtime image, non-root `USER`.
+
+---
+
+### 🟠 Stage 1 — Make the README true (remaining)
 
 The Features list at the top of this file promises things the server does not deliver.
 
