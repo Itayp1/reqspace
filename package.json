@@ -11,7 +11,7 @@
     "dist": "npm run build:client && npm run build:server && electron-builder"
   },
   "build": {
-    "appId": "com.reqspaceclone.app",
+    "appId": "com.reqspace.app",
     "productName": "reqSpace",
     "directories": {
       "output": "dist-electron"

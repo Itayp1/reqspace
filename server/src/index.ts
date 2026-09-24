@@ -13,6 +13,7 @@ import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
+import { httpStatus } from './utils/errors';
 import authRouter from './routes/auth';
 import workspacesRouter from './routes/workspaces';
 import collectionsRouter from './routes/collections';
@@ -25,12 +26,13 @@ import usersRouter from './routes/users';
 import shareRouter from './routes/share';
 import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
-import runnerRouter from './routes/runner';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
 import { getUserWorkspaceRole } from './middleware/rbac';
 import { resolveJwtSecret } from './utils/jwtSecret';
+import { connectRedis, attachSocketAdapter, redisMode } from './redis';
+import { subscribeCacheInvalidation } from './cache';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = resolveJwtSecret();
@@ -109,9 +111,36 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.en
 
 // Middleware
 app.use(morgan('dev'));
-// Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
-// currently need a permissive policy; tighten via a dedicated CSP later.
-app.use(helmet({ contentSecurityPolicy: false }));
+// Baseline HTTP hardening. frame-src 'self' lets the response visualizer iframe
+// load /visualizer.html. A sandboxed iframe is a unique origin, so those assets
+// must opt out of Helmet's default same-origin CORP or the frame stays blank.
+app.use((req, res, next) => {
+  if (req.path === '/visualizer.html' || req.path === '/sandbox.html' || req.path.startsWith('/vendor/')) {
+    const setHeader = res.setHeader.bind(res);
+    res.setHeader = ((name: string, value: number | string | readonly string[]) => {
+      if (String(name).toLowerCase() === 'cross-origin-resource-policy') {
+        return setHeader(name, 'cross-origin');
+      }
+      return setHeader(name, value);
+    }) as typeof res.setHeader;
+  }
+  next();
+});
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameSrc: ["'self'"],
+      baseUri: ["'self'"],
+    },
+  },
+}));
 // Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
 // MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
 const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';
@@ -132,6 +161,7 @@ app.get('/api/health', (_req, res) => {
   res.status(status).json({
     status: dbStatus,
     dbType,
+    redisConcurrency: redisMode(),
     dbError: dbError ? (isProd ? 'Database unavailable' : dbError) : undefined,
     uptime: process.uptime(),
     mongoState: mongoose.connection.readyState,
@@ -168,8 +198,6 @@ app.use('/api/users', usersRouter);
 app.use('/api/share', shareRouter);
 app.use('/api/share', shareProxyRouter);
 app.use('/api', importExportRouter);
-app.use('/api', runnerRouter);
-
 // Serve client static files (production)
 const clientDistPath = process.env.CLIENT_DIST_PATH
   ? path.resolve(__dirname, '..', process.env.CLIENT_DIST_PATH)
@@ -187,7 +215,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   console.error(err);
   // Honour explicit client-error statuses (e.g. 413 payload-too-large, 400) so
   // they aren't masked as 500. Server errors stay generic in production.
-  const status = (err as any).status || (err as any).statusCode || 500;
+  const status = httpStatus(err);
   const message = status < 500
     ? (err.message ?? 'Request error')
     : (process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message ?? 'Internal server error'));
@@ -200,6 +228,10 @@ async function bootstrap() {
   const { connectDb } = await import('./db/connect');
 
   const port = parseInt(process.env.PORT ?? '3005', 10);
+
+  await connectRedis();
+  await subscribeCacheInvalidation();
+  await attachSocketAdapter(io);
 
   // Start listening first — so the client can load and show errors
   server.listen(port, () => {

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
@@ -6,16 +7,20 @@ import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
+import { validateBody, registerBody, loginBody, changePasswordBody, googleBody, certificateBody, settingsBody } from '../validation/body';
+import { publicCertificates } from '../utils/secretBox';
+import { isMongo } from '../db/connect';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
 // Login/password-guessing and account-creation throttles — this whole file
 // was previously reachable with unlimited attempts per IP.
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: 'Too many login attempts — please try again later.' });
-const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'Too many accounts created from this address — please try again later.' });
+const loginLimiter = rateLimit({ name: 'login', windowMs: 15 * 60 * 1000, max: 15, message: 'Too many login attempts — please try again later.' });
+const registerLimiter = rateLimit({ name: 'register', windowMs: 60 * 60 * 1000, max: 10, message: 'Too many accounts created from this address — please try again later.' });
 
 // ── POST /api/auth/register ─────────────────────────────────────────────────
-router.post('/register', registerLimiter, async (req: Request, res: Response) => {
+router.post('/register', registerLimiter, validateBody(registerBody), async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
 
   if (!config?.auth.allowSelfRegistration) {
@@ -23,14 +28,6 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
   }
 
   const { name, email, password } = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: 'name, email and password are required' });
-  }
-
-  if (typeof password !== 'string' || password.length < 8) {
-    return res.status(400).json({ message: 'Password must be at least 8 characters' });
-  }
 
   // Domain whitelist check
   const domains = config.auth.allowedEmailDomains;
@@ -57,7 +54,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
   // Auto-create personal workspace
   await createPersonalWorkspace(user);
 
-  await logAudit(user._id as any, 'user.register', {
+  await logAudit(user._id, 'user.register', {
     ip: req.ip,
     details: { email },
   });
@@ -74,7 +71,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
 });
 
 // ── POST /api/auth/login ────────────────────────────────────────────────────
-router.post('/login', loginLimiter, async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, validateBody(loginBody), async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   const mode = config?.auth.mode ?? 'login';
 
@@ -101,8 +98,8 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     return res.status(401).json({ message: 'Invalid credentials' });
   }
 
-  await UserRepository.update(user._id as any, { lastLoginAt: new Date() } as any);
-  await logAudit(user._id as any, 'auth.login', { ip: req.ip });
+  await UserRepository.update(user._id, { lastLoginAt: new Date() });
+  await logAudit(user._id, 'auth.login', { ip: req.ip });
 
   const ttlDays = config?.auth.jwtTtlDays ?? 7;
   const token = signToken(String(user._id), ttlDays);
@@ -137,7 +134,7 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
     settings: user.settings,
-    clientCertificates: user.clientCertificates,
+    clientCertificates: publicCertificates(user.clientCertificates),
     authType: user.authType,
   });
 });
@@ -157,11 +154,8 @@ router.get('/config', async (_req: Request, res: Response) => {
 });
 
 // ── POST /api/auth/change-password ──────────────────────────────────────────
-router.post('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/change-password', authenticate, validateBody(changePasswordBody), async (req: AuthRequest, res: Response) => {
   const { newPassword, currentPassword } = req.body;
-  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
-    return res.status(400).json({ message: 'Password must be at least 8 characters' });
-  }
   const user = req.user!;
 
   // A normal password change must prove knowledge of the current password
@@ -174,15 +168,37 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await UserRepository.update(user._id as any, { passwordHash, mustChangePassword: false } as any);
-  await logAudit(user._id as any, 'auth.change_password', { details: { forced: !!user.mustChangePassword } });
+  await UserRepository.update(user._id, { passwordHash, mustChangePassword: false });
+  await logAudit(user._id, 'auth.change_password', { details: { forced: !!user.mustChangePassword } });
   return res.json({ message: 'Password changed successfully' });
 });
 
+// ── GET /api/auth/google/state ──────────────────────────────────────────────
+// Issues the OAuth `state` in an httpOnly cookie. The client must send that
+// same value to Google and back on the callback so a forged callback cannot
+// complete a login the browser did not start (CR#4).
+router.get('/google/state', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(16).toString('hex');
+  res.cookie('oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 10 * 60 * 1000,
+  });
+  return res.json({ state });
+});
+
 // ── POST /api/auth/google ───────────────────────────────────────────────────
-router.post('/google', loginLimiter, async (req: Request, res: Response) => {
-  const { code, redirectUri } = req.body;
-  if (!code) return res.status(400).json({ message: 'Code is required' });
+router.post('/google', loginLimiter, validateBody(googleBody), async (req: Request, res: Response) => {
+  const { code, redirectUri, state } = req.body;
+
+  const expected = req.cookies?.oauth_state;
+  const provided = typeof state === 'string' ? state : '';
+  const stateOk = expected && provided.length === expected.length
+    && crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+  res.clearCookie('oauth_state', { path: '/' });
+  if (!stateOk) return res.status(400).json({ message: 'Invalid OAuth state' });
 
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth.googleOAuth;
@@ -210,7 +226,7 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
         grant_type: 'authorization_code',
       }),
     });
-    const tokenData = await tokenResponse.json() as any;
+    const tokenData = await tokenResponse.json() as { error?: string; access_token?: string };
     // Never echo the token endpoint's raw response back to the client (CR#4).
     if (tokenData.error) return res.status(400).json({ message: 'Failed to exchange token' });
 
@@ -218,7 +234,7 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
     const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
-    const userData = await userResponse.json() as any;
+    const userData = await userResponse.json() as { email?: string; name?: string; picture?: string };
     if (!userData.email) return res.status(400).json({ message: 'No email found from Google' });
 
     // 3. Find or create user
@@ -234,18 +250,18 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
         authType: 'sso',
         avatar: userData.picture,
         status: 'active',
-      } as any);
+      });
       
       await createPersonalWorkspace(user);
-      await logAudit(user._id as any, 'auth.register', { ip: req.ip, details: { method: 'google' } });
+      await logAudit(user._id, 'auth.register', { ip: req.ip, details: { method: 'google' } });
     }
 
     if (user.status !== 'active') {
       return res.status(403).json({ message: 'Account suspended' });
     }
 
-    await UserRepository.update(user._id as any, { lastLoginAt: new Date() } as any);
-    await logAudit(user._id as any, 'auth.login', { ip: req.ip, details: { method: 'google' } });
+    await UserRepository.update(user._id, { lastLoginAt: new Date() });
+    await logAudit(user._id, 'auth.login', { ip: req.ip, details: { method: 'google' } });
 
     const ttlDays = config?.auth.jwtTtlDays ?? 7;
     const token = signToken(String(user._id), ttlDays);
@@ -268,21 +284,10 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
 });
 
 // ── PUT /api/auth/settings ───────────────────────────────────────────
-const ALLOWED_SETTINGS_KEYS = [
-  'followRedirects', 'verifySsl', 'sendNoCacheHeader', 'encodeUrl', 'timeout',
-  'proxyEnabled', 'proxyUrl', 'proxyAuthEnabled', 'proxyUsername', 'proxyPassword',
-  'saveHistory', 'shortcuts',
-];
-
-router.put('/settings', authenticate, async (req: AuthRequest, res: Response) => {
+router.put('/settings', authenticate, validateBody(settingsBody), async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   try {
-    // Allowlist writable settings keys — don't merge arbitrary req.body (CR#7).
-    const patch: Record<string, unknown> = {};
-    for (const key of ALLOWED_SETTINGS_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(req.body, key)) patch[key] = req.body[key];
-    }
-    const updatedUser = await UserRepository.update(user._id || (user as any).id, { settings: { ...user.settings, ...patch } } as any);
+    const updatedUser = await UserRepository.update(user._id, { settings: { ...user.settings, ...req.body } });
     return res.json(updatedUser!.settings);
   } catch (err: any) {
     // Don't echo internal error details back to the client.
@@ -291,23 +296,22 @@ router.put('/settings', authenticate, async (req: AuthRequest, res: Response) =>
 });
 
 // ── POST /api/auth/certificates ──────────────────────────────────────
-router.post('/certificates', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/certificates', authenticate, validateBody(certificateBody), async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   const { hostname, cert, key, passphrase } = req.body;
-  if (!hostname || !cert || !key) return res.status(400).json({ message: 'hostname, cert, and key are required' });
   
   try {
     const newCert = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: isMongo() ? new mongoose.Types.ObjectId().toString() : uuidv4(),
       hostname,
       cert,
       key,
       passphrase,
-      createdAt: new Date()
+      createdAt: new Date(),
     };
     const updatedCerts = [...(user.clientCertificates || []), newCert];
-    const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.status(201).json(updatedUser!.clientCertificates);
+    const updatedUser = await UserRepository.update(user._id, { clientCertificates: updatedCerts });
+    return res.status(201).json(publicCertificates(updatedUser!.clientCertificates));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
@@ -318,8 +322,8 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
   const user = req.user!;
   try {
     const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
-    const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.json(updatedUser!.clientCertificates);
+    const updatedUser = await UserRepository.update(user._id, { clientCertificates: updatedCerts });
+    return res.json(publicCertificates(updatedUser!.clientCertificates));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }

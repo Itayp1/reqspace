@@ -158,6 +158,13 @@ export class SsrfBlockedError extends Error {
 }
 
 /** Simple pre-flight check for callers (capture route, WSDL import) that can't pin the resolved IP on the actual connection. */
+/** Resolves a redirect Location against the request URL and refuses a private target. */
+export async function assertRedirectTargetSafe(location: string | null | undefined, requestUrl: string, allowPrivateTargets: boolean): Promise<void> {
+  if (!location) return;
+  const absolute = new URL(location, requestUrl).toString();
+  await assertSsrfSafe(absolute, allowPrivateTargets);
+}
+
 export async function assertSsrfSafe(targetUrl: string, allowPrivateTargets: boolean): Promise<void> {
   if (allowPrivateTargets) return;
   let parsed: URL;

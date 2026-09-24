@@ -8,6 +8,8 @@ import { logAudit } from '../repositories/AuditLogRepository';
 import { UserRole } from '../models/User';
 import { emitToWorkspace } from '../socketUtils';
 import { v4 as uuidv4 } from 'uuid';
+import { parseLimit } from '../utils/cursor';
+import { validateBody, collectionWriteBody, collectionCreateBody, folderWriteBody, folderCreateBody, requestWriteBody, commentBody, reorderBody } from '../validation/body';
 
 const router = Router();
 
@@ -44,7 +46,7 @@ function checkPermission(kind: ItemKind, minRole: UserRole) {
       const workspaceId = await resolveWorkspaceId(kind, id);
       if (!workspaceId) return res.status(404).json({ message: 'Item not found' });
       req.params.workspaceId = workspaceId;
-      (req as any).resolvedWorkspaceId = workspaceId;
+      req.resolvedWorkspaceId = workspaceId;
       if (req.user?.isSuperAdmin) return next();
       return requireWorkspaceRole(minRole)(req, res, next);
     } catch (e) {
@@ -60,6 +62,11 @@ router.use(authenticate);
 router.get('/workspaces/:workspaceId/collections',
   requireWorkspaceRole('viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = parseLimit(req.query.limit);
+    if (limit) {
+      const page = await CollectionRepository.findByWorkspacePage(req.params.workspaceId, limit, String(req.query.cursor || ''));
+      return res.json(page);
+    }
     const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
     return res.json(collections);
   }
@@ -67,9 +74,9 @@ router.get('/workspaces/:workspaceId/collections',
 
 router.post('/workspaces/:workspaceId/collections',
   requireWorkspaceRole('editor'),
+  validateBody(collectionCreateBody),
   async (req: AuthRequest, res: Response) => {
     const { name, description, variables, preRequestScript, testScript } = req.body;
-    if (!name) return res.status(400).json({ message: 'name required' });
 
     const order = await CollectionRepository.countByWorkspace(req.params.workspaceId);
     const collection = await CollectionRepository.create({
@@ -83,7 +90,7 @@ router.post('/workspaces/:workspaceId/collections',
   }
 );
 
-router.put('/collections/:id', checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
+router.put('/collections/:id', checkPermission('collection', 'editor'), validateBody(collectionWriteBody), async (req: AuthRequest, res: Response) => {
   // Allowlist writable fields — never reassign workspaceId (CR#7).
   const { name, description, variables, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
@@ -91,7 +98,7 @@ router.put('/collections/:id', checkPermission('collection', 'editor'), async (r
     if (v !== undefined) patch[k] = v;
   }
   const collection = await CollectionRepository.update(req.params.id, patch);
-  emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
+  emitToWorkspace(req.resolvedWorkspaceId, 'collection:updated', collection);
   return res.json(collection);
 });
 
@@ -99,7 +106,7 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
   await FolderRepository.deleteByCollection(req.params.id);
   await RequestRepository.deleteByCollection(req.params.id);
   await CollectionRepository.delete(req.params.id);
-  emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:deleted', req.params.id);
+  emitToWorkspace(req.resolvedWorkspaceId, 'collection:deleted', req.params.id);
   return res.json({ message: 'Collection deleted' });
 });
 
@@ -108,6 +115,11 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
 router.get('/collections/:collectionId/folders',
   checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = parseLimit(req.query.limit);
+    if (limit) {
+      const page = await FolderRepository.findByCollectionPage(req.params.collectionId, limit, String(req.query.cursor || ''));
+      return res.json(page);
+    }
     const folders = await FolderRepository.findByCollection(req.params.collectionId);
     return res.json(folders);
   }
@@ -115,6 +127,7 @@ router.get('/collections/:collectionId/folders',
 
 router.post('/collections/:collectionId/folders',
   checkPermission('collection', 'editor'),
+  validateBody(folderCreateBody),
   async (req: AuthRequest, res: Response) => {
     const { name, parentFolderId, description, preRequestScript, testScript } = req.body;
     if (!name) return res.status(400).json({ message: 'name required' });
@@ -124,12 +137,12 @@ router.post('/collections/:collectionId/folders',
       parentFolderId: parentFolderId ?? null,
       name, description, preRequestScript, testScript, order,
     });
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:created', folder);
+    emitToWorkspace(req.resolvedWorkspaceId, 'folder:created', folder);
     return res.status(201).json(folder);
   }
 );
 
-router.put('/folders/:id', checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
+router.put('/folders/:id', checkPermission('folder', 'editor'), validateBody(folderWriteBody), async (req: AuthRequest, res: Response) => {
   const { name, description, parentFolderId, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
   for (const [k, v] of Object.entries({ name, description, parentFolderId, preRequestScript, testScript, order })) {
@@ -137,7 +150,7 @@ router.put('/folders/:id', checkPermission('folder', 'editor'), async (req: Auth
   }
   const folder = await FolderRepository.update(req.params.id, patch);
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
-  emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
+  emitToWorkspace(req.resolvedWorkspaceId, 'folder:updated', folder);
   return res.json(folder);
 });
 
@@ -145,7 +158,7 @@ router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: A
   await FolderRepository.deleteByParent(req.params.id);
   await RequestRepository.deleteByFolder(req.params.id);
   await FolderRepository.delete(req.params.id);
-  emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:deleted', req.params.id);
+  emitToWorkspace(req.resolvedWorkspaceId, 'folder:deleted', req.params.id);
   return res.json({ message: 'Folder deleted' });
 });
 
@@ -155,6 +168,11 @@ router.get('/collections/:collectionId/requests',
   checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
     let requests;
+    const limit = parseLimit(req.query.limit);
+    if (limit && req.query.folderId === undefined) {
+      const page = await RequestRepository.findByCollectionPage(req.params.collectionId, limit, String(req.query.cursor || ''));
+      return res.json(page);
+    }
     if (req.query.folderId !== undefined) {
       const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);
       requests = folderId === null
@@ -169,6 +187,7 @@ router.get('/collections/:collectionId/requests',
 
 router.post('/collections/:collectionId/requests',
   checkPermission('collection', 'editor'),
+  validateBody(requestWriteBody),
   async (req: AuthRequest, res: Response) => {
     const order = await RequestRepository.countInCollection(req.params.collectionId, req.body.folderId ?? null);
     // Allowlist request fields rather than spreading req.body wholesale (CR#7).
@@ -188,7 +207,7 @@ router.post('/collections/:collectionId/requests',
       details: { requestId: request._id, requestName: request.name },
     }).catch(() => {});
 
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'request:created', request);
+    emitToWorkspace(req.resolvedWorkspaceId, 'request:created', request);
     return res.status(201).json(request);
   }
 );
@@ -202,7 +221,7 @@ router.get('/requests/:id',
   }
 );
 
-router.put('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
+router.put('/requests/:id', checkPermission('request', 'editor'), validateBody(requestWriteBody), async (req: AuthRequest, res: Response) => {
   const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order } = req.body;
   const patch: any = {};
   for (const [k, v] of Object.entries({ name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order })) {
@@ -210,20 +229,19 @@ router.put('/requests/:id', checkPermission('request', 'editor'), async (req: Au
   }
   const request = await RequestRepository.update(req.params.id, patch);
   if (!request) return res.status(404).json({ message: 'Request not found' });
-  emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
+  emitToWorkspace(req.resolvedWorkspaceId, 'request:updated', request);
   return res.json(request);
 });
 
 router.delete('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
   await RequestRepository.delete(req.params.id);
-  emitToWorkspace((req as any).resolvedWorkspaceId, 'request:deleted', req.params.id);
+  emitToWorkspace(req.resolvedWorkspaceId, 'request:deleted', req.params.id);
   return res.json({ message: 'Request deleted' });
 });
 
 // ── POST /api/requests/:id/comments ───────────────────────────────────────
-router.post('/requests/:id/comments', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
+router.post('/requests/:id/comments', checkPermission('request', 'viewer'), validateBody(commentBody), async (req: AuthRequest, res: Response) => {
   const { text } = req.body;
-  if (!text) return res.status(400).json({ message: 'Text is required' });
 
   const request = await RequestRepository.findById(req.params.id);
   if (!request) return res.status(404).json({ message: 'Request not found' });
@@ -250,7 +268,7 @@ router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'v
   const isAuthor = String(comment.userId) === String(req.user!._id);
   let isEditor = !!req.user!.isSuperAdmin;
   if (!isEditor) {
-    const role = await getUserWorkspaceRole(String(req.user!._id), (req as any).resolvedWorkspaceId);
+    const role = await getUserWorkspaceRole(String(req.user!._id), req.resolvedWorkspaceId!);
     isEditor = role === 'editor' || role === 'owner';
   }
   if (!isAuthor && !isEditor) {
@@ -263,7 +281,7 @@ router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'v
 });
 
 // ── Reorder ─────────────────────────────────────────────────────────────────
-router.put('/reorder', async (req: AuthRequest, res: Response) => {
+router.put('/reorder', validateBody(reorderBody), async (req: AuthRequest, res: Response) => {
   const { type, items } = req.body as {
     type: ItemKind;
     items: Array<{ id: string; order: number }>;
@@ -295,9 +313,13 @@ router.put('/reorder', async (req: AuthRequest, res: Response) => {
     }
   }
 
-  await Promise.all(items.map(({ id, order }) => (repo as any).update(id, { order })));
+  await Promise.all(items.map(({ id, order }) => {
+    if (type === 'collection') return CollectionRepository.update(id, { order });
+    if (type === 'folder') return FolderRepository.update(id, { order });
+    return RequestRepository.update(id, { order });
+  }));
   for (const workspaceId of workspaceIds) {
-    emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
+    emitToWorkspace(workspaceId, 'workspace:reordered', { type, items });
   }
   return res.json({ message: 'Reordered' });
 });

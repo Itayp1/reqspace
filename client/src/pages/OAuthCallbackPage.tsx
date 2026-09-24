@@ -17,8 +17,9 @@ export default function OAuthCallbackPage() {
     }
 
     const redirectUri = window.location.origin + window.location.pathname; // Should be /auth/google/callback
+    const state = searchParams.get('state');
 
-    api.post('/auth/google', { code, redirectUri })
+    api.post('/auth/google', { code, redirectUri, state })
       .then(res => {
         setUser(res.data.user);
         navigate('/');

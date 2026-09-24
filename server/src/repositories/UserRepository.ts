@@ -1,4 +1,7 @@
+import { Op, WhereOptions } from 'sequelize';
 import { isMongo } from '../db/connect';
+import { escapeRegex } from '../utils/escapeRegex';
+import { openCertificates, sealCertificates } from '../utils/secretBox';
 import { User, IUser } from '../models/User';
 import { SqlUser } from '../db/sql-models';
 import bcrypt from 'bcryptjs';
@@ -35,7 +38,7 @@ function sqlToRecord(u: SqlUser): IUserRecord {
     status: u.status,
     avatar: u.avatar,
     settings: typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings,
-      clientCertificates: typeof u.clientCertificates === 'string' ? JSON.parse(u.clientCertificates) : (u.clientCertificates || []),
+      clientCertificates: openCertificates(typeof u.clientCertificates === 'string' ? JSON.parse(u.clientCertificates) : (u.clientCertificates || [])),
     historyUsedBytes: Number(u.historyUsedBytes),
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
@@ -56,7 +59,7 @@ function mongoToRecord(u: any): IUserRecord {
     status: u.status,
     avatar: u.avatar,
     settings: u.settings,
-      clientCertificates: u.clientCertificates || [],
+      clientCertificates: openCertificates(u.clientCertificates || []),
     historyUsedBytes: u.historyUsedBytes,
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
@@ -92,6 +95,7 @@ export const UserRepository = {
     isSuperAdmin?: boolean;
     status?: string;
     mustChangePassword?: boolean;
+    avatar?: string | null;
   }): Promise<IUserRecord> {
     if (isMongo()) {
       const u = await User.create({
@@ -113,14 +117,16 @@ export const UserRepository = {
   },
 
   async update(id: string, data: Partial<IUserRecord & { passwordHash: string }>): Promise<IUserRecord | null> {
+    const sealed = data.clientCertificates ? sealCertificates(data.clientCertificates) : undefined;
     if (isMongo()) {
-      const u = await User.findByIdAndUpdate(id, data, { new: true }).lean();
+      const patch = sealed ? { ...data, clientCertificates: sealed } : data;
+      const u = await User.findByIdAndUpdate(id, patch, { new: true }).lean();
       return u ? mongoToRecord(u) : null;
     }
     await SqlUser.update({
       ...data,
       settings: data.settings ? JSON.stringify(data.settings) : undefined,
-        clientCertificates: data.clientCertificates ? JSON.stringify(data.clientCertificates) : undefined,
+      clientCertificates: sealed ? JSON.stringify(sealed) : undefined,
     }, { where: { id } });
     return this.findById(id);
   },
@@ -138,8 +144,42 @@ export const UserRepository = {
       const users = await User.find(filter).lean();
       return users.map(mongoToRecord);
     }
-    const users = await SqlUser.findAll({ where: filter as any });
+    const users = await SqlUser.findAll({ where: filter as WhereOptions });
     return users.map(sqlToRecord);
+  },
+
+  async search(opts: { search?: string; status?: string; limit: number; skip: number }): Promise<{ users: IUserRecord[]; total: number }> {
+    const limit = opts.limit;
+    const skip = opts.skip;
+    if (isMongo()) {
+      const query: Record<string, unknown> = {};
+      if (opts.status) query.status = opts.status;
+      if (opts.search) {
+        const safe = escapeRegex(opts.search);
+        query.$or = [
+          { name: { $regex: safe, $options: 'i' } },
+          { email: { $regex: safe, $options: 'i' } },
+        ];
+      }
+      const [users, total] = await Promise.all([
+        User.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        User.countDocuments(query),
+      ]);
+      return { users: users.map(mongoToRecord), total };
+    }
+    const like = opts.search ? `%${opts.search.replace(/[%_]/g, '')}%` : '';
+    const where: WhereOptions = {
+      ...(opts.status ? { status: opts.status } : {}),
+      ...(opts.search ? { [Op.or]: [{ name: { [Op.like]: like } }, { email: { [Op.like]: like } }] } : {}),
+    };
+    const total = await SqlUser.count({ where });
+    const users = await SqlUser.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset: skip,
+    });
+    return { users: users.map(sqlToRecord), total };
   },
 
   async count(): Promise<number> {

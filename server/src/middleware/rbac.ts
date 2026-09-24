@@ -3,6 +3,7 @@ import { AuthRequest } from './auth';
 import { UserRole } from '../models/User';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { isValidId } from '../utils/ids';
+import { invalidate, remember } from '../cache';
 
 const ROLE_RANK: Record<UserRole, number> = {
   viewer: 1,
@@ -10,23 +11,27 @@ const ROLE_RANK: Record<UserRole, number> = {
   owner: 3,
 };
 
-/** Get user's role in a workspace */
+/** Get user's role in a workspace. Cached for 30s and dropped when the workspace is saved. */
 export async function getUserWorkspaceRole(
   userId: string,
   workspaceId: string
 ): Promise<UserRole | null> {
-  const workspace = await WorkspaceRepository.findById(workspaceId);
-  if (!workspace) return null;
+  return remember(`role:${workspaceId}:${userId}`, async () => {
+    const workspace = await WorkspaceRepository.findById(workspaceId);
+    if (!workspace) return null;
 
-  // SuperAdmin always treated as owner
-  const member = workspace.members.find(
-    (m) => String(m.userId) === String(userId)
-  );
+    const member = workspace.members.find(
+      (m) => String(m.userId) === String(userId)
+    );
 
-  if (member) return member.role as UserRole;
-  if (workspace.isPublic) return 'viewer';
+    if (member) return member.role as UserRole;
+    if (workspace.isPublic) return 'viewer';
+    return null;
+  });
+}
 
-  return null;
+export function invalidateWorkspaceRoles(workspaceId: string) {
+  invalidate(`role:${workspaceId}:`);
 }
 
 /**

@@ -1,27 +1,189 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { Collection } from '../models/Collection';
-import { Folder } from '../models/Folder';
-import { Request as ApiRequest } from '../models/Request';
-import { SystemConfig } from '../models/SystemConfig';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { FolderRepository } from '../repositories/FolderRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { getUserWorkspaceRole, requireWorkspaceRole } from '../middleware/rbac';
+import { emitToWorkspace } from '../socketUtils';
+import { validateBody, collectionImportBody, curlImportBody, rawImportBody, wsdlImportBody } from '../validation/body';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
-import mongoose from 'mongoose';
+import { v4 as uuidv4 } from 'uuid';
+
+interface SoapServiceMap {
+  ports?: Record<string, {
+    location?: string;
+    binding?: { methods?: Record<string, { soapAction?: string }> };
+  }>;
+}
 
 const router = Router();
 router.use(authenticate);
 
-// Import/Export Routes placeholder
+const V21_SCHEMA = 'https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json';
+
+function scriptEvents(pre?: string, test?: string) {
+  const events: Array<{ listen: string; script: { type: string; exec: string[] } }> = [];
+  if (pre) events.push({ listen: 'prerequest', script: { type: 'text/javascript', exec: pre.split('\n') } });
+  if (test) events.push({ listen: 'test', script: { type: 'text/javascript', exec: test.split('\n') } });
+  return events;
+}
+
+function scriptsFromEvents(events: any[] | undefined): { preRequestScript: string; testScript: string } {
+  let preRequestScript = '';
+  let testScript = '';
+  for (const event of events || []) {
+    const exec = Array.isArray(event?.script?.exec) ? event.script.exec.join('\n') : (event?.script?.exec || '');
+    if (event?.listen === 'prerequest') preRequestScript = exec;
+    if (event?.listen === 'test') testScript = exec;
+  }
+  return { preRequestScript, testScript };
+}
+
+function toV21Item(req: { name: string; method: string; url: string; headers: any[]; params: any[]; body: any; preRequestScript: string; testScript: string }) {
+  const header = (req.headers || []).filter((h: any) => h.key).map((h: any) => {
+    const out: any = { key: h.key, value: h.value || '', description: h.description || '' };
+    if (h.enabled === false) out.disabled = true;
+    return out;
+  });
+  let body: any;
+  if (req.body && req.body.mode && req.body.mode !== 'none') {
+    body = { mode: req.body.mode };
+    if (req.body.mode === 'raw') {
+      body.raw = req.body.raw || '';
+      body.options = { raw: { language: req.body.rawLanguage === 'json' ? 'json' : 'text' } };
+    } else if (req.body.mode === 'urlencoded') {
+      body.urlencoded = req.body.urlencoded || [];
+    } else if (req.body.mode === 'form-data') {
+      body.formdata = req.body.formData || [];
+    }
+  }
+  const item: any = {
+    name: req.name,
+    request: { method: req.method || 'GET', header, body, url: { raw: req.url || '' } },
+  };
+  if (req.params?.length) {
+    item.request.url.query = req.params.filter((p: any) => p.key).map((p: any) => ({
+      key: p.key, value: p.value || '', disabled: p.enabled === false,
+    }));
+  }
+  const event = scriptEvents(req.preRequestScript, req.testScript);
+  if (event.length) item.event = event;
+  return item;
+}
+
+async function buildV21(collectionId: string) {
+  const collection = await CollectionRepository.findById(collectionId);
+  if (!collection) return null;
+  const folders = await FolderRepository.findByCollection(collectionId);
+  const requests = await RequestRepository.findByCollection(collectionId);
+  const build = (parentId: string | null): any[] => {
+    const items: any[] = [];
+    for (const folder of folders.filter(f => (f.parentFolderId || null) === parentId)) {
+      items.push({ name: folder.name, item: build(folder.id) });
+    }
+    for (const req of requests.filter(r => (r.folderId || null) === parentId)) {
+      items.push(toV21Item(req));
+    }
+    return items;
+  };
+  const doc: any = {
+    info: { name: collection.name, schema: V21_SCHEMA },
+    item: build(null),
+  };
+  if (collection.variables?.length) {
+    doc.variable = collection.variables.map((v: any) => ({ key: v.key, value: v.value || v.currentValue || '' }));
+  }
+  const event = scriptEvents(collection.preRequestScript, collection.testScript);
+  if (event.length) doc.event = event;
+  return { collection, doc };
+}
+
+async function assertRole(req: AuthRequest, workspaceId: string, min: 'viewer' | 'editor'): Promise<string | null> {
+  if (req.user?.isSuperAdmin) return null;
+  const role = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
+  if (!role) return 'No access to this workspace';
+  if (min === 'editor' && role === 'viewer') return 'Editor role required';
+  return null;
+}
+
 router.get('/collections/:id/export', async (req: AuthRequest, res: Response) => {
-  const collection = await Collection.findById(req.params.id);
-  res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
+  const built = await buildV21(req.params.id as string);
+  if (!built) return res.status(404).json({ message: 'Collection not found' });
+  const denied = await assertRole(req, built.collection.workspaceId, 'viewer');
+  if (denied) return res.status(403).json({ message: denied });
+  return res.json(built.doc);
 });
 
-router.post('/collections/import', async (req: AuthRequest, res: Response) => {
-  res.json({ message: 'Import successful (stub)' });
+router.post('/collections/import', validateBody(collectionImportBody), async (req: AuthRequest, res: Response) => {
+  const workspaceId = req.body?.workspaceId as string | undefined;
+  const doc = req.body?.collection ?? req.body;
+  if (!workspaceId) return res.status(400).json({ message: 'workspaceId required' });
+  if (!doc || !Array.isArray(doc.item)) return res.status(400).json({ message: 'ReqSpace v2.1 collection is required' });
+  const denied = await assertRole(req, workspaceId, 'editor');
+  if (denied) return res.status(403).json({ message: denied });
+
+  const scripts = scriptsFromEvents(doc.event);
+  const collection = await CollectionRepository.create({
+    workspaceId,
+    name: doc.info?.name || 'Imported Collection',
+    description: doc.info?.description || '',
+    createdBy: String(req.user!._id),
+    variables: (doc.variable || []).map((v: any) => ({ key: v.key, value: v.value || '', enabled: true })),
+    preRequestScript: scripts.preRequestScript,
+    testScript: scripts.testScript,
+  });
+
+  const walk = async (items: any[], parentFolderId: string | null) => {
+    for (const item of items) {
+      if (Array.isArray(item?.item)) {
+        const folder = await FolderRepository.create({
+          collectionId: collection.id,
+          name: item.name || 'Folder',
+          parentFolderId,
+        });
+        await walk(item.item, folder.id);
+        continue;
+      }
+      const request = item?.request;
+      if (!request) continue;
+      const url = typeof request.url === 'string' ? request.url : (request.url?.raw || '');
+      const header = (request.header || []).map((h: any) => ({
+        key: h.key || '', value: h.value || '', enabled: !h.disabled, description: h.description || '',
+      }));
+      const params = (request.url?.query || []).map((p: any) => ({
+        key: p.key || '', value: p.value || '', enabled: !p.disabled,
+      }));
+      let body: any = { mode: 'none' };
+      if (request.body?.mode === 'raw') body = { mode: 'raw', raw: request.body.raw || '', rawLanguage: request.body.options?.raw?.language || 'text' };
+      else if (request.body?.mode === 'urlencoded') body = { mode: 'urlencoded', urlencoded: request.body.urlencoded || [] };
+      else if (request.body?.mode === 'formdata' || request.body?.mode === 'form-data') {
+        body = { mode: 'form-data', formData: request.body.formdata || request.body.formData || [] };
+      }
+      const itemScripts = scriptsFromEvents(item.event);
+      await RequestRepository.create({
+        collectionId: collection.id,
+        folderId: parentFolderId,
+        name: item.name || 'Request',
+        method: request.method || 'GET',
+        url,
+        headers: header,
+        params,
+        body,
+        preRequestScript: itemScripts.preRequestScript,
+        testScript: itemScripts.testScript,
+        createdBy: String(req.user!._id),
+      });
+    }
+  };
+
+  await walk(doc.item, null);
+  emitToWorkspace(workspaceId, 'collection:created', collection);
+  return res.status(201).json({ collectionId: collection.id, name: collection.name });
 });
 
-router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => {
+router.post('/requests/import/curl', validateBody(curlImportBody), async (req: AuthRequest, res: Response) => {
   const { curl, workspaceId } = req.body;
   if (!curl) return res.status(400).json({ message: 'curl string required' });
 
@@ -71,7 +233,7 @@ router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => 
   });
 });
 
-router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response) => {
+router.post('/requests/import/raw-http', validateBody(rawImportBody), async (req: AuthRequest, res: Response) => {
   const { raw, workspaceId } = req.body;
   if (!raw) return res.status(400).json({ message: 'raw HTTP string required' });
 
@@ -121,48 +283,46 @@ router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response)
 });
 
 // ──────── POST /api/import/wsdl ────────────────────────────────────────────────────
-router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
+router.post('/import/wsdl', requireWorkspaceRole('editor'), validateBody(wsdlImportBody), async (req: AuthRequest, res: Response) => {
   const { url, workspaceId } = req.body;
   if (!url || !workspaceId) {
     return res.status(400).json({ message: 'url and workspaceId are required' });
   }
 
   try {
-    const systemConfig = await SystemConfig.findById('global');
+    const systemConfig = await SystemConfigRepository.getConfig();
     await assertSsrfSafe(url, systemConfig?.proxy?.allowPrivateTargets ?? false);
 
     const client = await soap.createClientAsync(url);
     const description = client.describe();
-    
-    // Create Collection
-    const collection = await Collection.create({
+
+    const collection = await CollectionRepository.create({
       name: `WSDL: ${url.split('/').pop() || 'Service'}`,
       workspaceId,
-      ownerId: req.user!._id,
-      createdBy: req.user!._id
+      createdBy: String(req.user!._id),
     });
 
-    const services = (client as any).wsdl.services;
+    const services = (client as unknown as { wsdl?: { services?: Record<string, SoapServiceMap> } }).wsdl?.services;
 
     for (const [serviceName, service] of Object.entries(description)) {
       // Create Folder for Service
-      const serviceFolder = await Folder.create({
+      const serviceFolder = await FolderRepository.create({
         name: serviceName,
-        collectionId: collection._id
+        collectionId: collection.id,
       });
 
       for (const [portName, port] of Object.entries(service as Record<string, any>)) {
         // Create Folder for Port
-        const portFolder = await Folder.create({
+        const portFolder = await FolderRepository.create({
           name: portName,
-          collectionId: collection._id,
-          parentFolderId: serviceFolder._id
+          collectionId: collection.id,
+          parentFolderId: serviceFolder.id,
         });
 
         const location = services?.[serviceName]?.ports?.[portName]?.location || url;
 
         for (const [operationName, operation] of Object.entries(port as Record<string, any>)) {
-          const methods = (client as any).wsdl.services?.[serviceName]?.ports?.[portName]?.binding?.methods || {};
+          const methods = services?.[serviceName]?.ports?.[portName]?.binding?.methods || {};
           const soapAction = methods[operationName]?.soapAction || '';
 
           // Generate dummy XML body
@@ -174,24 +334,24 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
           }
           xmlBody += `    </${operationName}>\n  </soapenv:Body>\n</soapenv:Envelope>`;
 
-          await ApiRequest.create({
+          await RequestRepository.create({
             name: operationName,
-            collectionId: collection._id,
-            folderId: portFolder._id,
+            collectionId: collection.id,
+            folderId: portFolder.id,
             method: 'POST',
             url: location,
             headers: [
-              { key: 'Content-Type', value: 'text/xml; charset=utf-8', enabled: true, _id: new mongoose.Types.ObjectId().toString() },
-              ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true, _id: new mongoose.Types.ObjectId().toString() }] : [])
+              { key: 'Content-Type', value: 'text/xml; charset=utf-8', enabled: true, _id: uuidv4() },
+              ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true, _id: uuidv4() }] : []),
             ],
             body: { mode: 'raw', raw: xmlBody, rawLanguage: 'xml' },
-            createdBy: req.user!._id
+            createdBy: String(req.user!._id),
           });
         }
       }
     }
 
-    res.json({ message: 'WSDL Imported Successfully', collectionId: collection._id });
+    res.json({ message: 'WSDL Imported Successfully', collectionId: collection.id });
   } catch (error: any) {
     res.status(500).json({ message: 'Failed to parse WSDL: ' + error.message });
   }

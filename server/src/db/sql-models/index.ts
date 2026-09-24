@@ -101,6 +101,8 @@ export class SqlEnvironment extends Model {
   declare id: string;
   declare workspaceId: string;
   declare name: string;
+  declare isGlobal: boolean;
+  declare order: number;
   declare variables: string; // JSON
   declare createdBy: string;
   declare createdAt: Date;
@@ -261,9 +263,11 @@ export function initSqlModels() {
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
     workspaceId: { type: DataTypes.STRING(36), allowNull: false },
     name: { type: DataTypes.STRING(255), allowNull: false },
+    isGlobal: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
-  }, { sequelize: sq, tableName: 'environments', timestamps: true, indexes: [{ fields: ['workspaceId'] }] });
+  }, { sequelize: sq, tableName: 'environments', timestamps: true, indexes: [{ fields: ['workspaceId'] }, { fields: ['workspaceId', 'order'] }] });
 
   SqlGlobalEnvironment.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },

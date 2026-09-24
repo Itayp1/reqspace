@@ -19,90 +19,48 @@ function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string })
   const [showFix, setShowFix] = useState(false);
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#0f172a',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '2rem',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      color: '#f1f5f9',
-    }}>
-      <div style={{
-        background: '#1e293b',
-        border: '1px solid #ef4444',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        maxWidth: '560px',
-        width: '100%',
-        boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{ fontSize: '2.5rem', textAlign: 'center', marginBottom: '1rem' }}>🚨</div>
-        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, textAlign: 'center', marginBottom: '0.5rem', color: '#f87171' }}>
-          Database Connection Error
-        </h2>
-        <p style={{ textAlign: 'center', color: '#94a3b8', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-8 text-slate-100">
+      <div className="bg-slate-800 border border-red-500 rounded-2xl p-10 max-w-xl w-full shadow-2xl">
+        <div className="text-4xl text-center mb-4">🚨</div>
+        <h2 className="text-2xl font-bold text-center mb-2 text-red-400">Database Connection Error</h2>
+        <p className="text-center text-slate-400 mb-6 text-sm">
           The server could not connect to the database. The application is unavailable until this is fixed.
         </p>
-
-        <div style={{
-          background: '#0f172a',
-          border: '1px solid #334155',
-          borderRadius: '8px',
-          padding: '1rem',
-          marginBottom: '1.5rem',
-        }}>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
-            <span style={{ color: '#64748b', fontSize: '0.8rem', fontWeight: 600, minWidth: '80px' }}>DB TYPE</span>
-            <code style={{ color: '#fbbf24', fontSize: '0.85rem' }}>{dbType || 'unknown'}</code>
+        <div className="bg-slate-950 border border-slate-700 rounded-lg p-4 mb-6 space-y-2">
+          <div className="flex gap-4">
+            <span className="text-slate-500 text-xs font-semibold min-w-20">DB TYPE</span>
+            <code className="text-amber-300 text-sm">{dbType || 'unknown'}</code>
           </div>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <span style={{ color: '#64748b', fontSize: '0.8rem', fontWeight: 600, minWidth: '80px' }}>ERROR</span>
-            <code style={{ color: '#f87171', fontSize: '0.8rem', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{dbError}</code>
+          <div className="flex gap-4">
+            <span className="text-slate-500 text-xs font-semibold min-w-20">ERROR</span>
+            <code className="text-red-400 text-xs break-all whitespace-pre-wrap">{dbError}</code>
           </div>
         </div>
-
         <button
           onClick={() => setShowFix(!showFix)}
-          style={{
-            width: '100%', padding: '10px', background: '#3b82f6', color: 'white',
-            border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.9rem',
-            cursor: 'pointer', marginBottom: '0.75rem',
-          }}
+          className="w-full py-2.5 bg-blue-500 text-white rounded-lg font-bold text-sm mb-3"
         >
           {showFix ? '▲ Hide Fix Instructions' : '▼ How to fix this'}
         </button>
-
         {showFix && (
-          <div style={{
-            background: '#0f172a', border: '1px solid #334155', borderRadius: '8px',
-            padding: '1rem', fontSize: '0.8rem', color: '#cbd5e1', lineHeight: '1.7',
-          }}>
-            <p style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: '0.5rem' }}>Common fixes:</p>
-            <ul style={{ paddingLeft: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <div className="bg-slate-950 border border-slate-700 rounded-lg p-4 text-xs text-slate-300 leading-relaxed">
+            <p className="font-bold text-slate-200 mb-2">Common fixes:</p>
+            <ul className="list-disc pl-5 space-y-1">
               <li><strong>SQLite:</strong> Check that the file path is writable and the folder exists</li>
               <li><strong>MongoDB:</strong> Make sure MongoDB is running on the configured host/port</li>
               <li><strong>MySQL/PostgreSQL:</strong> Verify host, port, credentials, and that the DB exists</li>
               <li><strong>SQL Server:</strong> Verify server name, credentials and firewall rules</li>
             </ul>
-            <p style={{ marginTop: '0.75rem', color: '#64748b' }}>
-              Super admins can update the DB config at{' '}
-              <code style={{ color: '#60a5fa' }}>/admin → 🗄️ Database</code>
+            <p className="mt-3 text-slate-500">
+              Super admins can update the DB config at <code className="text-blue-400">/admin → Database</code>
             </p>
           </div>
         )}
-
         <button
           onClick={() => window.location.reload()}
-          style={{
-            width: '100%', padding: '10px', background: 'transparent', color: '#94a3b8',
-            border: '1px solid #334155', borderRadius: '8px', fontWeight: 600,
-            fontSize: '0.85rem', cursor: 'pointer', marginTop: '0.5rem',
-          }}
+          className="w-full py-2.5 mt-2 bg-transparent text-slate-400 border border-slate-700 rounded-lg font-semibold text-sm"
         >
-          🔄 Retry Connection
+          Retry Connection
         </button>
       </div>
     </div>
@@ -110,8 +68,8 @@ function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string })
 }
 
 // ── Auth Guard ────────────────────────────────────────────────────────────────
-function AuthGuard({ children, requireSuperAdmin = false }: { children: React.ReactNode, requireSuperAdmin?: boolean }) {
-  const { user, isAuthenticated } = useAuthStore();
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuthStore();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -124,8 +82,12 @@ function AuthGuard({ children, requireSuperAdmin = false }: { children: React.Re
   }, [navigate]);
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (requireSuperAdmin && !user?.isSuperAdmin) return <Navigate to="/" replace />;
+  return children;
+}
 
+function SuperAdminGuard({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore(state => state.user);
+  if (!user?.isSuperAdmin) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -133,6 +95,7 @@ function AuthGuard({ children, requireSuperAdmin = false }: { children: React.Re
 function App() {
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState<{ dbType: string; dbError: string } | null>(null);
+  const [forbiddenMessage, setForbiddenMessage] = useState<string | null>(null);
   const setUser = useAuthStore((state) => state.setUser);
   const setWorkspaces = useAuthStore((state) => state.setWorkspaces);
   const setActiveWorkspace = useAuthStore((state) => state.setActiveWorkspace);
@@ -188,21 +151,19 @@ function App() {
     initApp();
   }, [setUser, setWorkspaces, setActiveWorkspace]);
 
+  useEffect(() => {
+    const onForbidden = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      setForbiddenMessage(detail || 'You do not have permission to do that.');
+    };
+    window.addEventListener('forbidden', onForbidden);
+    return () => window.removeEventListener('forbidden', onForbidden);
+  }, []);
+
   if (loading) {
     return (
-      <div style={{
-        display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: '1rem', background: '#0f172a', color: '#94a3b8',
-        fontFamily: '-apple-system, sans-serif',
-      }}>
-        <div style={{
-          width: 40, height: 40,
-          border: '3px solid #1e293b',
-          borderTopColor: '#3b82f6',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div className="flex h-screen items-center justify-center flex-col gap-4 bg-slate-950 text-slate-400">
+        <div className="w-10 h-10 rounded-full border-[3px] border-slate-800 border-t-blue-500 animate-spin" />
         <span>Loading...</span>
       </div>
     );
@@ -215,6 +176,12 @@ function App() {
 
   return (
     <>
+      {forbiddenMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-950 border border-amber-600 text-amber-100 px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
+          <span>{forbiddenMessage}</span>
+          <button className="text-amber-300 font-bold" onClick={() => setForbiddenMessage(null)}>Dismiss</button>
+        </div>
+      )}
       <ForcePasswordChangeModal />
       <SocketSync />
       <ContextMenuProvider>
@@ -227,7 +194,7 @@ function App() {
             
             <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
               <Route index element={<AppScreen />} />
-              <Route path="admin" element={<AuthGuard requireSuperAdmin><AdminPage /></AuthGuard>} />
+              <Route path="admin" element={<SuperAdminGuard><AdminPage /></SuperAdminGuard>} />
             </Route>
           </Routes>
         </BrowserRouter>

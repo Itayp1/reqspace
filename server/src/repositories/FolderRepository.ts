@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Folder } from '../models/Folder';
 import { SqlFolder } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { decodeCursor, mongoAfter, pageResult, sqlAfter } from '../utils/cursor';
 
 export interface IFolderRecord {
   _id: string; id: string;
@@ -35,6 +36,20 @@ export const FolderRepository = {
     return (await SqlFolder.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
   },
 
+  async findByCollectionPage(collectionId: string, limit: number, cursorRaw?: string) {
+    const cursor = decodeCursor(cursorRaw);
+    if (isMongo()) {
+      const rows = await Folder.find({ collectionId, ...mongoAfter(cursor) }).sort({ order: 1, _id: 1 }).limit(limit + 1).lean();
+      return pageResult(rows.map(mongoToRecord), limit);
+    }
+    const rows = await SqlFolder.findAll({
+      where: { collectionId, ...sqlAfter(cursor) },
+      order: [['order', 'ASC'], ['id', 'ASC']],
+      limit: limit + 1,
+    });
+    return pageResult(rows.map(sqlToRecord), limit);
+  },
+
   async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string; preRequestScript?: string; testScript?: string; order?: number }): Promise<IFolderRecord> {
     if (isMongo()) return mongoToRecord(await Folder.create(data));
     return sqlToRecord(await SqlFolder.create({ id: uuidv4(), collectionId: data.collectionId, name: data.name, parentFolderId: data.parentFolderId ?? null, description: data.description || '', preRequestScript: data.preRequestScript || '', testScript: data.testScript || '', order: data.order ?? 0 }));
@@ -52,7 +67,23 @@ export const FolderRepository = {
 
   async update(id: string, data: Partial<IFolderRecord>): Promise<IFolderRecord | null> {
     if (isMongo()) { const f = await Folder.findByIdAndUpdate(id, data, { new: true }).lean(); return f ? mongoToRecord(f) : null; }
-    await SqlFolder.update(data as any, { where: { id } }); return this.findById(id);
+    const values: {
+      collectionId?: string;
+      parentFolderId?: string | null;
+      name?: string;
+      description?: string;
+      preRequestScript?: string;
+      testScript?: string;
+      order?: number;
+    } = {};
+    if (data.collectionId !== undefined) values.collectionId = data.collectionId;
+    if (data.parentFolderId !== undefined) values.parentFolderId = data.parentFolderId;
+    if (data.name !== undefined) values.name = data.name;
+    if (data.description !== undefined) values.description = data.description;
+    if (data.preRequestScript !== undefined) values.preRequestScript = data.preRequestScript;
+    if (data.testScript !== undefined) values.testScript = data.testScript;
+    if (data.order !== undefined) values.order = data.order;
+    await SqlFolder.update(values, { where: { id } }); return this.findById(id);
   },
 
   async delete(id: string): Promise<void> {

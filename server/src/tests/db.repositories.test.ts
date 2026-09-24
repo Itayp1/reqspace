@@ -197,6 +197,16 @@ describe('CollectionRepository (SQL)', () => {
     expect(cols.length).toBe(2);
   });
 
+  it('pages collections by cursor', async () => {
+    const page = await CollectionRepository.findByWorkspacePage(wsId, 1);
+    expect(page.items).toHaveLength(1);
+    expect(page.nextCursor).toBeTruthy();
+    const rest = await CollectionRepository.findByWorkspacePage(wsId, 1, page.nextCursor!);
+    expect(rest.items).toHaveLength(1);
+    expect(rest.items[0]._id).not.toBe(page.items[0]._id);
+    expect(rest.nextCursor).toBeNull();
+  });
+
   it('updates collection with variables', async () => {
     const vars = [{ key: 'baseUrl', value: 'https://pay.api.com', enabled: true }];
     const c = await CollectionRepository.update(colId, { name: 'Payments v2', variables: vars });

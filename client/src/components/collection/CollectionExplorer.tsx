@@ -428,7 +428,9 @@ const CollectionNode = ({
   const [isRenaming, setIsRenaming] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const { showContextMenu } = useContextMenu();
-  const { folders, requests, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder } = useCollectionStore();
+  const { folders, requests, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder, childCursors, loadMoreChildren } = useCollectionStore();
+  const moreChildren = childCursors[collection._id];
+  const hasMoreChildren = !!(moreChildren?.folders || moreChildren?.requests);
 
   const childFolders = folders.filter(f => f.collectionId === collection._id && !f.parentFolderId).sort((a, b) => (a.order || 0) - (b.order || 0));
   const childRequests = requests.filter(r => r.collectionId === collection._id && !r.folderId).sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -579,6 +581,14 @@ const CollectionNode = ({
               onMove={onMoveRequest}
             />
           ))}
+          {hasMoreChildren && (
+            <button
+              className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200"
+              onClick={() => loadMoreChildren(collection._id)}
+            >
+              Load more
+            </button>
+          )}
           {/* Quick Add Request at bottom of collection */}
           <div
             className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-400 cursor-pointer rounded hover:bg-gray-800 mt-0.5"
@@ -599,6 +609,7 @@ export const CollectionExplorer: React.FC = () => {
   const {
     collections, folders, requests,
     createCollection, openCollectionIds, toggleCollectionOpen,
+    collectionsNextCursor, loadMoreCollections,
     deleteCollection, deleteFolder, deleteRequest,
     duplicateCollection, duplicateFolder,
   } = useCollectionStore();
@@ -717,139 +728,9 @@ export const CollectionExplorer: React.FC = () => {
 
 
 
-  const exportCollection = (id: string, name: string) => {
-    const collection = collections.find(c => c._id === id);
-    if (!collection) return;
-    const colFolders = folders.filter(f => f.collectionId === id);
-    const colRequests = requests.filter(r => r.collectionId === id);
-
-    // Build ReqSpace Collection v2.1 format
-    const buildItems = (parentFolderId: string | null): any[] => {
-      const items: any[] = [];
-      // Add sub-folders
-      const subFolders = colFolders.filter(f => f.parentFolderId === parentFolderId);
-      for (const folder of subFolders) {
-        items.push({
-          name: folder.name,
-          item: buildItems(folder._id),
-        });
-      }
-      // Add requests
-      const reqs = colRequests.filter(r => r.folderId === parentFolderId);
-      for (const rawReq of reqs) {
-        const req: any = rawReq;
-        
-        const header = (req.headers || []).filter((h: any) => h.key).map((h: any) => {
-          const out: any = {
-            key: h.key,
-            value: h.value || '',
-            description: h.description || '',
-          };
-          if (!h.enabled) out.disabled = true;
-          return out;
-        });
-
-        let body: any = undefined;
-        if (req.body && req.body.mode !== 'none') {
-          body = { mode: req.body.mode };
-          if (req.body.mode === 'raw') {
-            body.raw = req.body.raw || '';
-            body.options = { raw: { language: req.body.rawLanguage === 'json' ? 'json' : 'text' } };
-          } else if (req.body.mode === 'urlencoded') {
-            body.urlencoded = (req.body.urlencoded || []).filter((i: any) => i.key).map((i: any) => {
-              const out: any = { key: i.key, value: i.value || '' };
-              if (!i.enabled) out.disabled = true;
-              return out;
-            });
-          } else if (req.body.mode === 'form-data') {
-            body.formdata = (req.body.formData || []).filter((i: any) => i.key).map((i: any) => {
-              const out: any = { key: i.key, value: i.value || '', type: i.type || 'text' };
-              if (!i.enabled) out.disabled = true;
-              return out;
-            });
-          }
-        }
-        
-        let urlObj: any = req.url || '';
-        if ((req.params && req.params.length > 0) || req.url) {
-          urlObj = { raw: req.url || '' };
-          try {
-            const parsed = new URL(req.url || 'http://localhost');
-            urlObj.protocol = parsed.protocol.replace(':', '');
-            urlObj.host = parsed.hostname.split('.');
-            if (parsed.port) urlObj.port = parsed.port;
-            urlObj.path = parsed.pathname.split('/').filter(x => x);
-          } catch (e) {
-            // keep raw only
-          }
-          if (req.params && req.params.length > 0) {
-            urlObj.query = req.params.filter((p: any) => p.key).map((p: any) => {
-              const out: any = {
-                key: p.key,
-                value: p.value || '',
-                description: p.description || ''
-              };
-              if (!p.enabled) out.disabled = true;
-              return out;
-            });
-          }
-        }
-
-        const item: any = {
-          name: req.name,
-          request: {
-            method: req.method || 'GET',
-            url: urlObj,
-            header,
-            body,
-          },
-        };
-        
-        const reqEvents = [];
-        if (req.preRequestScript) {
-          reqEvents.push({ listen: 'prerequest', script: { type: 'text/javascript', exec: req.preRequestScript.split('\n') } });
-        }
-        if (req.testScript) {
-          reqEvents.push({ listen: 'test', script: { type: 'text/javascript', exec: req.testScript.split('\n') } });
-        }
-        if (reqEvents.length > 0) {
-          item.event = reqEvents;
-        }
-
-        if (body && ['GET', 'HEAD', 'OPTIONS'].includes(req.method?.toUpperCase())) {
-          item.protocolProfileBehavior = { disableBodyPruning: true };
-        }
-
-        items.push(item);
-      }
-      return items;
-    };
-
-    const reqSpaceCollection: any = {
-      info: { name: collection.name, schema: 'https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json' },
-      item: buildItems(null),
-    };
-    
-    if (collection.variables && collection.variables.length > 0) {
-      reqSpaceCollection.variable = collection.variables.map(v => ({
-        key: v.key,
-        value: v.value || '',
-        type: 'string'
-      }));
-    }
-    
-    const events = [];
-    if (collection.preRequestScript) {
-      events.push({ listen: 'prerequest', script: { type: 'text/javascript', exec: collection.preRequestScript.split('\n') } });
-    }
-    if (collection.testScript) {
-      events.push({ listen: 'test', script: { type: 'text/javascript', exec: collection.testScript.split('\n') } });
-    }
-    if (events.length > 0) {
-      reqSpaceCollection.event = events;
-    }
-
-    const blob = new Blob([JSON.stringify(reqSpaceCollection, null, 2)], { type: 'application/json' });
+  const exportCollection = async (id: string, name: string) => {
+    const res = await api.get(`/collections/${id}/export`);
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -976,13 +857,25 @@ export const CollectionExplorer: React.FC = () => {
                 key={collection._id}
                 collection={collection}
                 isOpen={openCollectionIds.has(collection._id) || !!filterLower}
-                onToggle={() => toggleCollectionOpen(collection._id)}
+                onToggle={() => {
+                  const opening = !openCollectionIds.has(collection._id);
+                  toggleCollectionOpen(collection._id);
+                  if (opening) useCollectionStore.getState().ensureCollectionChildren(collection._id);
+                }}
                 onPrompt={openPrompt}
                 onDelete={handleCollectionDelete}
                 onDuplicate={handleDuplicate}
                 onMoveRequest={handleMoveRequest}
               />
             ))
+          )}
+          {collectionsNextCursor && activeWorkspace && (
+            <button
+              className="w-full mt-2 px-2 py-1.5 text-xs rounded text-gray-300 hover:bg-gray-800"
+              onClick={() => loadMoreCollections(activeWorkspace._id)}
+            >
+              Load more collections
+            </button>
           )}
         </div>
       </div>

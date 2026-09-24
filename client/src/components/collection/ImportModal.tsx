@@ -81,72 +81,9 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
 
   const importReqSpaceCollection = async (json: any) => {
     if (!activeWorkspace) return;
-    const { createCollection, fetchCollectionsData, toggleCollectionOpen } = useCollectionStore.getState();
+    const { fetchCollectionsData } = useCollectionStore.getState();
 
-    const collectionName = json?.info?.name || 'Imported Collection';
-    const collection = await createCollection(activeWorkspace._id, collectionName);
-    toggleCollectionOpen(collection._id);
-
-    const processItems = async (items: any[], collectionId: string, folderId?: string) => {
-      if (!Array.isArray(items)) return;
-      for (const item of items) {
-        if (item.item && Array.isArray(item.item)) {
-          // It's a folder
-          const folderRes = await api.post(`/collections/${collectionId}/folders`, {
-            name: item.name,
-            parentFolderId: folderId || null,
-          });
-          useCollectionStore.getState().setFolders([
-            ...useCollectionStore.getState().folders,
-            folderRes.data,
-          ]);
-          await processItems(item.item, collectionId, folderRes.data._id);
-        } else {
-          // It's a request
-          const req = item.request;
-          const method = req?.method || 'GET';
-          let url = '';
-          if (typeof req?.url === 'string') {
-            url = req.url;
-          } else if (req?.url?.raw) {
-            url = req.url.raw;
-          }
-
-          const headers = (req?.header || []).map((h: any) => ({
-            key: h.key || '',
-            value: h.value || '',
-            enabled: !h.disabled,
-            description: h.description || '',
-          }));
-
-          let body = { mode: 'none' as const };
-          if (req?.body) {
-            if (req.body.mode === 'raw') {
-              body = { mode: 'raw', raw: req.body.raw || '', rawLanguage: 'json' } as any;
-            } else if (req.body.mode === 'formdata') {
-              body = { mode: 'form-data', formData: (req.body.formdata || []).map((f: any) => ({ key: f.key, value: f.value, enabled: !f.disabled })) } as any;
-            } else if (req.body.mode === 'urlencoded') {
-              body = { mode: 'urlencoded', urlencoded: (req.body.urlencoded || []).map((f: any) => ({ key: f.key, value: f.value, enabled: !f.disabled })) } as any;
-            }
-          }
-
-          const savedReq = await api.post(`/collections/${collectionId}/requests`, {
-            name: item.name,
-            method,
-            url,
-            headers,
-            body,
-            folderId: folderId || null,
-          });
-          useCollectionStore.getState().setRequests([
-            ...useCollectionStore.getState().requests,
-            savedReq.data,
-          ]);
-        }
-      }
-    };
-
-    await processItems(json.item || [], collection._id);
+    await api.post('/collections/import', { workspaceId: activeWorkspace._id, collection: json });
     await fetchCollectionsData(activeWorkspace._id);
   };
 

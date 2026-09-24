@@ -29,9 +29,7 @@ const STORAGE_KEY = 'reqspace_cookies_v1';
 const loadSavedCookies = (): CookieItem[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [
-      { id: '1', domain: 'localhost', name: 'session', value: 'sess_default_123', path: '/', httpOnly: false, secure: false }
-    ];
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -39,7 +37,8 @@ const loadSavedCookies = (): CookieItem[] => {
 
 const saveCookies = (cookies: CookieItem[]) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cookies));
+    const persisted = cookies.map(c => ({ ...c, value: '' }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch (e) {
     console.error('Failed to save cookies:', e);
   }

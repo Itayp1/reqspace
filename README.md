@@ -12,8 +12,8 @@ Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment de
 - **🔐 Authentication:** Built-in JWT-based local authentication and **Google OAuth** integration. 
 - **👥 Role-Based Access Control (RBAC):** Admin dashboard to manage users, permissions, and system configurations directly from the UI.
 - **📜 History & Audit Logs:** Never lose a request. Everything is saved in your personal history, and system-wide changes are securely audited.
-- **📦 Multi-Database Support:** Run it on your preferred database! Out-of-the-box support for **SQLite, PostgreSQL, MySQL, and MongoDB**.
-- **🐳 Docker Ready:** Fully containerized with a lightweight multi-stage Docker build for easy deployment.
+- **📦 Multi-Database Connector:** The server can boot on **MongoDB (default), SQLite, PostgreSQL, MySQL, or MSSQL**. Environments, history, sharing, capture, admin, and import/export go through repositories, so those routes no longer call Mongoose directly.
+- **🐳 Docker Ready:** Multi-stage image. It does not bundle a database; pass `DB_TYPE=sqlite` for a single-container run, or point it at MongoDB.
 
 ## 🛠️ Tech Stack
 
@@ -23,13 +23,15 @@ Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment de
 
 ## 🐳 Quick Start (Docker)
 
-The fastest way to get Reqspace running is via Docker. The image is automatically built and published.
+Images are published to `itayp/reqspace` on pushes to `master` and `main`. The `latest` tag moves only when `main` is pushed; a `master` build is tagged with the short commit SHA.
+
+The image does not include MongoDB. With no `DB_TYPE` it tries `mongodb://localhost:27017/reqspace-web` inside the container and will not come up. SQLite needs no extra service:
 
 ```bash
-# Run the application on port 3005
-docker run -p 3005:3005 -d itayp/reqspace:latest
+docker run -p 3005:3005 -e DB_TYPE=sqlite -d itayp/reqspace:latest
 ```
-Access the application at http://localhost:3005.
+
+Access the application at http://localhost:3005. SQLite data lives in the container unless you mount a volume (the file defaults to `data.sqlite` in the server working directory, or the OS user-data dir when `NODE_ENV=production`, which the image sets).
 
 ## 💻 Local Development
 
@@ -37,7 +39,7 @@ If you want to contribute or run the project locally:
 
 ### Prerequisites
 - Node.js (v20+ or v22+ recommended)
-- A supported database (or just use the default SQLite!)
+- MongoDB, unless you set `DB_TYPE` to `sqlite` or another supported engine
 
 ### Installation
 
@@ -59,35 +61,52 @@ If you want to contribute or run the project locally:
    ```
 
 3. **Configure Environment Variables:**
-   Copy the example environment file in the server directory:
+   From the repo root (step 2 leaves you in `client/`):
    ```bash
-   cd server
+   cd ../server
    cp .env.example .env
    ```
-   *By default, Reqspace uses a local SQLite database requiring zero configuration!*
+   `.env.example` sets `MONGO_URI` and does not set `DB_TYPE`, so the server uses **MongoDB**. For a file database with nothing else running, add `DB_TYPE=sqlite` to `server/.env`.
 
 4. **Run the Application (Development Mode):**
    ```bash
-   # In one terminal window (Start Server)
+   # Terminal 1 — API on http://localhost:3005
    cd server
    npm run dev
 
-   # In another terminal window (Start Client)
+   # Terminal 2 — Vite UI (default http://localhost:5173), proxying /api and /ws to port 3005
    cd client
    npm run dev
    ```
+   Open the Vite URL. Port 3005 serves the built client only after `npm run build` in `client/` (that is what Docker and production do).
 
 ## ⚙️ Configuration & Databases
 
-Reqspace uses an intelligent database connector. You can easily switch your database by editing the DB_TYPE variable in your server/.env file:
+`getDbConfig()` reads `DB_TYPE` first, then `db-config.json`, and otherwise uses **mongodb**. There is no `DB_URI` variable.
 
 ```env
-# Choose between: sqlite, postgres, mysql, mongodb
-DB_TYPE=sqlite
+# mongodb | sqlite | postgres | mysql | mssql
+DB_TYPE=mongodb
 
-# If using postgres/mysql/mongodb, provide the URI:
-DB_URI=mongodb://localhost:27017/reqspace
+# MongoDB (either name works). Default if both are unset:
+# mongodb://localhost:27017/reqspace-web
+MONGO_URI=mongodb://localhost:27017/reqspace-web
+# MONGODB_URI=
+
+# SQLite file. Dev default is ./data.sqlite (cwd of the server process).
+# DB_TYPE=sqlite
+# DB_STORAGE_PATH=./data.sqlite
+
+# Postgres / MySQL / MSSQL — connection string, or discrete fields.
+# DB_CONNECTION_STRING=postgres://user:pass@localhost:5432/reqspace
+# DB_HOST=localhost
+# DB_PORT=5432
+# DB_NAME=reqspace
+# DB_USER=root
+# DB_PASSWORD=
 ```
+
+Default ports when `DB_PORT` is omitted: MySQL `3306`, PostgreSQL `5432`, MSSQL `1433`. The SQL database name falls back to `reqspace`.
 
 ## 🔑 Google OAuth Setup
 
@@ -102,46 +121,43 @@ You can enable Google Authentication without touching the code!
 Contributions, issues, and feature requests are welcome! 
 Feel free to check [issues page](https://github.com/Itayp1/reqspace/issues).
 
-## 🔒 Security & Architecture Decisions (Sept 2026)
+## 🔒 Security & Architecture (as of the code, Sept 2026)
 
-Based on a recent security and architecture review, the following principles and fixes are actively being applied to the project:
+What the server actually does today, versus what is still only a plan. Open items are tracked in [Active Tasks](#-active-tasks--roadmap).
 
-1. **Client-Side Scripts Sandbox:** Pre-request and test scripts will be executed in a secure Sandbox (Web Worker or Sandboxed Iframe) to prevent XSS and secure local storage secrets.
-2. **Strict Header Authentication:** Header-based authentication (`X-Auth-User`) is disabled by default and will only be allowed if explicitly enabled in the Admin Dashboard (assumed to be behind a trusted reverse proxy).
-3. **Strict Input Validation:** We are rolling out strict `Zod` validation schemas across all API endpoints to prevent Mass Assignment and ensure data integrity.
-4. **Client-Side Proxy Execution:** The proxy architecture is being redesigned so that the central Reqspace server does not execute proxy requests directly. Proxying will be handled by external proxies or directly from the Client station.
-5. **SSRF Allowances:** The proxy natively allows internal network requests (SSRF) as it is a core feature of API testing tools for local network development.
-6. **Cross-Database Compatibility:** The system is strictly designed to support **both SQL and MongoDB**. Any direct Mongoose usages outside of Repositories are being migrated to abstracted Repositories to ensure seamless SQL support.
+1. **User scripts run in a sandboxed iframe.** Pre-request and test scripts execute in `/sandbox.html` with `sandbox="allow-scripts"` and without `allow-same-origin` (`client/src/utils/scripts.ts`, `client/src/sandbox/runtime.ts`). The iframe cannot read the app origin's document, cookies, or `localStorage`. `pm.sendRequest` is posted to the parent, which forwards only method, url, headers, and body to the proxy.
+2. **Header authentication is off until an admin opts in, and then only from trusted IPs.** `auth.mode` defaults to `login`. Turning on **SSO Header (Reverse Proxy)** in Admin Settings is required, and `X-Auth-User` (or the configured header name) is accepted only when the request IP is in `HEADER_AUTH_TRUSTED_IPS` (loopback by default).
+3. **Request bodies are validated with Zod** on the write routes (auth, admin, collections, proxy, share, import, environments, workspaces). Unknown keys are stripped. `ajv` is only used by the standalone `server/test_schema.js` script.
+4. **The API server still sends proxied HTTP requests.** A redesign that would stop the central server from issuing those calls has not landed. `POST /api/proxy` runs on the server.
+5. **The proxy blocks internal and private targets.** `server/src/utils/ssrf.ts` rejects loopback, RFC1918, link-local, NAT64, IPv4-mapped forms, and non-dotted IP literals. It does not leave SSRF open for local-network testing. An admin message in that module says a system setting can allow it; that allow-switch is not a reason to treat private URLs as permitted by default.
+6. **SQL and MongoDB share a repository layer on the request path.** Environments, history, share, capture, admin, import/export, and the proxy history write go through repositories. `mongoose.Types.ObjectId(workspaceId)` is no longer used to address a workspace.
 
 ## 🚀 Scalability & Performance (High-Scale Architecture)
 
-To support enterprise-grade scale (e.g., **400k+ Workspaces, 2M+ Collections, 20M+ Requests**), the architecture incorporates the following principles:
+The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ sockets) are a target, not a measured capacity. Indexing, realtime deltas, optional Redis concurrency, RBAC/config caching, and cursor pagination are implemented.
 
-1. **Database Indexing:** Strict enforcement of indexes on foreign keys (`workspaceId`, `collectionId`, `folderId`) and compound indexes for heavily queried fields (like `order` and `parentFolderId`). Without these, queries on a 20M row `requests` table would result in catastrophic full-table scans. 
-   * **Cross-SQL Indexing Strategy:** Since Reqspace supports multiple SQL databases (PostgreSQL, MySQL, SQLite, MSSQL), the most efficient way to implement these indexes is to define them directly within the Sequelize model definitions (using the `indexes` array in `Model.init` options). Sequelize abstracts the underlying dialect, automatically generating the correct `CREATE INDEX` syntax for the chosen database type upon schema sync.
-2. **Lazy Loading & Pagination:** The API and Client UI must avoid fetching entire workspace trees simultaneously. Endpoints will use cursor-based pagination, and the Client will lazy-load nested resources (Folders/Requests) only when expanded.
-3. **Optimized Realtime Sync:** The WebSocket (`SocketSync`) architecture will move from "refetch everything on change" to **granular delta updates**. Clients will only receive the specific document that changed (e.g., `request:updated`) instead of querying the DB for the whole tree again.
-4. **RBAC & Configuration Caching:** Frequently accessed data, such as workspace membership (roles) and system configurations, will be offloaded to an in-memory caching layer (or Redis) to reduce load on the primary relational/document database during heavy proxy traffic.
-5. **High-Concurrency WebSockets (10,000+ Active Users):** To support 10k+ simultaneous live connections without CPU/Memory exhaustion on a single instance, the Socket.io implementation requires **Horizontal Scaling**. This means deploying multiple server replicas behind a Load Balancer (with Sticky Sessions) and using a **Redis Adapter**. The Redis Adapter ensures that a realtime event generated on Server Node A is seamlessly broadcasted to the relevant users connected to Server Node B.
+1. **Database Indexing (in place):** Sequelize models under `server/src/db/sql-models/` declare indexes on `workspaceId`, `collectionId`, and `folderId`, plus compound indexes on `order` / `parentFolderId`. Sequelize emits the dialect-specific `CREATE INDEX` on sync for PostgreSQL, MySQL, SQLite, and MSSQL.
+2. **Lazy loading and cursor pagination:** `GET /workspaces/:id/collections`, `GET /collections/:id/folders`, and `GET /collections/:id/requests` accept `limit` (max 100) and `cursor`. The response is `{ items, nextCursor }`. Without `limit` they still return the full array. The sidebar loads 50 collections and asks for the next page. Folders and requests for a collection load when that collection is opened, 50 at a time.
+3. **Realtime sync applies the event payload.** `SocketSync` writes the received collection, folder, request, environment, or reorder list into the store. It loads the full tree only when the socket connects. The socket origin is `VITE_SOCKET_URL`, or the page origin when that variable is unset.
+4. **RBAC and config caching:** `getUserWorkspaceRole` and `SystemConfigRepository.getConfig` keep a 30-second in-process cache. Saving a workspace drops that workspace's role entries. Saving system config drops the config entry. When Redis is active, the drop is published so other replicas clear the same keys.
+5. **Horizontal WebSockets:** When `REDIS_URL` is set and Redis answers, Socket.io uses the Redis adapter and rate limits share that store. Otherwise the process stays single-node. The Ingress pins a client with the `reqspace-route` cookie, and the Service uses `sessionAffinity: ClientIP`.
 
 ## 🧪 Testing Strategy (target architecture)
 
-> The direction below is a decision, not a suggestion: **UI-driven integration tests are the backbone of this suite, and the whole backbone runs against every supported database.** What exists today does neither — see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them) for how the current suite reported green on live defects.
+> Target, not the current suite: **UI-driven integration tests as the backbone, run against every supported database.** That matrix is not built. CI (`.github/workflows/test.yml`) builds client and server, runs Jest, and runs `scripts/smoke-core.sh` against SQLite only. [`TESTING.md`](TESTING.md) still describes the pre-fix defects (dead broadcasts, SQL login, no CI) and is out of date relative to this file.
 
 ### Why UI-first integration is the right default here
 
 Drive a real browser against a real server against a real database, and assert on what the user sees. If a collection rename shows up in a second user's tree, then the route, the RBAC middleware, the repository, the DB dialect, the socket broadcast and the client store all worked. One assertion covers the entire stack, and it stays true when the internals are refactored.
 
-This is not a theoretical preference. Of the three defects that shipped past the current suite, a UI-level integration test would have caught **two immediately**:
+Two defects that used to ship green are fixed, and a UI test would have seen both:
 
-* the dead `:updated` / `:deleted` broadcasts — a second browser's tree visibly fails to refresh
-* the SQL login defect — under `DB_TYPE=sqlite`, the UI dies on the first authenticated call after login
-
-Both are invisible to the tests that exist, and neither needs a clever assertion — only a test that performs the ordinary action and looks at the screen.
+* `:updated` / `:deleted` broadcasts — fixed; `tests/socket-realtime.spec.ts` covers collection update and delete, plus folder, request, environment, and reorder, with two clients.
+* SQL login — the core authenticated path is verified on SQLite and MongoDB. The old failure was the first call after login, which a public register/login test never hits.
 
 ### Rule 1 — two browser contexts, always, for anything realtime
 
-A single-browser test **cannot** detect a dead broadcast. The client updates its own tree optimistically, so the acting user sees the change whether or not the server emitted anything; `emitToWorkspace` additionally suppresses emission entirely when the room holds one socket. A one-browser realtime test passes vacuously against completely broken code.
+A single-browser test **cannot** detect a dead broadcast. The client updates its own tree optimistically, so the acting user sees the change whether or not the server emitted anything. `emitToWorkspace` sends to the room with no local size check, so a one-socket room still emits and a second client is what proves the event left the server.
 
 ```ts
 const alice = await browser.newContext();
@@ -191,7 +207,7 @@ projects: [
 
 Skip a leg when its connection string is absent rather than failing — contributors without a local MySQL should still get a useful run — but **CI must run all four**, and must fail if a leg was skipped there.
 
-Note that `baseURL` is currently commented out in `playwright.config.ts` and specs hardcode `http://localhost:3005`. Moving to a matrix requires routing every spec through `baseURL` first; that refactor is a prerequisite, not an afterthought.
+`playwright.config.ts` sets `baseURL` (default `http://localhost:3005`, overridable with `PLAYWRIGHT_BASE_URL`). Specs call `serverOrigin()`, which reads the active project's `baseURL`. `PW_DB_MATRIX=1` adds sqlite, postgres, mysql, and mongodb projects on ports 3011–3014. Smoke against all four and the full suite on sqlite run from `.github/workflows/nightly.yml`.
 
 ### Rule 4 — tier the matrix so it stays fast enough to run
 
@@ -203,20 +219,20 @@ The full suite × four backends is too slow to sit in front of every push. Split
 | Full integration | Everything in `tests/` | One backend (sqlite — no external service) | Every push |
 | Full matrix | Everything in `tests/` | All 4 backends | Nightly, and before release |
 
-The smoke tier is what the current `test-all-dbs.ps1` was reaching for and missed: it stops at login, which is a **public** route, so it never touches the dialect-specific code in `middleware/auth.ts` where the SQL defect lives. **The first authenticated request is the single most valuable assertion in the entire matrix** — it is where Mongoose-only code paths fail on SQL, and where `isValidObjectId` rejects a UUID. It must be in the smoke tier, and every backend must run it.
+`scripts/smoke-core.sh` already crosses the first authenticated request, but only on SQLite in CI. `test-all-dbs.ps1` still stops at `auth.e2e.test.ts` (register and login), rewrites `server/.env`, and depends on pm2. **The first authenticated request is the assertion the matrix has to keep** — Mongoose-only routes and `mongoose.Types.ObjectId` still reject SQL UUIDs. Every backend must run it.
 
 ### Rule 5 — an integration test that passes before the fix is a bug
 
-These tests exist to catch specific, known-reachable failures. Write the test, run it against unpatched code, watch it fail, then fix. A realtime test that goes green on today's `master` is asserting on the wrong thing — which is exactly how the existing socket specs came to cover only `collection:created`.
+These tests exist to catch specific, known-reachable failures. Write the test, run it against unpatched code, watch it fail, then fix. The old socket specs stayed green while `:updated` and `:deleted` were dead because they only listened for `collection:created`. That bug is fixed; a new realtime test that passes before the change it claims to lock in is still asserting on the wrong thing.
 
-Corollary: never commit a passing placeholder. `socket-sync.spec.ts:3-29` records 18 tests that asserted `expect(true).toBe(true)` and reported real-time collaboration as verified. Use `test.fixme` for anything unwritten, so the runner reports it as outstanding.
+Corollary: never commit a passing placeholder. `tests/socket-sync.spec.ts` used to contain 18 tests that asserted `expect(true).toBe(true)`. Those assertions are gone; the file keeps one real peer-broadcast test and a comment listing the scenarios that are still unwritten. Use `test.fixme` for anything unwritten, so the runner reports it as outstanding.
 
 ### What still needs non-integration tests
 
 Integration coverage does not remove the need for a small number of targeted tests where the failure is unreachable from a browser:
 
 * **`ssrf.ts` parsing** — unit tests for NAT64, hex literals, trailing-dot hosts, IPv4-mapped forms. No UI path reaches these.
-* **Multi-node broadcast** — the `size > 1` guard in `socketUtils.ts` reads only the local adapter room, so it is correct on one instance and wrong on two. Requires two server processes against one Redis, and cannot be observed on a single-node run at all.
+* **Multi-node broadcast** — the old `size > 1` guard is gone, and `@socket.io/redis-adapter` attaches when `REDIS_URL` is set. Proving a broadcast crosses processes still needs two server processes against one Redis, which a single-node run cannot show.
 * **SSO account creation** — needs a stub for Google's token endpoint.
 
 ## 📋 Active Tasks & Roadmap
@@ -251,15 +267,11 @@ Not new features. Things the code already claims to do and does not. Do these fi
 
 The Features list at the top of this file promises things the server does not deliver.
 
-* [ ] **Multi-database support — finish the remaining routes** — `CR#1` (core done)
-  * ✅ **Done:** `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check in `utils/ids.ts`), `routes/workspaces.ts` and `routes/collections.ts` now go through the repositories. The authenticated core path (login → `/me` → workspace → collection → folder → request → comment → delete → logout) is verified on **both SQLite and MongoDB**.
-  * **Remaining — Where:** `routes/{environments,history,admin,capture,importExport,share}.ts` still call Mongoose models directly and will fail under `DB_TYPE≠mongodb`. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) schemas reconciled.
-  * **Do:** route those files through the repositories (extending `EnvironmentRepository`/`HistoryRepository` to the full shape) and fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
+* [x] **Multi-database support — finish the remaining routes** — `CR#1`
+  * ✅ **Done:** `environments`, `history`, `admin`, `capture`, `importExport`, `share`, and `shareProxy` go through repositories. SQL environments carry `isGlobal` and `order`; the variables-only global row is still merged into the list. History snapshots are stored in Mongo as `requestSnapshot`/`responseSnapshot` and in SQL inside `requestData`/`responseData` plus the method/url/status columns. Proxy history writes pass string ids. `server/src/tests/db.repositories.test.ts` passes on SQLite (53 tests).
 
-* [ ] **Import / Export / Runner are server-side stubs** — `CR#13`
-  * **Where:** `server/src/routes/importExport.ts` (`GET /collections/:id/export` returns `{ item: [] }`), `server/src/routes/runner.ts` (near-empty)
-  * **Why it matters:** real import happens client-side in `ImportModal`, so some flows skip server-side permission checks entirely.
-  * **Do:** implement ReqSpace v2.1 export/import server-side with RBAC, or remove the entry points from the UI. Do not keep shipping buttons that resolve to nothing.
+* [x] **Import / Export / Runner are server-side stubs** — `CR#13`
+  * ✅ **Done:** `GET /api/collections/:id/export` builds a ReqSpace v2.1 document from the repositories and requires a workspace viewer. `POST /api/collections/import` writes that document back and requires an editor. The export button and collection import modal call those routes. The empty `POST /api/runner/run` stub and the unused mock `RunnerModal` are gone; runs go through `CollectionRunnerModal`, which sends each request.
 
 * [x] **`sync({ alter: true })` runs on every boot** — `CR#18`
   * ✅ **Done:** `server/src/db/connect.ts` only auto-`alter`s outside production (`sync({})` in production, non-destructive); the dead `/admin/db-config` carve-out was removed from the DB-down gate. (Full migrations via `umzug`/Sequelize-CLI are still a future improvement.)
@@ -273,22 +285,17 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Header auth allows impersonation** — `CR#2`
   * ✅ **Done:** `X-Auth-User` is honoured only when the request source is trusted (`HEADER_AUTH_TRUSTED_IPS`, loopback by default) in `server/src/middleware/auth.ts`.
 
-* [ ] **Share-proxy is an open proxy for anonymous users** — `CR#3`
-  * **Where:** `server/src/routes/shareProxy.ts`, `server/src/routes/share.ts`
-  * **Why:** `POST /api/share/:shortId/proxy` requires no login, so a link holder can make the server issue arbitrary HTTP requests. `GET /api/share/:shortId` returns every request **including headers, tokens and scripts**.
-  * **Do:** restrict the public proxy to URLs present in the shared collection (or remove it); strip auth / cookies / variables from the public payload; block `localProxy` on the public path; widen `shortId` beyond 48 bits and rate-limit it.
+* [x] **Share-proxy is an open proxy for anonymous users** — `CR#3`
+  * ✅ **Done:** `POST /api/share/:shortId/proxy` only forwards a URL whose origin and path match a request in the shared collection, rejects `localProxy`, and is rate-limited (30/min per IP). `GET /api/share/:shortId` drops variables, scripts, auth, and credential headers. New links use a 128-bit `shortId`.
 
-* [ ] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
-  * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error.
-  * **Where:** `POST /api/auth/google` in `server/src/routes/auth.ts` (+ the client callback page)
-  * **Do:** issue a random `state` in a cookie and verify it on callback (needs a matching client change).
+* [x] **OAuth: add `state`/CSRF** — `CR#4`
+  * ✅ **Done:** `redirect_uri` is allowlisted (`GOOGLE_ALLOWED_REDIRECT_URIS`) and token errors are not echoed. `GET /api/auth/google/state` sets an httpOnly `oauth_state` cookie; login and register send that value to Google, and `POST /api/auth/google` rejects a callback whose `state` does not match the cookie.
 
 * [x] **Default admin credentials, shared JWT secret, insecure TLS** — `CR#6`
   * ✅ **Done:** production refuses to bootstrap `admin`/`admin`; `jwtSecret.ts` refuses a per-pod ephemeral secret in production (require `JWT_SECRET`, opt out with `ALLOW_EPHEMERAL_JWT_SECRET`); Mongo `tlsInsecure` is opt-in via `MONGO_TLS_INSECURE`. (Populating a real value in `k8s/secret.yaml` remains a deploy-time action.)
 
-* [ ] **Mass assignment and cross-workspace writes** — `CR#7` (main routes done)
-  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` now allowlist writable fields (no `workspaceId`/`collectionId` reassignment) and no longer leak `err.message`.
-  * **Do:** `POST /api/history/:id/save` still creates a request in a client-supplied `collectionId` with no membership check, and `POST /api/import/wsdl` still has no `requireWorkspaceRole` — add the guards.
+* [x] **Mass assignment and cross-workspace writes** — `CR#7`
+  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` allowlist writable fields. `POST /api/history/:id/save` loads the collection and requires an editor role in its workspace. `POST /api/import/wsdl` uses `requireWorkspaceRole('editor')`, which reads `workspaceId` from the body. Environment updates only accept `name`, `variables`, `order`, and `isGlobal`.
 
 * [x] **History endpoints have no workspace RBAC** — `CR#11`
   * ✅ **Done:** `GET`/`DELETE /workspaces/:workspaceId/history` now require `requireWorkspaceRole('viewer')`, and the workspace-scoped clear decrements `historyUsedBytes` by the bytes actually freed instead of zeroing the user's whole counter. (The `Types.ObjectId(workspaceId)` SQL issue folds into the `CR#1` follow-up for `history.ts`.)
@@ -304,79 +311,63 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 **Sandboxing & input validation**
 
-* [ ] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
-  * **Where:** `client/src/utils/scripts.ts:131` and `:306` (`new Function(...)`); `client/src/sandbox/worker.ts` exists but is referenced **only from a comment** in `RunnerModal.tsx:16`; the visualizer iframe in `ResponseViewer.tsx` has no `sandbox` attribute and injects Handlebars output via `innerHTML` from a CDN
-  * **Why:** scripts get `window`, `document`, `localStorage` and the app's authenticated axios instance — enough to read persisted bearer tokens and issue requests as the user.
-  * **Do:** run scripts only in the Worker (or an iframe with `sandbox` and **without** `allow-same-origin`); expose `pm.sendRequest` through an allowlisted message channel rather than handing over `api`; add `sandbox` to the visualizer iframe and self-host Handlebars. Consolidate onto **one** sandbox implementation — the `scripts.ts` / `worker.ts` split is currently two half-built paths.
+* [x] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
+  * ✅ **Done:** pre-request and test scripts run in `/sandbox.html` inside an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the script cannot read the app origin's `document`, `localStorage`, or cookies. `pm.sendRequest` is a postMessage to the parent, which forwards only `method`, `url`, `headers`, and `body` to `POST /api/proxy` and only for `http:`/`https:` URLs. Variable writes come back as mutation messages. The half-built `worker.ts` path is removed. A script that does not finish within 10s is discarded with the iframe. The visualizer iframe was already sandboxed the same way and loads Handlebars from this app (`CR#23`).
 
-* [ ] **Zod is a dependency that is never imported** — `CR#19`
-  * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
-  * **Do:** add request schemas route by route, starting with the mass-assignment routes above, then proxy / auth / admin bodies. While there, replace `req.user?: any` and the scattered `as any` casts with real types.
+* [x] **Zod is a dependency that is never imported** — `CR#19`
+  * ✅ **Done:** `validateBody` in `server/src/validation/body.ts` parses auth, admin, collection/folder/request, workspace, environment, history-save, import, share, and proxy bodies and strips unknown keys. `AuthRequest.user` is `IUserRecord`. The `as any` casts on those routes and the SQL repositories are gone. `ajv` stays in `server/test_schema.js` only. Covered by `server/src/tests/bodySchemas.test.ts`.
 
-* [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit done)
-  * ✅ **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`) and correct client-error statuses (413) are in place in `server/src/index.ts`.
-  * **Do:** cap the proxy response size and client-supplied timeout, add a CSP, rate-limit `POST /api/proxy`, and move the in-memory rate limiter to a shared store (alongside the Redis work) so it holds across replicas.
+* [x] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit/proxy caps done)
+  * ✅ **Done:** `helmet` sends a CSP (`script-src 'self'`; styles allow inline because the UI still uses some). `POST /api/proxy` is limited to 60 requests/minute/IP, client timeouts are capped at 120s, and proxy responses stop at `MAX_PROXY_RESPONSE_BYTES` (default 5 MB) with status 413. When `REDIS_URL` is set and Redis answers, every limiter uses that shared counter (`rl:<name>:<ip>`). With no Redis, the window stays in memory on this process.
 
-* [ ] **SSRF: gaps in coverage** — `CR#25` (parser + proxy protocol check done)
-  * ✅ **Done:** `ssrf.ts` now blocks NAT64 (`64:ff9b:`), IPv4-mapped forms, integer/hex/octal literals (`0x7f000001`) and trailing-dot hosts (offline unit tests in `server/src/tests/ssrf.test.ts`); `proxy.ts` asserts `http:`/`https:` before dispatching.
-  * **Do:** make `server/src/routes/capture.ts` forward via `createSafeLookup` instead of the global `fetch` (currently only a pre-flight `assertSsrfSafe`, which is TOCTOU / DNS-rebind vulnerable); add a test that a redirect to a private host is refused.
+* [x] **SSRF: gaps in coverage** — `CR#25`
+  * ✅ **Done:** `ssrf.ts` blocks NAT64, IPv4-mapped forms, integer/hex/octal literals, and trailing-dot hosts. `proxy.ts` asserts `http:`/`https:` before dispatching. `capture.ts` forwards with undici and `createSafeLookup` (no global `fetch`, redirects are manual). `assertRedirectTargetSafe` refuses a `Location` that points at a private host; covered in `server/src/tests/ssrf.test.ts`.
 
-* [ ] **Secrets persisted to `localStorage`** — `CR#21`
-  * **Where:** `client/src/store/requestStore.ts` (persists all tabs including `auth.bearer.token`, basic passwords, bodies), `client/src/store/cookieStore.ts` (also ships a dummy `sess_default_123`), `client/src/store/settingsStore.ts` (local proxy password)
-  * **Do:** strip credential fields from the persisted slice; keep them in memory or in the OS keychain for the Electron build. This is a prerequisite for the sandbox work to mean anything.
+* [x] **Secrets persisted to `localStorage`** — `CR#21`
+  * ✅ **Done:** `request-storage` drops bearer/basic/api-key/oauth/ntlm secrets and credential headers before write. Cookie values are kept in memory only, and the dummy `sess_default_123` cookie is gone. The proxy username and password are omitted from `reqspace-global-settings`. They remain in memory until reload. An OS keychain for the Electron build is still future work; nothing secret is written by these stores.
 
 * [x] **Information disclosure and open registration** — `CR#24`
   * ✅ **Done:** `allowSelfRegistration` now defaults to **false**, and `GET /api/health` masks the raw `dbError` in production.
 
-* [ ] **Client certificates stored in plaintext** — *P3*
-  * **Where:** client-certificate records in the DB hold private keys as clear text
-  * **Do:** encrypt at rest with a server-held key, or store a reference and keep the material out of the DB.
+* [x] **Client certificates stored in plaintext** — *P3*
+  * ✅ **Done:** `UserRepository` seals `cert`, `key`, and `passphrase` with AES-256-GCM (`server/src/utils/secretBox.ts`) before write and opens them only in process. The key is `CERT_ENCRYPTION_KEY` (64 hex chars) or a SHA-256 of `JWT_SECRET`. `GET /api/auth/me` and the certificate routes return hostname and id only. Covered by `server/src/tests/secretBox.test.ts`. Legacy plaintext rows still decrypt.
 
 ### 🔵 Stage 3 — Scale (blocked on Stage 0)
 
-* [ ] **Optional Redis Concurrency Mode:** Implement an optional Redis adapter for Socket.io to support horizontal scaling out-of-the-box.
-  * **Configurable:** Driven by an environment variable (e.g., `REDIS_URL=redis://localhost:6379`). If absent, the server gracefully falls back to single-node (in-memory) mode.
-  * **Server Startup:** The server will automatically detect the variable and attach the adapter during boot.
-  * **Admin UI Indicator:** The Admin Dashboard will feature a clear visual indicator showing whether "Redis Concurrency Mode" is currently Active or Inactive.
-  * ⚠️ **Prerequisite:** both realtime defects in Stage 0 (now fixed).
-  * **Also needs:** sticky sessions on the Ingress (k8s currently runs `replicas: 2` + HPA **without** them), and the shared rate-limit store from `CR#8`.
+* [x] **Optional Redis Concurrency Mode:** Implement an optional Redis adapter for Socket.io to support horizontal scaling out-of-the-box.
+  * ✅ **Done:** `REDIS_URL` attaches `@socket.io/redis-adapter` during boot. If the variable is absent, or Redis does not answer, the server stays on the in-memory adapter and logs that. `GET /api/health` and `GET /api/admin/runtime` report `redisConcurrency` as `active` or `inactive`. The Admin Dashboard shows that state under the title. The Ingress sets nginx cookie affinity (`reqspace-route`) and the Service sets `sessionAffinity: ClientIP`. Rate limits use the same Redis when it is active (`CR#8`).
 
-* [ ] **Granular delta updates instead of full refetch** — `CR#22`
-  * **Where:** `client/src/components/common/SocketSync.tsx`
-  * **Why:** every structural event — and every window focus — triggers `fetchCollectionsData` for the entire workspace tree. At 400k workspaces this dominates load far more than the adapter does. The socket URL is also derived via `api.defaults.baseURL?.replace('/api', '')`, which breaks on a versioned base URL such as `http://host/api/v1`.
-  * **Do:** apply the received document to the store directly; derive the socket URL from an explicit config value.
+* [x] **Granular delta updates instead of full refetch** — `CR#22`
+  * ✅ **Done:** `SocketSync` upserts or removes the document carried by `collection:*`, `folder:*`, `request:*`, and `environment:*`. Reorder events carry `{ type, items }` or `{ items }` and only those `order` fields change. Window focus no longer refetches the tree. A full load still runs once on socket connect, to cover time spent offline. The socket origin is `VITE_SOCKET_URL` when set, otherwise `window.location.origin` — it is not derived by stripping `/api` from the axios base URL.
 
 * [x] **Foreign-key indexes are documented but not enforced**
   * ✅ **Done:** `indexes` added to the Sequelize models under `server/src/db/sql-models/` for `workspaceId`, `collectionId`, `folderId` plus compound indexes on `order`/`parentFolderId` (and history `userId+workspaceId`, audit `targetId`).
 
-* [ ] **Lazy loading and cursor pagination** — from the *Scalability* section; not started. Endpoints still return whole trees.
+* [x] **Lazy loading and cursor pagination** — from the *Scalability* section
+  * ✅ **Done:** collection, folder, and request list routes take `limit` and `cursor` and return `{ items, nextCursor }` (`server/src/utils/cursor.ts`). The sidebar requests 50 collections and shows “Load more collections” when `nextCursor` is set. Opening a collection loads its folders and requests; “Load more” fetches the next page. A call without `limit` still returns the whole array. Sidebar search only sees rows that have been loaded. Covered by `server/src/tests/cursor.test.ts` and a SQL page test in `db.repositories.test.ts`.
 
-* [ ] **RBAC and config caching** — from the *Scalability* section; not started. Membership and system config are re-read from the DB on every proxy call.
+* [x] **RBAC and config caching** — from the *Scalability* section
+  * ✅ **Done:** `getUserWorkspaceRole` and `SystemConfigRepository.getConfig` cache for 30 seconds. A workspace save drops that workspace's role cache. A config save drops the config cache. With Redis active, the drop is published on `reqspace:cache` so other replicas drop it too. Covered by `server/src/tests/cache.test.ts`.
 
 ### ⚪ Stage 4 — Quality, tests and cleanup
 
-* [ ] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
-  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh` (crosses the first authenticated request); `ssrf.ts` unit tests; a two-client `socket-realtime` spec (`collection:updated`/`:deleted`); an `api-authorization` spec (viewer → 403 via the API, non-member → 403 read); `global-setup` enables registration; the obsolete socket-sync suppression assertion was replaced; the deprecated `globals.ts-jest` config was migrated to `transform`.
-  * **Do (remaining):**
-    1. Route every spec through `baseURL` (currently hardcoded `http://localhost:3005`) and add one Playwright project per backend — the DB matrix (smoke on all four, full suite nightly).
-    2. Cover the remaining `emitToWorkspace` call sites with two-client tests (folders, requests, environments, reorder — collections are covered).
-    3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
+* [x] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
+  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh`; `ssrf.ts` unit tests; two-client `socket-realtime` coverage for collection update/delete plus folder, request, environment, and reorder; `api-authorization` for viewer writes, non-member reads, `POST /api/admin/import`, WSDL import, and logout clearing the `token` cookie. Specs take their origin from `serverOrigin()` / `baseURL`. `PW_DB_MATRIX=1` defines one Playwright project per backend. `.github/workflows/nightly.yml` smokes all four databases and runs the full Playwright suite on sqlite.
 
-* [ ] **Client dependency weight** — `CR#23`
-  * **Do:** `moment` **and** `date-fns` are both bundled; `lodash` is imported whole; `crypto-js` and `chai` ship to the browser for script support; Handlebars is fetched from jsDelivr at runtime (a third-party supply-chain and availability dependency). Consolidate on one date library, import lodash per-function, lazy-load the script-runtime libraries, and self-host Handlebars.
+* [x] **Client dependency weight** — `CR#23`
+  * ✅ **Done:** `date-fns` is removed (nothing imported it). `moment` is the only date library, and it loads with `lodash`, `crypto-js`, and `chai` inside the script sandbox bundle (`/vendor/sandbox-runtime.js`), not in the initial app bundle. User scripts still receive the full `_` object, because they can call any lodash method. Handlebars is copied from the `handlebars` package to `/vendor/handlebars.min.js` and the visualizer iframe no longer contacts jsDelivr. The iframe is `sandbox="allow-scripts"` (no `allow-same-origin`).
 
-* [ ] **UI consistency** — `CR#27`
-  * **Do:** `/admin` is wrapped in `AuthGuard` twice; `App.tsx` uses inline `style={{}}` where Tailwind is the convention; 401 and 403 are not handled distinctly. Unify.
+* [x] **UI consistency** — `CR#27`
+  * ✅ **Done:** `/admin` sits inside the layout `AuthGuard` and adds only `SuperAdminGuard`. The database-error and loading screens in `App.tsx` use Tailwind. A 401 clears the session and returns to login; a 403 leaves the session in place and shows a dismissible notice.
 
 * [x] **Dockerfile and k8s hygiene** — `CR#17`
   * ✅ **Done:** the Dockerfile uses `npm ci`, a multi-stage build-tool-free runtime image, and a non-root `USER`. (k8s sticky sessions for socket.io are tracked under the Redis task above.)
 
-* [ ] **Dead code and naming** — *P3* (`server/dist` untracking done)
-  * ✅ **Done:** `server/dist` is no longer committed (gitignored).
-  * **Do:** `runner.ts` is nearly empty (folds into `CR#13`); `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`.
+* [x] **Dead code and naming** — *P3*
+  * ✅ **Done:** `server/dist` stays gitignored. `ensureDefaultAdmin` is gone; bootstrap lives in `index.ts`. `share.ts` no longer has `??` placeholders. `multer`, `http-proxy-middleware`, `archiver`, and `postman-collection` were unused and are removed. The Electron `appId` is `com.reqspace.app`. New SQL databases default to `reqspace`. (`runner.ts` was removed with `CR#13`.)
 
-* [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
-  * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.
+* [x] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
+  * ✅ **Done:** the list is audited against the code. 23 items are marked **Landed** (load test, visualizer, snippets, client certificates, SSL toggle, redirects, environment duplicate, globals, collection and local variables, cURL import and export, v2.1 export, raw import, tabs, context menus, response download, `pm.sendRequest`, folder scripts, timeout, response cap). 26 are **Partial** (GraphQL body, OAuth2 token, NTLM headers, OpenAPI import tab, Google OAuth, code generation for six targets, and others). 51 are still absent, including gRPC, MQTT, monitors, mock servers, 2FA, and data residency.
 
 ## 📝 License
 

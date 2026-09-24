@@ -293,7 +293,7 @@ describe('SqlEnvironment table', () => {
     // Use findOrCreate + update (same as repository does)
     const [existing] = await SqlGlobalEnvironment.findOrCreate({
       where: { workspaceId: wsId },
-      defaults: { id: uuidv4(), workspaceId: wsId, variables: JSON.stringify(newVars), updatedAt: new Date() } as any,
+      defaults: { id: uuidv4(), workspaceId: wsId, variables: JSON.stringify(newVars), updatedAt: new Date() },
     });
     await existing.update({ variables: JSON.stringify(newVars), updatedAt: new Date() });
     const all = await SqlGlobalEnvironment.findAll({ where: { workspaceId: wsId } });

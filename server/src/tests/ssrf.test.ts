@@ -1,4 +1,4 @@
-import { isPrivateOrReservedHost } from '../utils/ssrf';
+import { assertRedirectTargetSafe, isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
 
 // These cases all use literal hosts (IP literals or numeric forms), so no DNS
 // lookup is performed — the tests are deterministic and offline. They cover the
@@ -38,5 +38,19 @@ describe('ssrf: isPrivateOrReservedHost', () => {
 
   it.each(allowed)('allows %s (%s)', async (_label, host) => {
     expect(await isPrivateOrReservedHost(host)).toBe(false);
+  });
+});
+
+describe('ssrf: redirect targets', () => {
+  it('refuses a redirect to a private host', async () => {
+    await expect(assertRedirectTargetSafe('http://127.0.0.1/latest/meta-data', 'https://example.com/start', false))
+      .rejects.toBeInstanceOf(SsrfBlockedError);
+    await expect(assertRedirectTargetSafe('/secret', 'http://10.0.0.5/start', false))
+      .rejects.toBeInstanceOf(SsrfBlockedError);
+  });
+
+  it('allows a redirect that stays on a public host', async () => {
+    await expect(assertRedirectTargetSafe('https://example.com/next', 'https://example.com/start', false))
+      .resolves.toBeUndefined();
   });
 });

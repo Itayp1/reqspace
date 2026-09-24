@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UserRepository } from '../repositories/UserRepository';
+import { UserRepository, IUserRecord } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { resolveJwtSecret } from '../utils/jwtSecret';
@@ -8,7 +8,8 @@ import { resolveJwtSecret } from '../utils/jwtSecret';
 const JWT_SECRET = resolveJwtSecret();
 
 export interface AuthRequest extends Request {
-  user?: any;
+  user?: IUserRecord;
+  resolvedWorkspaceId?: string;
   // Route params are always single strings for our routes. The installed
   // express types widen these to `string | string[]`; narrow them here so the
   // (strictly-typed) repositories can be called with `req.params.x` directly.
@@ -73,14 +74,14 @@ function isTrustedHeaderAuthSource(req: Request): boolean {
 }
 
 /** Creates personal workspace for a new user */
-export async function createPersonalWorkspace(user: any) {
+export async function createPersonalWorkspace(user: { name: string; id?: string; _id?: string }) {
   const workspace = await WorkspaceRepository.create({
     name: `${user.name}'s Workspace`,
     description: 'Personal workspace',
-    ownerId: user.id || user._id,
+    ownerId: user.id || user._id || '',
   });
   const { EnvironmentRepository } = await import('../repositories/EnvironmentRepository');
-  await EnvironmentRepository.upsertGlobal(workspace.id || (workspace as any)._id, []);
+  await EnvironmentRepository.upsertGlobal(workspace.id || workspace._id, []);
 }
 
 /** Main auth middleware – validates JWT from cookie and optionally handles header auth */
@@ -115,7 +116,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
           return res.status(403).json({ message: 'Account suspended' });
         }
 
-        await UserRepository.update(String(user._id), { lastLoginAt: new Date() } as any);
+        await UserRepository.update(String(user._id), { lastLoginAt: new Date() });
         const token = signToken(String(user._id), ttlDays);
         setCookieToken(res, token, ttlDays);
         req.user = user;

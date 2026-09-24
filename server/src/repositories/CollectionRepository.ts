@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Collection } from '../models/Collection';
 import { SqlCollection } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { decodeCursor, mongoAfter, pageResult, sqlAfter } from '../utils/cursor';
 
 export interface ICollectionRecord {
   _id: string;
@@ -65,6 +66,23 @@ export const CollectionRepository = {
       return (await Collection.find({ workspaceId }).sort({ order: 1 }).lean()).map(mongoToRecord);
     }
     return (await SqlCollection.findAll({ where: { workspaceId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  async findByWorkspacePage(workspaceId: string, limit: number, cursorRaw?: string) {
+    const cursor = decodeCursor(cursorRaw);
+    if (isMongo()) {
+      const rows = await Collection.find({ workspaceId, ...mongoAfter(cursor) })
+        .sort({ order: 1, _id: 1 })
+        .limit(limit + 1)
+        .lean();
+      return pageResult(rows.map(mongoToRecord), limit);
+    }
+    const rows = await SqlCollection.findAll({
+      where: { workspaceId, ...sqlAfter(cursor) },
+      order: [['order', 'ASC'], ['id', 'ASC']],
+      limit: limit + 1,
+    });
+    return pageResult(rows.map(sqlToRecord), limit);
   },
 
   async create(data: {

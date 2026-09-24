@@ -1,20 +1,60 @@
 import { Router, Request, Response } from 'express';
-import { SharedLink } from '../models/SharedLink';
-import { SystemConfig } from '../models/SystemConfig';
+import { SharedLinkRepository } from '../repositories/SharedLinkRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { rateLimit } from '../middleware/rateLimit';
 import { createSafeLookup } from '../utils/ssrf';
+import { validateBody, shareProxyBody } from '../validation/body';
+import { errorCause } from '../utils/errors';
 
 const router = Router();
+const publicProxyLimiter = rateLimit({
+  name: 'share-proxy',
+  windowMs: 60 * 1000,
+  max: 30,
+  message: 'Too many requests for this shared link — please try again later.',
+});
+
+function urlIsInCollection(requested: string, storedUrls: string[]): boolean {
+  let requestedUrl: URL;
+  try { requestedUrl = new URL(requested); } catch { return false; }
+  return storedUrls.some(stored => {
+    if (!stored) return false;
+    if (stored === requested) return true;
+    try {
+      const template = stored.replace(/\{\{[^}]+\}\}/g, 'placeholder');
+      const storedUrl = new URL(template);
+      return storedUrl.origin === requestedUrl.origin && storedUrl.pathname === requestedUrl.pathname;
+    } catch {
+      return false;
+    }
+  });
+}
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
-router.post('/:shortId/proxy', async (req: Request, res: Response) => {
-  const link = await SharedLink.findOne({ shortId: req.params.shortId });
+type FormItem = { type?: string; content?: string; key: string; filename?: string; value?: string };
+type FormBody = { _isFormData: true; items: FormItem[] };
+
+function isFormBody(body: unknown): body is FormBody {
+  return typeof body === 'object' && body !== null && (body as FormBody)._isFormData === true && Array.isArray((body as FormBody).items);
+}
+
+router.post('/:shortId/proxy', publicProxyLimiter, validateBody(shareProxyBody), async (req: Request, res: Response) => {
+  const link = await SharedLinkRepository.findByShortId(req.params.shortId as string);
   if (!link || link.expiresAt < new Date()) {
     return res.status(404).json({ message: 'Link not found or expired' });
   }
 
   const { method, url, headers = {}, body, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
-
   if (!url) return res.status(400).json({ message: 'url is required' });
+  if (localProxy) {
+    return res.status(400).json({ message: 'A caller-supplied proxy is not available on a shared link' });
+  }
+  const sharedRequests = await RequestRepository.findByCollection(link.collectionId);
+  if (!urlIsInCollection(String(url), sharedRequests.map(r => r.url))) {
+    return res.status(403).json({ message: 'This shared link can only call URLs that belong to the collection' });
+  }
+
   if (!ALLOWED_METHODS.includes(method?.toUpperCase())) {
     return res.status(400).json({ message: 'Invalid HTTP method' });
   }
@@ -25,14 +65,21 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const fetchOptions: any = {
+    const fetchOptions: {
+      method: string;
+      headers: Record<string, string>;
+      signal: AbortSignal;
+      redirect: 'follow' | 'manual';
+      body?: import('undici').RequestInit['body'];
+      dispatcher?: import('undici').Dispatcher;
+    } = {
       method: method.toUpperCase(),
-      headers: new Headers(headers as any),
+      headers: headers ?? {},
       signal: controller.signal,
       redirect: followRedirects ? 'follow' : 'manual',
     };
 
-    const systemConfig = await SystemConfig.findById('global');
+    const systemConfig = await SystemConfigRepository.getConfig();
     const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
 
     let activeProxy = null;
@@ -56,11 +103,12 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
     }
 
     if (!['GET', 'HEAD'].includes(method.toUpperCase()) && body !== undefined) {
-      if (body._isFormData) {
-        const formData = new FormData();
+      if (isFormBody(body)) {
+        const { FormData: UndiciFormData } = await import('undici');
+        const formData = new UndiciFormData();
         for (const item of body.items) {
           if (item.type === 'file') {
-            const buffer = Buffer.from(item.content, 'base64');
+            const buffer = Buffer.from(item.content || '', 'base64');
             const blob = new Blob([buffer]);
             formData.append(item.key, blob, item.filename);
           } else {
@@ -114,9 +162,10 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
     if (err instanceof Error && err.name === 'AbortError') {
       return res.status(408).json({ message: 'Request timed out', responseTime: elapsed });
     }
-    const cause = err instanceof Error ? (err as any).cause : undefined;
+    const cause = errorCause(err);
     if ((err instanceof Error && err.name === 'SsrfBlockedError') || cause?.name === 'SsrfBlockedError') {
-      return res.status(400).json({ message: (cause ?? err as Error).message, responseTime: elapsed });
+      const blocked = cause ?? err;
+      return res.status(400).json({ message: blocked instanceof Error ? blocked.message : 'Blocked', responseTime: elapsed });
     }
     return res.status(502).json({
       message: 'Proxy error',

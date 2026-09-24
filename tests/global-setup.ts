@@ -1,11 +1,11 @@
 import { execSync } from 'child_process';
 import path from 'path';
 import {
-  BASE,
   ADMIN_EMAIL,
   ADMIN_DEFAULT_PASSWORD,
   ADMIN_PASSWORD_AFTER_RESET,
 } from './helpers/adminAuth';
+import { serverOrigin } from './helpers/baseUrl';
 
 /**
  * Runs once before the whole suite (not per worker, not per file) so the
@@ -24,7 +24,7 @@ export default async function globalSetup() {
     stdio: 'inherit',
   });
 
-  const loginRes = await fetch(`${BASE}/api/auth/login`, {
+  const loginRes = await fetch(`${serverOrigin()}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_DEFAULT_PASSWORD }),
@@ -39,7 +39,7 @@ export default async function globalSetup() {
     throw new Error('global-setup: expected mustChangePassword=true right after reset-admin-for-tests.js ran');
   }
 
-  const changeRes = await fetch(`${BASE}/api/auth/change-password`, {
+  const changeRes = await fetch(`${serverOrigin()}/api/auth/change-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', cookie },
     body: JSON.stringify({ newPassword: ADMIN_PASSWORD_AFTER_RESET }),
@@ -50,7 +50,7 @@ export default async function globalSetup() {
 
   // Self-registration now defaults to closed (CR#24); the suite's helpers
   // register throwaway users, so enable it as the admin once up front.
-  const enableRes = await fetch(`${BASE}/api/admin/config`, {
+  const enableRes = await fetch(`${serverOrigin()}/api/admin/config`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', cookie },
     body: JSON.stringify({ auth: { allowSelfRegistration: true } }),
