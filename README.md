@@ -125,7 +125,7 @@ Feel free to check [issues page](https://github.com/Itayp1/reqspace/issues).
 
 What the server actually does today, versus what is still only a plan. Open items are tracked in [Active Tasks](#-active-tasks--roadmap).
 
-1. **Scripts are not sandboxed.** Pre-request and test scripts still run with `new Function` on the main thread (`client/src/utils/scripts.ts`). `client/src/sandbox/worker.ts` is not wired up. Moving them into a Worker or a sandboxed iframe is unfinished.
+1. **User scripts run in a sandboxed iframe.** Pre-request and test scripts execute in `/sandbox.html` with `sandbox="allow-scripts"` and without `allow-same-origin` (`client/src/utils/scripts.ts`, `client/src/sandbox/runtime.ts`). The iframe cannot read the app origin's document, cookies, or `localStorage`. `pm.sendRequest` is posted to the parent, which forwards only method, url, headers, and body to the proxy.
 2. **Header authentication is off until an admin opts in, and then only from trusted IPs.** `auth.mode` defaults to `login`. Turning on **SSO Header (Reverse Proxy)** in Admin Settings is required, and `X-Auth-User` (or the configured header name) is accepted only when the request IP is in `HEADER_AUTH_TRUSTED_IPS` (loopback by default).
 3. **Request bodies are not validated with Zod.** `zod` is installed and unused. Field allowlists exist on the main collection/folder/request/workspace updates; they are not a schema layer.
 4. **The API server still sends proxied HTTP requests.** A redesign that would stop the central server from issuing those calls has not landed. `POST /api/proxy` runs on the server.
@@ -311,10 +311,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 **Sandboxing & input validation**
 
-* [ ] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
-  * **Where:** `client/src/utils/scripts.ts:131` and `:306` (`new Function(...)`); `client/src/sandbox/worker.ts` exists but is referenced **only from a comment** in `RunnerModal.tsx:16`; the visualizer iframe in `ResponseViewer.tsx` has no `sandbox` attribute and injects Handlebars output via `innerHTML` from a CDN
-  * **Why:** scripts get `window`, `document`, `localStorage` and the app's authenticated axios instance — enough to read persisted bearer tokens and issue requests as the user.
-  * **Do:** run scripts only in the Worker (or an iframe with `sandbox` and **without** `allow-same-origin`); expose `pm.sendRequest` through an allowlisted message channel rather than handing over `api`; add `sandbox` to the visualizer iframe and self-host Handlebars. Consolidate onto **one** sandbox implementation — the `scripts.ts` / `worker.ts` split is currently two half-built paths.
+* [x] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
+  * ✅ **Done:** pre-request and test scripts run in `/sandbox.html` inside an iframe with `sandbox="allow-scripts"` and no `allow-same-origin`, so the script cannot read the app origin's `document`, `localStorage`, or cookies. `pm.sendRequest` is a postMessage to the parent, which forwards only `method`, `url`, `headers`, and `body` to `POST /api/proxy` and only for `http:`/`https:` URLs. Variable writes come back as mutation messages. The half-built `worker.ts` path is removed. A script that does not finish within 10s is discarded with the iframe. The visualizer iframe was already sandboxed the same way and loads Handlebars from this app (`CR#23`).
 
 * [ ] **Zod is a dependency that is never imported** — `CR#19`
   * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
@@ -367,7 +365,7 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
     3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
 
 * [x] **Client dependency weight** — `CR#23`
-  * ✅ **Done:** `date-fns` is removed (nothing imported it). `moment` is the only date library, and it loads with `lodash`, `crypto-js`, and `chai` only when a pre-request or test script runs — not in the initial bundle. User scripts still receive the full `_` object, because they can call any lodash method; app code does not import lodash. Handlebars is copied from the `handlebars` package to `/vendor/handlebars.min.js` and the visualizer iframe no longer contacts jsDelivr. The iframe is `sandbox="allow-scripts"` (no `allow-same-origin`). User scripts themselves still run via `new Function` on the main thread — that remains `CR#5`.
+  * ✅ **Done:** `date-fns` is removed (nothing imported it). `moment` is the only date library, and it loads with `lodash`, `crypto-js`, and `chai` inside the script sandbox bundle (`/vendor/sandbox-runtime.js`), not in the initial app bundle. User scripts still receive the full `_` object, because they can call any lodash method. Handlebars is copied from the `handlebars` package to `/vendor/handlebars.min.js` and the visualizer iframe no longer contacts jsDelivr. The iframe is `sandbox="allow-scripts"` (no `allow-same-origin`).
 
 * [x] **UI consistency** — `CR#27`
   * ✅ **Done:** `/admin` sits inside the layout `AuthGuard` and adds only `SuperAdminGuard`. The database-error and loading screens in `App.tsx` use Tailwind. A 401 clears the session and returns to login; a 403 leaves the session in place and shows a dismissible notice.

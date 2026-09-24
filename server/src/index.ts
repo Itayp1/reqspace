@@ -112,7 +112,7 @@ app.use(morgan('dev'));
 // load /visualizer.html. A sandboxed iframe is a unique origin, so those assets
 // must opt out of Helmet's default same-origin CORP or the frame stays blank.
 app.use((req, res, next) => {
-  if (req.path === '/visualizer.html' || req.path.startsWith('/vendor/')) {
+  if (req.path === '/visualizer.html' || req.path === '/sandbox.html' || req.path.startsWith('/vendor/')) {
     const setHeader = res.setHeader.bind(res);
     res.setHeader = ((name: string, value: number | string | readonly string[]) => {
       if (String(name).toLowerCase() === 'cross-origin-resource-policy') {

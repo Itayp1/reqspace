@@ -17,6 +17,9 @@ server/reqspace-local.sqlite
 # Compiled TypeScript output — rebuilt from source, never committed.
 server/dist/
 client/dist/
+# Generated opaque-iframe script runtime (bundled by Vite from src/sandbox/runtime.ts).
+client/public/vendor/sandbox-runtime.js
+client/.sandbox-dist/
 # Local MongoDB data dir used by the dev/CI harness.
 .data/
 
