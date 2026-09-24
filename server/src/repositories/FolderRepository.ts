@@ -35,9 +35,19 @@ export const FolderRepository = {
     return (await SqlFolder.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
   },
 
-  async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string }): Promise<IFolderRecord> {
+  async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string; preRequestScript?: string; testScript?: string; order?: number }): Promise<IFolderRecord> {
     if (isMongo()) return mongoToRecord(await Folder.create(data));
-    return sqlToRecord(await SqlFolder.create({ id: uuidv4(), ...data, parentFolderId: data.parentFolderId ?? null, description: data.description || '', preRequestScript: '', testScript: '', order: 0 }));
+    return sqlToRecord(await SqlFolder.create({ id: uuidv4(), collectionId: data.collectionId, name: data.name, parentFolderId: data.parentFolderId ?? null, description: data.description || '', preRequestScript: data.preRequestScript || '', testScript: data.testScript || '', order: data.order ?? 0 }));
+  },
+
+  async countInCollection(collectionId: string, parentFolderId: string | null): Promise<number> {
+    if (isMongo()) return Folder.countDocuments({ collectionId, parentFolderId: parentFolderId ?? null });
+    return SqlFolder.count({ where: { collectionId, parentFolderId: parentFolderId ?? null } });
+  },
+
+  async deleteByParent(parentFolderId: string): Promise<void> {
+    if (isMongo()) { await Folder.deleteMany({ parentFolderId }); return; }
+    await SqlFolder.destroy({ where: { parentFolderId } });
   },
 
   async update(id: string, data: Partial<IFolderRecord>): Promise<IFolderRecord | null> {

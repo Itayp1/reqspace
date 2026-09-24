@@ -1,10 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { User, IUser } from '../models/User';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
-import { Workspace } from '../models/Workspace';
-import mongoose from 'mongoose';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { resolveJwtSecret } from '../utils/jwtSecret';
 
@@ -12,6 +9,10 @@ const JWT_SECRET = resolveJwtSecret();
 
 export interface AuthRequest extends Request {
   user?: any;
+  // Route params are always single strings for our routes. The installed
+  // express types widen these to `string | string[]`; narrow them here so the
+  // (strictly-typed) repositories can be called with `req.params.x` directly.
+  params: Record<string, string>;
 }
 
 export function signToken(userId: string, ttlDays: number): string {
@@ -54,6 +55,23 @@ export function clearAuthCookie(res: Response) {
   res.clearCookie('token', authCookieOptions());
 }
 
+/**
+ * Whether an identity header (`X-Auth-User`) may be trusted from this request's
+ * source. Auto-provisioning a session from a client-supplied header is safe
+ * only behind a trusted reverse proxy that sets it; from anywhere else it is
+ * pure impersonation (CR#2). Defaults to loopback only; extend via
+ * HEADER_AUTH_TRUSTED_IPS (comma-separated) for a real proxy deployment.
+ */
+function isTrustedHeaderAuthSource(req: Request): boolean {
+  const trusted = (process.env.HEADER_AUTH_TRUSTED_IPS || '127.0.0.1,::1')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const rawIp = req.ip || '';
+  const normalized = rawIp.replace(/^::ffff:/, '');
+  return trusted.includes(rawIp) || trusted.includes(normalized);
+}
+
 /** Creates personal workspace for a new user */
 export async function createPersonalWorkspace(user: any) {
   const workspace = await WorkspaceRepository.create({
@@ -78,14 +96,15 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       const headerName = config?.auth.headerName ?? 'X-Auth-User';
       const headerValue = req.headers[headerName.toLowerCase()] as string | undefined;
 
-      if (headerValue) {
-        let user = await User.findOne({ email: headerValue.toLowerCase() });
+      if (headerValue && isTrustedHeaderAuthSource(req)) {
+        const email = headerValue.toLowerCase();
+        let user = await UserRepository.findByEmail(email);
 
         if (!user) {
-          // Auto-provision
-          user = await User.create({
+          // Auto-provision (only reached from a trusted proxy source)
+          user = await UserRepository.create({
             name: headerValue,
-            email: headerValue.toLowerCase(),
+            email,
             passwordHash: null,
             authType: 'header',
           });
@@ -96,16 +115,22 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
           return res.status(403).json({ message: 'Account suspended' });
         }
 
-        await User.findByIdAndUpdate(user._id, { lastLoginAt: new Date() });
+        await UserRepository.update(String(user._id), { lastLoginAt: new Date() } as any);
         const token = signToken(String(user._id), ttlDays);
         setCookieToken(res, token, ttlDays);
         req.user = user;
         return next();
       }
 
+      // Header present but the source isn't trusted, or no header at all.
       if (mode === 'header') {
-        return res.status(401).json({ message: 'Missing auth header' });
+        return res.status(401).json({
+          message: headerValue
+            ? 'Header authentication not permitted from this address'
+            : 'Missing auth header',
+        });
       }
+      // 'both' mode: fall through to cookie auth below.
     }
 
     // ── JWT Cookie validation ───────────────────────────────────────────────

@@ -67,11 +67,35 @@ export const CollectionRepository = {
     return (await SqlCollection.findAll({ where: { workspaceId }, order: [['order', 'ASC']] })).map(sqlToRecord);
   },
 
-  async create(data: { workspaceId: string; name: string; description?: string; createdBy: string }): Promise<ICollectionRecord> {
+  async create(data: {
+    workspaceId: string;
+    name: string;
+    description?: string;
+    createdBy: string;
+    variables?: any[];
+    preRequestScript?: string;
+    testScript?: string;
+    order?: number;
+  }): Promise<ICollectionRecord> {
     if (isMongo()) {
       return mongoToRecord(await Collection.create(data));
     }
-    return sqlToRecord(await SqlCollection.create({ id: uuidv4(), ...data, description: data.description || '', variables: '[]', preRequestScript: '', testScript: '', order: 0 }));
+    return sqlToRecord(await SqlCollection.create({
+      id: uuidv4(),
+      workspaceId: data.workspaceId,
+      name: data.name,
+      description: data.description || '',
+      variables: JSON.stringify(data.variables || []),
+      preRequestScript: data.preRequestScript || '',
+      testScript: data.testScript || '',
+      order: data.order ?? 0,
+      createdBy: data.createdBy,
+    }));
+  },
+
+  async countByWorkspace(workspaceId: string): Promise<number> {
+    if (isMongo()) return Collection.countDocuments({ workspaceId });
+    return SqlCollection.count({ where: { workspaceId } });
   },
 
   async update(id: string, data: Partial<ICollectionRecord>): Promise<ICollectionRecord | null> {

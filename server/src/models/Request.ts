@@ -32,6 +32,7 @@ export interface IRequestBody {
 }
 
 export interface IComment {
+  id: string;
   userId: mongoose.Types.ObjectId;
   text: string;
   createdAt: Date;
@@ -59,6 +60,9 @@ export interface IRequest extends Document {
 
 const CommentSchema = new Schema<IComment>(
   {
+    // Backend-agnostic stable id (SQL stores comments as JSON, so it can't rely
+    // on a Mongo ObjectId _id). Used to address a comment for deletion.
+    id: { type: String, required: true },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     text: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },

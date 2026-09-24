@@ -1,10 +1,12 @@
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest, createPersonalWorkspace } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
-import { Workspace } from '../models/Workspace';
-import { User, UserRole } from '../models/User';
-import { escapeRegex } from '../utils/escapeRegex';
-import mongoose from 'mongoose';
+import { UserRole } from '../models/User';
+import { WorkspaceRepository, IWorkspaceMemberRecord } from '../repositories/WorkspaceRepository';
+import { UserRepository } from '../repositories/UserRepository';
+import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { AuditLogRepository } from '../repositories/AuditLogRepository';
 
 const router = Router();
 router.use(authenticate);
@@ -14,18 +16,29 @@ const ROLE_RANK: Record<UserRole, number> = {
   viewer: 1, editor: 2, owner: 3,
 };
 
+/** Attach public profile fields to each member for the UI member list. */
+async function enrichMembers(members: IWorkspaceMemberRecord[]) {
+  return Promise.all(
+    members.map(async (m) => {
+      const u = await UserRepository.findById(String(m.userId)).catch(() => null);
+      return {
+        ...m,
+        userId: u
+          ? { _id: u._id, id: u._id, name: u.name, email: u.email, avatar: u.avatar }
+          : m.userId,
+      };
+    })
+  );
+}
+
 // ── GET /api/workspaces ─────────────────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res: Response) => {
-  const userId = req.user!._id;
-  const workspaces = await Workspace.find({
-    'members.userId': userId,
-  }).lean();
-
+  const userId = String(req.user!._id);
+  const workspaces = await WorkspaceRepository.findForUser(userId);
   const result = workspaces.map((ws) => {
-    const member = ws.members.find((m) => String(m.userId) === String(userId));
-    return { ...ws, myRole: member?.role };
+    const member = ws.members.find((m) => String(m.userId) === userId);
+    return { ...ws, myRole: member?.role ?? (ws.isPublic ? 'viewer' : undefined) };
   });
-
   return res.json(result);
 });
 
@@ -35,15 +48,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   if (!name) return res.status(400).json({ message: 'name is required' });
 
   const user = req.user!;
-  const workspace = await Workspace.create({
+  const workspace = await WorkspaceRepository.create({
     name,
     description,
     isPublic: isPublic || false,
-    ownerId: user._id,
-    members: [{ userId: user._id, role: 'owner', joinedAt: new Date() }],
+    ownerId: String(user._id),
   });
 
-  const { EnvironmentRepository } = await import('../repositories/EnvironmentRepository');
   await EnvironmentRepository.upsertGlobal(String(workspace._id), []);
 
   return res.status(201).json(workspace);
@@ -51,21 +62,21 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
 // ── GET /api/workspaces/:id ─────────────────────────────────────────────────
 router.get('/:id', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
-  const workspace = await Workspace.findById(req.params.id)
-    .populate('members.userId', 'name email avatar')
-    .lean();
+  const workspace = await WorkspaceRepository.findById(req.params.id);
   if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
-  return res.json(workspace);
+  return res.json({ ...workspace, members: await enrichMembers(workspace.members) });
 });
 
 router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   try {
-    const { AuditLog } = await import('../models/AuditLog');
-    const logs = await AuditLog.find({ targetId: req.params.id })
-      .populate('userId', 'name email')
-      .sort({ createdAt: -1 })
-      .limit(50);
-    res.json(logs);
+    const logs = await AuditLogRepository.list({ targetId: req.params.id }, 50);
+    const enriched = await Promise.all(
+      logs.map(async (l) => {
+        const u = await UserRepository.findById(String(l.userId)).catch(() => null);
+        return { ...l, userId: u ? { _id: u._id, name: u.name, email: u.email } : l.userId };
+      })
+    );
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ message: 'Error fetching activity' });
   }
@@ -74,18 +85,21 @@ router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequ
 // ── PUT /api/workspaces/:id ─────────────────────────────────────────────────
 router.put('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
   const { name, description } = req.body;
-  const workspace = await Workspace.findByIdAndUpdate(
-    req.params.id,
-    { name, description },
-    { new: true }
-  );
+  // Allowlist writable fields — never spread req.body into the update (CR#7).
+  const patch: { name?: string; description?: string } = {};
+  if (name !== undefined) patch.name = name;
+  if (description !== undefined) patch.description = description;
+  const workspace = await WorkspaceRepository.update(req.params.id, patch);
   if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
   return res.json(workspace);
 });
 
 // ── DELETE /api/workspaces/:id ──────────────────────────────────────────────
 router.delete('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
-  await Workspace.findByIdAndDelete(req.params.id);
+  // Cascade: drop the workspace's collections (and their folders/requests are
+  // cleaned up by the collection delete path elsewhere).
+  await CollectionRepository.deleteByWorkspace(req.params.id);
+  await WorkspaceRepository.delete(req.params.id);
   return res.json({ message: 'Workspace deleted' });
 });
 
@@ -99,43 +113,37 @@ router.post(
       return res.status(400).json({ message: 'User identifier and valid role required' });
     }
 
-    const workspace = await Workspace.findById(req.params.id);
+    const workspace = await WorkspaceRepository.findById(req.params.id);
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
 
-    // Inviting admin cannot assign role >= own role (unless owner)
+    // Inviting admin cannot assign role >= own role (unless owner / superadmin)
     const inviterMember = workspace.members.find(
       (m) => String(m.userId) === String(req.user!._id)
     );
-    const inviterRole = inviterMember?.role ?? 'viewer';
+    const inviterRole = (inviterMember?.role ?? 'viewer') as UserRole;
     if (!req.user?.isSuperAdmin && ROLE_RANK[role as UserRole] >= ROLE_RANK[inviterRole] && inviterRole !== 'owner') {
       return res.status(403).json({ message: 'Cannot assign role equal or higher than your own' });
     }
 
-    const queryStr = email.toLowerCase();
-    const targetUser = await User.findOne({ 
-      $or: [
-        { email: queryStr },
-        // Escape the input before building the regex — raw interpolation here
-        // was a ReDoS vector and broke on regex metacharacters (CR#10).
-        { name: { $regex: new RegExp(`^${escapeRegex(email)}$`, 'i') } }
-      ]
-    });
+    // Exact lookup by email/username — no regex, so no ReDoS (CR#10) and it
+    // works identically on Mongo and SQL.
+    const targetUser = await UserRepository.findByEmail(String(email).toLowerCase());
     if (!targetUser) return res.status(404).json({ message: 'User not found' });
 
-    const alreadyMember = workspace.members.some(
-      (m) => String(m.userId) === String(targetUser._id)
-    );
-    if (alreadyMember) {
+    if (workspace.members.some((m) => String(m.userId) === String(targetUser._id))) {
       return res.status(409).json({ message: 'User already a member' });
     }
 
-    workspace.members.push({
-      userId: targetUser._id as mongoose.Types.ObjectId,
-      role: role as UserRole,
-      joinedAt: new Date(),
-      invitedBy: req.user!._id as mongoose.Types.ObjectId,
-    });
-    await workspace.save();
+    const members: IWorkspaceMemberRecord[] = [
+      ...workspace.members,
+      {
+        userId: String(targetUser._id),
+        role: role as UserRole,
+        joinedAt: new Date(),
+        invitedBy: String(req.user!._id),
+      },
+    ];
+    await WorkspaceRepository.update(req.params.id, { members });
 
     return res.status(201).json({ message: 'Member added', member: { userId: targetUser._id, role } });
   }
@@ -151,25 +159,24 @@ router.put(
       return res.status(400).json({ message: 'Valid role required' });
     }
 
-    const workspace = await Workspace.findById(req.params.id);
+    const workspace = await WorkspaceRepository.findById(req.params.id);
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
 
-    const member = workspace.members.find(
-      (m) => String(m.userId) === req.params.userId
-    );
+    const member = workspace.members.find((m) => String(m.userId) === req.params.userId);
     if (!member) return res.status(404).json({ message: 'Member not found' });
 
-    // Cannot change owner role unless you are owner
     const editorMember = workspace.members.find(
       (m) => String(m.userId) === String(req.user!._id)
     );
-    const editorRole = editorMember?.role ?? 'viewer';
-    if (member.role === 'owner' && editorRole !== 'owner') {
+    const editorRole = (editorMember?.role ?? 'viewer') as UserRole;
+    if (member.role === 'owner' && editorRole !== 'owner' && !req.user?.isSuperAdmin) {
       return res.status(403).json({ message: 'Cannot change owner role' });
     }
 
-    member.role = role as UserRole;
-    await workspace.save();
+    const members = workspace.members.map((m) =>
+      String(m.userId) === req.params.userId ? { ...m, role: role as UserRole } : m
+    );
+    await WorkspaceRepository.update(req.params.id, { members });
 
     return res.json({ message: 'Role updated', userId: req.params.userId, role });
   }
@@ -180,21 +187,17 @@ router.delete(
   '/:id/members/:userId',
   requireWorkspaceRole('owner'),
   async (req: AuthRequest, res: Response) => {
-    const workspace = await Workspace.findById(req.params.id);
+    const workspace = await WorkspaceRepository.findById(req.params.id);
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
 
-    const memberIndex = workspace.members.findIndex(
-      (m) => String(m.userId) === req.params.userId
-    );
-    if (memberIndex === -1) return res.status(404).json({ message: 'Member not found' });
-
-    const targetRole = workspace.members[memberIndex].role;
-    if (targetRole === 'owner') {
+    const member = workspace.members.find((m) => String(m.userId) === req.params.userId);
+    if (!member) return res.status(404).json({ message: 'Member not found' });
+    if (member.role === 'owner') {
       return res.status(403).json({ message: 'Cannot remove workspace owner' });
     }
 
-    workspace.members.splice(memberIndex, 1);
-    await workspace.save();
+    const members = workspace.members.filter((m) => String(m.userId) !== req.params.userId);
+    await WorkspaceRepository.update(req.params.id, { members });
 
     return res.json({ message: 'Member removed' });
   }

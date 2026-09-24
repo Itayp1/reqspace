@@ -1,8 +1,8 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
-import { Workspace } from '../models/Workspace';
 import { UserRole } from '../models/User';
-import mongoose from 'mongoose';
+import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
+import { isValidId } from '../utils/ids';
 
 const ROLE_RANK: Record<UserRole, number> = {
   viewer: 1,
@@ -15,17 +15,17 @@ export async function getUserWorkspaceRole(
   userId: string,
   workspaceId: string
 ): Promise<UserRole | null> {
-  const workspace = await Workspace.findById(workspaceId);
+  const workspace = await WorkspaceRepository.findById(workspaceId);
   if (!workspace) return null;
 
   // SuperAdmin always treated as owner
   const member = workspace.members.find(
     (m) => String(m.userId) === String(userId)
   );
-  
-  if (member) return member.role;
+
+  if (member) return member.role as UserRole;
   if (workspace.isPublic) return 'viewer';
-  
+
   return null;
 }
 
@@ -44,7 +44,8 @@ export function requireWorkspaceRole(minRole: UserRole) {
       const workspaceId =
         req.params.workspaceId || req.params.id || req.body.workspaceId;
 
-      if (!workspaceId || !mongoose.isValidObjectId(workspaceId)) {
+      // Dialect-agnostic: accept both Mongo ObjectIds and SQL UUIDs (CR#1).
+      if (!workspaceId || !isValidId(workspaceId)) {
         return res.status(400).json({ message: 'Invalid workspace ID' });
       }
 

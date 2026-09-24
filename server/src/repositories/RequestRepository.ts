@@ -118,6 +118,16 @@ export const RequestRepository = {
     await SqlRequest.destroy({ where: { collectionId } });
   },
 
+  async deleteByFolder(folderId: string): Promise<void> {
+    if (isMongo()) { await Request.deleteMany({ folderId }); return; }
+    await SqlRequest.destroy({ where: { folderId } });
+  },
+
+  async countInCollection(collectionId: string, folderId: string | null): Promise<number> {
+    if (isMongo()) return Request.countDocuments({ collectionId, folderId: folderId ?? null });
+    return SqlRequest.count({ where: { collectionId, folderId: folderId ?? null } });
+  },
+
   async searchInWorkspace(query: string, collectionIds: string[]): Promise<IRequestRecord[]> {
     if (isMongo()) {
       const q = new RegExp(query, 'i');

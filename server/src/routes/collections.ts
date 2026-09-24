@@ -1,37 +1,56 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { requireWorkspaceRole } from '../middleware/rbac';
-import { Collection } from '../models/Collection';
-import { Folder } from '../models/Folder';
-import { Request as ApiRequest } from '../models/Request';
+import { requireWorkspaceRole, getUserWorkspaceRole } from '../middleware/rbac';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { FolderRepository } from '../repositories/FolderRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
 import { logAudit } from '../repositories/AuditLogRepository';
-import mongoose from 'mongoose';
-
-import { NextFunction } from "express";
-import { UserRole } from "../models/User";
+import { UserRole } from '../models/User';
 import { emitToWorkspace } from '../socketUtils';
+import { v4 as uuidv4 } from 'uuid';
+
 const router = Router();
 
-async function checkPermissionByItem(req: AuthRequest, res: Response, next: NextFunction, Model: any, minRole: UserRole) {
-  try {
-    const item = await Model.findById(req.params.id || req.params.collectionId);
-    if (!item) return res.status(404).json({ message: 'Item not found' });
-    let workspaceId = item.workspaceId;
-    if (!workspaceId && item.collectionId) {
-      const coll = await Collection.findById(item.collectionId);
-      if (coll) workspaceId = coll.workspaceId;
+type ItemKind = 'collection' | 'folder' | 'request';
+
+/** Resolves the owning workspace id for a collection/folder/request. */
+async function resolveWorkspaceId(kind: ItemKind, id: string): Promise<string | null> {
+  if (kind === 'collection') {
+    const c = await CollectionRepository.findById(id);
+    return c ? c.workspaceId : null;
+  }
+  if (kind === 'folder') {
+    const f = await FolderRepository.findById(id);
+    if (!f) return null;
+    const c = await CollectionRepository.findById(f.collectionId);
+    return c ? c.workspaceId : null;
+  }
+  const r = await RequestRepository.findById(id);
+  if (!r) return null;
+  const c = await CollectionRepository.findById(r.collectionId);
+  return c ? c.workspaceId : null;
+}
+
+/**
+ * Resolves the item's workspace, exposes it as `resolvedWorkspaceId` (so the
+ * update/delete handlers can address the socket room — CR#9), then enforces the
+ * role. Runs the resolution even for superadmins, who bypass the role check but
+ * still need the broadcast to fire.
+ */
+function checkPermission(kind: ItemKind, minRole: UserRole) {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id || req.params.collectionId;
+      const workspaceId = await resolveWorkspaceId(kind, id);
+      if (!workspaceId) return res.status(404).json({ message: 'Item not found' });
+      req.params.workspaceId = workspaceId;
+      (req as any).resolvedWorkspaceId = workspaceId;
+      if (req.user?.isSuperAdmin) return next();
+      return requireWorkspaceRole(minRole)(req, res, next);
+    } catch (e) {
+      next(e);
     }
-    if (!workspaceId) return res.status(400).json({ message: 'No workspace attached' });
-    req.params.workspaceId = String(workspaceId);
-    // Expose the resolved workspace id so update/delete handlers (which only
-    // have the item id in the URL) can address the correct socket room.
-    // Without this, every `emitToWorkspace((req as any).resolvedWorkspaceId, …)`
-    // broadcast was a silent no-op (CR#9). Resolve it even for a superadmin —
-    // who bypasses the role check but must still trigger the broadcast.
-    (req as any).resolvedWorkspaceId = String(workspaceId);
-    if (req.user?.isSuperAdmin) return next();
-    return requireWorkspaceRole(minRole)(req, res, next);
-  } catch(e) { next(e); }
+  };
 }
 
 router.use(authenticate);
@@ -41,8 +60,7 @@ router.use(authenticate);
 router.get('/workspaces/:workspaceId/collections',
   requireWorkspaceRole('viewer'),
   async (req: AuthRequest, res: Response) => {
-    const collections = await Collection.find({ workspaceId: req.params.workspaceId })
-      .sort({ order: 1 }).lean();
+    const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
     return res.json(collections);
   }
 );
@@ -53,207 +71,217 @@ router.post('/workspaces/:workspaceId/collections',
     const { name, description, variables, preRequestScript, testScript } = req.body;
     if (!name) return res.status(400).json({ message: 'name required' });
 
-    const count = await Collection.countDocuments({ workspaceId: req.params.workspaceId });
-    const collection = await Collection.create({
+    const order = await CollectionRepository.countByWorkspace(req.params.workspaceId);
+    const collection = await CollectionRepository.create({
       workspaceId: req.params.workspaceId,
       name, description, variables, preRequestScript, testScript,
-      order: count,
-      createdBy: req.user!._id,
+      order,
+      createdBy: String(req.user!._id),
     });
     emitToWorkspace(req.params.workspaceId, 'collection:created', collection);
     return res.status(201).json(collection);
   }
 );
 
-router.put('/collections/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'), async (req: AuthRequest, res: Response) => {
-    const collection = await Collection.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
-    return res.json(collection);
+router.put('/collections/:id', checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
+  // Allowlist writable fields — never reassign workspaceId (CR#7).
+  const { name, description, variables, preRequestScript, testScript, order } = req.body;
+  const patch: any = {};
+  for (const [k, v] of Object.entries({ name, description, variables, preRequestScript, testScript, order })) {
+    if (v !== undefined) patch[k] = v;
   }
-);
+  const collection = await CollectionRepository.update(req.params.id, patch);
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
+  return res.json(collection);
+});
 
-router.delete('/collections/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'), async (req: AuthRequest, res: Response) => {
-    await Folder.deleteMany({ collectionId: req.params.id });
-    await ApiRequest.deleteMany({ collectionId: req.params.id });
-    await Collection.findByIdAndDelete(req.params.id);
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:deleted', req.params.id);
-    return res.json({ message: 'Collection deleted' });
-  }
-);
+router.delete('/collections/:id', checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
+  await FolderRepository.deleteByCollection(req.params.id);
+  await RequestRepository.deleteByCollection(req.params.id);
+  await CollectionRepository.delete(req.params.id);
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:deleted', req.params.id);
+  return res.json({ message: 'Collection deleted' });
+});
 
 // ── Folders ──────────────────────────────────────────────────────────────────
 
 router.get('/collections/:collectionId/folders',
-  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'viewer'),
+  checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
-    const folders = await Folder.find({ collectionId: req.params.collectionId })
-      .sort({ order: 1 }).lean();
+    const folders = await FolderRepository.findByCollection(req.params.collectionId);
     return res.json(folders);
   }
 );
 
 router.post('/collections/:collectionId/folders',
-  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'),
+  checkPermission('collection', 'editor'),
   async (req: AuthRequest, res: Response) => {
     const { name, parentFolderId, description, preRequestScript, testScript } = req.body;
     if (!name) return res.status(400).json({ message: 'name required' });
-    const count = await Folder.countDocuments({
+    const order = await FolderRepository.countInCollection(req.params.collectionId, parentFolderId ?? null);
+    const folder = await FolderRepository.create({
       collectionId: req.params.collectionId,
       parentFolderId: parentFolderId ?? null,
+      name, description, preRequestScript, testScript, order,
     });
-    const folder = await Folder.create({
-      collectionId: req.params.collectionId,
-      parentFolderId: parentFolderId ?? null,
-      name, description, preRequestScript, testScript, order: count,
-    });
-    Collection.findById(req.params.collectionId).then(col => { if (col) emitToWorkspace(String(col.workspaceId), 'folder:created', folder); });
-      return res.status(201).json(folder);
+    emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:created', folder);
+    return res.status(201).json(folder);
   }
 );
 
-router.put('/folders/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Folder, 'editor'), async (req: AuthRequest, res: Response) => {
-  const folder = await Folder.findByIdAndUpdate(req.params.id, req.body, { new: true });
+router.put('/folders/:id', checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
+  const { name, description, parentFolderId, preRequestScript, testScript, order } = req.body;
+  const patch: any = {};
+  for (const [k, v] of Object.entries({ name, description, parentFolderId, preRequestScript, testScript, order })) {
+    if (v !== undefined) patch[k] = v;
+  }
+  const folder = await FolderRepository.update(req.params.id, patch);
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
-    return res.json(folder);
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
+  return res.json(folder);
 });
 
-router.delete('/folders/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Folder, 'editor'), async (req: AuthRequest, res: Response) => {
-  await Folder.deleteMany({ parentFolderId: req.params.id });
-  await ApiRequest.deleteMany({ folderId: req.params.id });
-  await Folder.findByIdAndDelete(req.params.id);
+router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
+  await FolderRepository.deleteByParent(req.params.id);
+  await RequestRepository.deleteByFolder(req.params.id);
+  await FolderRepository.delete(req.params.id);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:deleted', req.params.id);
-    return res.json({ message: 'Folder deleted' });
+  return res.json({ message: 'Folder deleted' });
 });
 
 // ── Requests ─────────────────────────────────────────────────────────────────
 
 router.get('/collections/:collectionId/requests',
-  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'viewer'),
+  checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
-    const filter: any = { collectionId: req.params.collectionId };
+    let requests;
     if (req.query.folderId !== undefined) {
-      filter.folderId = req.query.folderId === 'null' ? null : req.query.folderId;
+      const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);
+      requests = folderId === null
+        ? (await RequestRepository.findByCollection(req.params.collectionId)).filter(r => r.folderId === null)
+        : await RequestRepository.findByFolder(folderId);
+    } else {
+      requests = await RequestRepository.findByCollection(req.params.collectionId);
     }
-    const requests = await ApiRequest.find(filter).sort({ order: 1 }).lean();
     return res.json(requests);
   }
 );
 
 router.post('/collections/:collectionId/requests',
-  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, Collection, 'editor'),
+  checkPermission('collection', 'editor'),
   async (req: AuthRequest, res: Response) => {
-    const count = await ApiRequest.countDocuments({
+    const order = await RequestRepository.countInCollection(req.params.collectionId, req.body.folderId ?? null);
+    // Allowlist request fields rather than spreading req.body wholesale (CR#7).
+    const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId } = req.body;
+    const request = await RequestRepository.create({
+      name: name || 'New Request',
+      method, url, params, headers, auth, body, preRequestScript, testScript, description,
+      folderId: folderId ?? null,
       collectionId: req.params.collectionId,
-      folderId: req.body.folderId ?? null,
-    });
-    const request = await ApiRequest.create({
-      ...req.body,
-      collectionId: req.params.collectionId,
-      order: count,
-      createdBy: req.user!._id,
+      order,
+      createdBy: String(req.user!._id),
     });
 
-    const col = await Collection.findById(req.params.collectionId).lean();
-    if (col) {
-      logAudit(req.user!._id as any, 'create_request', {
-        targetType: 'Request',
-        targetId: request._id as any,
-        details: { requestId: request._id, requestName: request.name }
-      }).catch(() => {});
-    }
+    logAudit(String(req.user!._id), 'create_request', {
+      targetType: 'Request',
+      targetId: String(request._id),
+      details: { requestId: request._id, requestName: request.name },
+    }).catch(() => {});
 
-    if (col) emitToWorkspace(String(col.workspaceId), 'request:created', request);
-      return res.status(201).json(request);
+    emitToWorkspace((req as any).resolvedWorkspaceId, 'request:created', request);
+    return res.status(201).json(request);
   }
 );
 
 router.get('/requests/:id',
-  (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'viewer'),
+  checkPermission('request', 'viewer'),
   async (req: AuthRequest, res: Response) => {
-    const request = await ApiRequest.findById(req.params.id).lean();
+    const request = await RequestRepository.findById(req.params.id);
     if (!request) return res.status(404).json({ message: 'Request not found' });
     return res.json(request);
   }
 );
 
-router.put('/requests/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'editor'), async (req: AuthRequest, res: Response) => {
-  const request = await ApiRequest.findByIdAndUpdate(req.params.id, req.body, { new: true });
+router.put('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
+  const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order } = req.body;
+  const patch: any = {};
+  for (const [k, v] of Object.entries({ name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order })) {
+    if (v !== undefined) patch[k] = v;
+  }
+  const request = await RequestRepository.update(req.params.id, patch);
   if (!request) return res.status(404).json({ message: 'Request not found' });
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
-    return res.json(request);
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
+  return res.json(request);
 });
 
-router.delete('/requests/:id', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'editor'), async (req: AuthRequest, res: Response) => {
-  await ApiRequest.findByIdAndDelete(req.params.id);
+router.delete('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
+  await RequestRepository.delete(req.params.id);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:deleted', req.params.id);
-    return res.json({ message: 'Request deleted' });
+  return res.json({ message: 'Request deleted' });
 });
 
 // ── POST /api/requests/:id/comments ───────────────────────────────────────
-router.post('/requests/:id/comments', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'viewer'), async (req: AuthRequest, res: Response) => {
-  try {
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ message: 'Text is required' });
-    
-    const request = await ApiRequest.findById(req.params.id);
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    
-    request.comments.push({
-      userId: req.user!._id,
-      text,
-      createdAt: new Date()
-    });
-    
-    await request.save();
-    return res.json(request);
-  } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
-  }
+router.post('/requests/:id/comments', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ message: 'Text is required' });
+
+  const request = await RequestRepository.findById(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found' });
+
+  const commentId = uuidv4();
+  const comments = [
+    ...request.comments,
+    { id: commentId, userId: String(req.user!._id), text, createdAt: new Date() },
+  ];
+  const updated = await RequestRepository.update(req.params.id, { comments });
+  return res.json(updated);
 });
 
 // ── DELETE /api/requests/:id/comments/:commentId ──────────────────────────
-router.delete('/requests/:id/comments/:commentId', (req: AuthRequest, res: Response, next: NextFunction) => checkPermissionByItem(req, res, next, ApiRequest, 'viewer'), async (req: AuthRequest, res: Response) => {
-  try {
-    const request = await ApiRequest.findById(req.params.id);
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    
-    request.comments = request.comments.filter((c: any) => c._id?.toString() !== req.params.commentId);
-    await request.save();
-    
-    res.json(request);
-  } catch (err: any) {
-    res.status(500).json({ message: err.message });
+router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
+  const request = await RequestRepository.findById(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found' });
+
+  const comment = request.comments.find((c: any) => String(c.id ?? c._id) === req.params.commentId);
+  if (!comment) return res.status(404).json({ message: 'Comment not found' });
+
+  // Only the comment's author or an editor/owner (or superadmin) may delete it
+  // — previously any viewer could delete anyone's comment (CR#12).
+  const isAuthor = String(comment.userId) === String(req.user!._id);
+  let isEditor = !!req.user!.isSuperAdmin;
+  if (!isEditor) {
+    const role = await getUserWorkspaceRole(String(req.user!._id), (req as any).resolvedWorkspaceId);
+    isEditor = role === 'editor' || role === 'owner';
   }
+  if (!isAuthor && !isEditor) {
+    return res.status(403).json({ message: 'You can only delete your own comments' });
+  }
+
+  const comments = request.comments.filter((c: any) => String(c.id ?? c._id) !== req.params.commentId);
+  const updated = await RequestRepository.update(req.params.id, { comments });
+  return res.json(updated);
 });
 
 // ── Reorder ─────────────────────────────────────────────────────────────────
 router.put('/reorder', async (req: AuthRequest, res: Response) => {
   const { type, items } = req.body as {
-    type: 'collection' | 'folder' | 'request';
+    type: ItemKind;
     items: Array<{ id: string; order: number }>;
   };
 
-  const ModelMap = {
-    collection: Collection,
-    folder: Folder,
-    request: ApiRequest,
-  };
-  const Model = ModelMap[type] as mongoose.Model<any>;
-  if (!Model) return res.status(400).json({ message: 'Invalid type' });
+  const repoMap = {
+    collection: CollectionRepository,
+    folder: FolderRepository,
+    request: RequestRepository,
+  } as const;
+  const repo = repoMap[type];
+  if (!repo) return res.status(400).json({ message: 'Invalid type' });
   if (!items?.length) return res.json({ message: 'Reordered' });
 
-  // Resolve each item's workspace and confirm the user may edit there —
-  // this route previously had no membership/role check at all.
-  const { getUserWorkspaceRole } = await import('../middleware/rbac');
-  const docs = await Model.find({ _id: { $in: items.map(i => i.id) } }).lean();
+  // Resolve every item's workspace and confirm the caller may edit there.
   const workspaceIds = new Set<string>();
-  for (const doc of docs as any[]) {
-    let workspaceId = doc.workspaceId ? String(doc.workspaceId) : null;
-    if (!workspaceId && doc.collectionId) {
-      const coll = await Collection.findById(doc.collectionId).lean();
-      workspaceId = coll ? String((coll as any).workspaceId) : null;
-    }
+  for (const it of items) {
+    const workspaceId = await resolveWorkspaceId(type, it.id);
     if (!workspaceId) return res.status(400).json({ message: 'Could not resolve workspace for item' });
     workspaceIds.add(workspaceId);
   }
@@ -267,9 +295,7 @@ router.put('/reorder', async (req: AuthRequest, res: Response) => {
     }
   }
 
-  await Promise.all(
-    items.map(({ id, order }) => Model.findByIdAndUpdate(id, { order }))
-  );
+  await Promise.all(items.map(({ id, order }) => (repo as any).update(id, { order })));
   for (const workspaceId of workspaceIds) {
     emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
   }
