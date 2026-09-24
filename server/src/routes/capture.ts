@@ -6,7 +6,7 @@ import { CollectionRepository } from '../repositories/CollectionRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { isValidId } from '../utils/ids';
-import { assertSsrfSafe, SsrfBlockedError } from '../utils/ssrf';
+import { assertRedirectTargetSafe, SsrfBlockedError, createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
 
@@ -122,22 +122,30 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
     if (finalUrl) {
       try {
         const systemConfig = await SystemConfigRepository.getConfig();
-        await assertSsrfSafe(finalUrl, systemConfig?.proxy?.allowPrivateTargets ?? false);
+        const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
 
         const outHeaders = new Headers(req.headers as any);
         outHeaders.delete('host');
         outHeaders.delete('x-target-url');
 
-        const fetchOptions: RequestInit = {
+        const { fetch: undiciFetch, Agent } = await import('undici');
+        const fetchOptions: any = {
           method: req.method,
           headers: outHeaders,
+          redirect: 'manual',
+          dispatcher: new Agent({
+            connect: { lookup: createSafeLookup(allowPrivateTargets) },
+          }),
         };
 
         if (!['GET', 'HEAD'].includes(req.method) && requestBody.mode !== 'none') {
           fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
 
-        const response = await fetch(finalUrl, fetchOptions);
+        const response = await undiciFetch(finalUrl, fetchOptions);
+        if (response.status >= 300 && response.status < 400) {
+          await assertRedirectTargetSafe(response.headers.get('location'), finalUrl, allowPrivateTargets);
+        }
         const responseBody = await response.text();
         
         // Forward status and headers
