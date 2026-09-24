@@ -270,10 +270,8 @@ The Features list at the top of this file promises things the server does not de
 * [x] **Multi-database support — finish the remaining routes** — `CR#1`
   * ✅ **Done:** `environments`, `history`, `admin`, `capture`, `importExport`, `share`, and `shareProxy` go through repositories. SQL environments carry `isGlobal` and `order`; the variables-only global row is still merged into the list. History snapshots are stored in Mongo as `requestSnapshot`/`responseSnapshot` and in SQL inside `requestData`/`responseData` plus the method/url/status columns. Proxy history writes pass string ids. `server/src/tests/db.repositories.test.ts` passes on SQLite (53 tests).
 
-* [ ] **Import / Export / Runner are server-side stubs** — `CR#13`
-  * **Where:** `server/src/routes/importExport.ts` (`GET /collections/:id/export` returns `{ item: [] }`), `server/src/routes/runner.ts` (near-empty)
-  * **Why it matters:** real import happens client-side in `ImportModal`, so some flows skip server-side permission checks entirely.
-  * **Do:** implement ReqSpace v2.1 export/import server-side with RBAC, or remove the entry points from the UI. Do not keep shipping buttons that resolve to nothing.
+* [x] **Import / Export / Runner are server-side stubs** — `CR#13`
+  * ✅ **Done:** `GET /api/collections/:id/export` builds a ReqSpace v2.1 document from the repositories and requires a workspace viewer. `POST /api/collections/import` writes that document back and requires an editor. The export button and collection import modal call those routes. The empty `POST /api/runner/run` stub and the unused mock `RunnerModal` are gone; runs go through `CollectionRunnerModal`, which sends each request.
 
 * [x] **`sync({ alter: true })` runs on every boot** — `CR#18`
   * ✅ **Done:** `server/src/db/connect.ts` only auto-`alter`s outside production (`sync({})` in production, non-destructive); the dead `/admin/db-config` carve-out was removed from the DB-down gate. (Full migrations via `umzug`/Sequelize-CLI are still a future improvement.)
@@ -381,7 +379,7 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 * [ ] **Dead code and naming** — *P3* (`server/dist` untracking done)
   * ✅ **Done:** `server/dist` is no longer committed (gitignored).
-  * **Do:** `runner.ts` is nearly empty (folds into `CR#13`); `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`.
+  * **Do:** `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`. (`runner.ts` was removed with `CR#13`.)
 
 * [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
   * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.

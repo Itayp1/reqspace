@@ -4,7 +4,8 @@ import { CollectionRepository } from '../repositories/CollectionRepository';
 import { FolderRepository } from '../repositories/FolderRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
-import { requireWorkspaceRole } from '../middleware/rbac';
+import { getUserWorkspaceRole, requireWorkspaceRole } from '../middleware/rbac';
+import { emitToWorkspace } from '../socketUtils';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,14 +13,166 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 router.use(authenticate);
 
-// Import/Export Routes placeholder
+const V21_SCHEMA = 'https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json';
+
+function scriptEvents(pre?: string, test?: string) {
+  const events: Array<{ listen: string; script: { type: string; exec: string[] } }> = [];
+  if (pre) events.push({ listen: 'prerequest', script: { type: 'text/javascript', exec: pre.split('\n') } });
+  if (test) events.push({ listen: 'test', script: { type: 'text/javascript', exec: test.split('\n') } });
+  return events;
+}
+
+function scriptsFromEvents(events: any[] | undefined): { preRequestScript: string; testScript: string } {
+  let preRequestScript = '';
+  let testScript = '';
+  for (const event of events || []) {
+    const exec = Array.isArray(event?.script?.exec) ? event.script.exec.join('\n') : (event?.script?.exec || '');
+    if (event?.listen === 'prerequest') preRequestScript = exec;
+    if (event?.listen === 'test') testScript = exec;
+  }
+  return { preRequestScript, testScript };
+}
+
+function toV21Item(req: { name: string; method: string; url: string; headers: any[]; params: any[]; body: any; preRequestScript: string; testScript: string }) {
+  const header = (req.headers || []).filter((h: any) => h.key).map((h: any) => {
+    const out: any = { key: h.key, value: h.value || '', description: h.description || '' };
+    if (h.enabled === false) out.disabled = true;
+    return out;
+  });
+  let body: any;
+  if (req.body && req.body.mode && req.body.mode !== 'none') {
+    body = { mode: req.body.mode };
+    if (req.body.mode === 'raw') {
+      body.raw = req.body.raw || '';
+      body.options = { raw: { language: req.body.rawLanguage === 'json' ? 'json' : 'text' } };
+    } else if (req.body.mode === 'urlencoded') {
+      body.urlencoded = req.body.urlencoded || [];
+    } else if (req.body.mode === 'form-data') {
+      body.formdata = req.body.formData || [];
+    }
+  }
+  const item: any = {
+    name: req.name,
+    request: { method: req.method || 'GET', header, body, url: { raw: req.url || '' } },
+  };
+  if (req.params?.length) {
+    item.request.url.query = req.params.filter((p: any) => p.key).map((p: any) => ({
+      key: p.key, value: p.value || '', disabled: p.enabled === false,
+    }));
+  }
+  const event = scriptEvents(req.preRequestScript, req.testScript);
+  if (event.length) item.event = event;
+  return item;
+}
+
+async function buildV21(collectionId: string) {
+  const collection = await CollectionRepository.findById(collectionId);
+  if (!collection) return null;
+  const folders = await FolderRepository.findByCollection(collectionId);
+  const requests = await RequestRepository.findByCollection(collectionId);
+  const build = (parentId: string | null): any[] => {
+    const items: any[] = [];
+    for (const folder of folders.filter(f => (f.parentFolderId || null) === parentId)) {
+      items.push({ name: folder.name, item: build(folder.id) });
+    }
+    for (const req of requests.filter(r => (r.folderId || null) === parentId)) {
+      items.push(toV21Item(req));
+    }
+    return items;
+  };
+  const doc: any = {
+    info: { name: collection.name, schema: V21_SCHEMA },
+    item: build(null),
+  };
+  if (collection.variables?.length) {
+    doc.variable = collection.variables.map((v: any) => ({ key: v.key, value: v.value || v.currentValue || '' }));
+  }
+  const event = scriptEvents(collection.preRequestScript, collection.testScript);
+  if (event.length) doc.event = event;
+  return { collection, doc };
+}
+
+async function assertRole(req: AuthRequest, workspaceId: string, min: 'viewer' | 'editor'): Promise<string | null> {
+  if (req.user?.isSuperAdmin) return null;
+  const role = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
+  if (!role) return 'No access to this workspace';
+  if (min === 'editor' && role === 'viewer') return 'Editor role required';
+  return null;
+}
+
 router.get('/collections/:id/export', async (req: AuthRequest, res: Response) => {
-  const collection = await CollectionRepository.findById(req.params.id as string);
-  res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
+  const built = await buildV21(req.params.id as string);
+  if (!built) return res.status(404).json({ message: 'Collection not found' });
+  const denied = await assertRole(req, built.collection.workspaceId, 'viewer');
+  if (denied) return res.status(403).json({ message: denied });
+  return res.json(built.doc);
 });
 
 router.post('/collections/import', async (req: AuthRequest, res: Response) => {
-  res.json({ message: 'Import successful (stub)' });
+  const workspaceId = req.body?.workspaceId as string | undefined;
+  const doc = req.body?.collection ?? req.body;
+  if (!workspaceId) return res.status(400).json({ message: 'workspaceId required' });
+  if (!doc || !Array.isArray(doc.item)) return res.status(400).json({ message: 'ReqSpace v2.1 collection is required' });
+  const denied = await assertRole(req, workspaceId, 'editor');
+  if (denied) return res.status(403).json({ message: denied });
+
+  const scripts = scriptsFromEvents(doc.event);
+  const collection = await CollectionRepository.create({
+    workspaceId,
+    name: doc.info?.name || 'Imported Collection',
+    description: doc.info?.description || '',
+    createdBy: String(req.user!._id),
+    variables: (doc.variable || []).map((v: any) => ({ key: v.key, value: v.value || '', enabled: true })),
+    preRequestScript: scripts.preRequestScript,
+    testScript: scripts.testScript,
+  });
+
+  const walk = async (items: any[], parentFolderId: string | null) => {
+    for (const item of items) {
+      if (Array.isArray(item?.item)) {
+        const folder = await FolderRepository.create({
+          collectionId: collection.id,
+          name: item.name || 'Folder',
+          parentFolderId,
+        });
+        await walk(item.item, folder.id);
+        continue;
+      }
+      const request = item?.request;
+      if (!request) continue;
+      const url = typeof request.url === 'string' ? request.url : (request.url?.raw || '');
+      const header = (request.header || []).map((h: any) => ({
+        key: h.key || '', value: h.value || '', enabled: !h.disabled, description: h.description || '',
+      }));
+      const params = (request.url?.query || []).map((p: any) => ({
+        key: p.key || '', value: p.value || '', enabled: !p.disabled,
+      }));
+      let body: any = { mode: 'none' };
+      if (request.body?.mode === 'raw') body = { mode: 'raw', raw: request.body.raw || '', rawLanguage: request.body.options?.raw?.language || 'text' };
+      else if (request.body?.mode === 'urlencoded') body = { mode: 'urlencoded', urlencoded: request.body.urlencoded || [] };
+      else if (request.body?.mode === 'formdata' || request.body?.mode === 'form-data') {
+        body = { mode: 'form-data', formData: request.body.formdata || request.body.formData || [] };
+      }
+      const itemScripts = scriptsFromEvents(item.event);
+      await RequestRepository.create({
+        collectionId: collection.id,
+        folderId: parentFolderId,
+        name: item.name || 'Request',
+        method: request.method || 'GET',
+        url,
+        headers: header,
+        params,
+        body,
+        preRequestScript: itemScripts.preRequestScript,
+        testScript: itemScripts.testScript,
+        createdBy: String(req.user!._id),
+      });
+    }
+  };
+
+  await walk(doc.item, null);
+  emitToWorkspace(workspaceId, 'collection:created', collection);
+  return res.status(201).json({ collectionId: collection.id, name: collection.name });
 });
 
 router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => {

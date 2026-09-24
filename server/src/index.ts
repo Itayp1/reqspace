@@ -25,7 +25,6 @@ import usersRouter from './routes/users';
 import shareRouter from './routes/share';
 import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
-import runnerRouter from './routes/runner';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
@@ -168,8 +167,6 @@ app.use('/api/users', usersRouter);
 app.use('/api/share', shareRouter);
 app.use('/api/share', shareProxyRouter);
 app.use('/api', importExportRouter);
-app.use('/api', runnerRouter);
-
 // Serve client static files (production)
 const clientDistPath = process.env.CLIENT_DIST_PATH
   ? path.resolve(__dirname, '..', process.env.CLIENT_DIST_PATH)
