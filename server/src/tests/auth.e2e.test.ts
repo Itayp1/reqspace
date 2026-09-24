@@ -19,6 +19,21 @@ describe('E2E Auth - Registration and Login', () => {
       await new Promise(r => setTimeout(r, 1000));
     }
     if (!healthy) throw new Error('Server not healthy');
+
+    // Self-registration now defaults to closed (CR#24). Enable it as the admin
+    // would, so the registration flow below can run. On a fresh server the
+    // seeded superadmin is admin/admin.
+    const adminLogin = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin', password: 'admin' }),
+    });
+    const adminCookie = adminLogin.headers.get('set-cookie')?.split(';')[0] || '';
+    await fetch(`${BASE_URL}/api/admin/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie: adminCookie },
+      body: JSON.stringify({ auth: { allowSelfRegistration: true } }),
+    });
   }, 35000);
 
   it('should register a new user', async () => {

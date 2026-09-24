@@ -28,6 +28,10 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
     return res.status(400).json({ message: 'name, email and password are required' });
   }
 
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters' });
+  }
+
   // Domain whitelist check
   const domains = config.auth.allowedEmailDomains;
   if (domains.length > 0) {
@@ -144,7 +148,7 @@ router.get('/config', async (_req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   return res.json({
     mode: config?.auth.mode ?? 'login',
-    allowSelfRegistration: config?.auth.allowSelfRegistration ?? true,
+    allowSelfRegistration: config?.auth.allowSelfRegistration ?? false,
     googleOAuth: {
       enabled: config?.auth.googleOAuth?.enabled ?? false,
       clientId: config?.auth.googleOAuth?.clientId ?? '',
@@ -154,14 +158,24 @@ router.get('/config', async (_req: Request, res: Response) => {
 
 // ── POST /api/auth/change-password ──────────────────────────────────────────
 router.post('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
-  const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 5) {
-    return res.status(400).json({ message: 'Password must be at least 5 characters' });
+  const { newPassword, currentPassword } = req.body;
+  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters' });
   }
   const user = req.user!;
-  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  // A normal password change must prove knowledge of the current password
+  // (CR#15b). The forced first-login change (mustChangePassword) is exempt —
+  // the user just authenticated with the current password to get here.
+  if (!user.mustChangePassword) {
+    if (!currentPassword || !user.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
   await UserRepository.update(user._id as any, { passwordHash, mustChangePassword: false } as any);
-  await logAudit(user._id as any, 'auth.change_password', { details: { forced: true } });
+  await logAudit(user._id as any, 'auth.change_password', { details: { forced: !!user.mustChangePassword } });
   return res.json({ message: 'Password changed successfully' });
 });
 
@@ -174,6 +188,15 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
   const oauthConfig = config?.auth.googleOAuth;
   if (!oauthConfig?.enabled) return res.status(403).json({ message: 'Google OAuth is disabled' });
 
+  // Hard-allowlist redirect URIs server-side — a client-supplied redirect_uri
+  // is a code-interception vector (CR#4). Configure via GOOGLE_ALLOWED_REDIRECT_URIS.
+  const allowedRedirects = (process.env.GOOGLE_ALLOWED_REDIRECT_URIS || 'http://localhost:5173/auth/google/callback')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  const chosenRedirect = redirectUri || allowedRedirects[0];
+  if (!allowedRedirects.includes(chosenRedirect)) {
+    return res.status(400).json({ message: 'redirect_uri not allowed' });
+  }
+
   try {
     // 1. Exchange code for token
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -183,12 +206,13 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
         code,
         client_id: oauthConfig.clientId,
         client_secret: oauthConfig.clientSecret,
-        redirect_uri: redirectUri || 'http://localhost:5173/auth/google/callback',
+        redirect_uri: chosenRedirect,
         grant_type: 'authorization_code',
       }),
     });
     const tokenData = await tokenResponse.json() as any;
-    if (tokenData.error) return res.status(400).json({ message: 'Failed to exchange token', details: tokenData });
+    // Never echo the token endpoint's raw response back to the client (CR#4).
+    if (tokenData.error) return res.status(400).json({ message: 'Failed to exchange token' });
 
     // 2. Fetch user info
     const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -244,13 +268,25 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
 });
 
 // ── PUT /api/auth/settings ───────────────────────────────────────────
+const ALLOWED_SETTINGS_KEYS = [
+  'followRedirects', 'verifySsl', 'sendNoCacheHeader', 'encodeUrl', 'timeout',
+  'proxyEnabled', 'proxyUrl', 'proxyAuthEnabled', 'proxyUsername', 'proxyPassword',
+  'saveHistory', 'shortcuts',
+];
+
 router.put('/settings', authenticate, async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   try {
-    const updatedUser = await UserRepository.update(user._id || (user as any).id, { settings: { ...user.settings, ...req.body } } as any);
+    // Allowlist writable settings keys — don't merge arbitrary req.body (CR#7).
+    const patch: Record<string, unknown> = {};
+    for (const key of ALLOWED_SETTINGS_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) patch[key] = req.body[key];
+    }
+    const updatedUser = await UserRepository.update(user._id || (user as any).id, { settings: { ...user.settings, ...patch } } as any);
     return res.json(updatedUser!.settings);
   } catch (err: any) {
-    return res.status(500).json({ message: err.message });
+    // Don't echo internal error details back to the client.
+    return res.status(500).json({ message: 'Failed to update settings' });
   }
 });
 

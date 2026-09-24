@@ -5,6 +5,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
+import helmet from 'helmet';
 import path from 'path';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
@@ -101,10 +102,21 @@ io.on('connection', (socket) => {
   });
 });
 
+// Behind an Ingress/reverse proxy, trust X-Forwarded-* so req.ip, rate limiting
+// and `secure` cookies work correctly (CR#8, CR#16). Configurable; defaults to
+// one hop (typical single proxy) — set TRUST_PROXY=false to disable.
+app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.env.TRUST_PROXY ?? 1));
+
 // Middleware
 app.use(morgan('dev'));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
+// currently need a permissive policy; tighten via a dedicated CSP later.
+app.use(helmet({ contentSecurityPolicy: false }));
+// Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
+// MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
+const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';
+app.use(express.json({ limit: MAX_BODY_SIZE }));
+app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 app.use(cookieParser());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173',
@@ -114,10 +126,13 @@ app.use(cors({
 // ── Health check — always responds, reports DB state ─────────────────────────
 app.get('/api/health', (_req, res) => {
   const status = dbStatus === 'ok' ? 200 : (dbStatus === 'starting' ? 503 : 503);
+  // Never leak the raw DB error (can contain a connection string) in
+  // production — return a generic message instead (CR#24).
+  const isProd = process.env.NODE_ENV === 'production';
   res.status(status).json({
     status: dbStatus,
     dbType,
-    dbError: dbError || undefined,
+    dbError: dbError ? (isProd ? 'Database unavailable' : dbError) : undefined,
     uptime: process.uptime(),
     mongoState: mongoose.connection.readyState,
     timestamp: new Date().toISOString(),
@@ -126,8 +141,9 @@ app.get('/api/health', (_req, res) => {
 
 // ── Block API routes if DB is not ready ──────────────────────────────────────
 app.use('/api', (req, res, next) => {
-  // Always allow health check and dbConfig endpoints even if DB is down
-  if (req.path === '/health' || req.path.startsWith('/admin/db-config')) return next();
+  // Always allow the health check even if the DB is down. (The previous
+  // '/admin/db-config' carve-out referenced a route that doesn't exist — CR#18.)
+  if (req.path === '/health') return next();
   if (dbStatus !== 'ok') {
     return res.status(503).json({
       message: 'Database not available',
@@ -169,8 +185,13 @@ app.get('*', (_req, res) => {
 // client, which is publicly reachable once this is deployed as a SaaS.
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
-  const message = process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message ?? 'Internal server error');
-  res.status(500).json({ message });
+  // Honour explicit client-error statuses (e.g. 413 payload-too-large, 400) so
+  // they aren't masked as 500. Server errors stay generic in production.
+  const status = (err as any).status || (err as any).statusCode || 500;
+  const message = status < 500
+    ? (err.message ?? 'Request error')
+    : (process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message ?? 'Internal server error'));
+  res.status(status).json({ message });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
@@ -200,7 +221,15 @@ async function bootstrap() {
     if (adminCount === 0) {
       const adminEmail = process.env.ADMIN_EMAIL || 'admin';
       const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
-      const passwordHash = await bcrypt.hash(adminPassword, 10);
+      // Never seed a known-default admin/admin superadmin in production — the
+      // account is fully usable between boot and first login (CR#6). Require an
+      // explicit strong ADMIN_PASSWORD instead.
+      if (process.env.NODE_ENV === 'production' && adminPassword === 'admin') {
+        console.error('❌ Refusing to bootstrap the default admin/admin superadmin in production. Set a strong ADMIN_PASSWORD and restart.');
+        dbStatus = 'ok';
+        return;
+      }
+      const passwordHash = await bcrypt.hash(adminPassword, 12);
       const adminUser = await UserRepository.create({
         name: 'Admin',
         email: adminEmail,

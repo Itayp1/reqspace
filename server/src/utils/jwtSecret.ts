@@ -30,6 +30,17 @@ export function resolveJwtSecret(): string {
     return cached;
   }
 
+  // In production a per-pod generated secret means every replica signs with a
+  // different key, so sessions break behind a load balancer and tokens can't be
+  // validated across nodes (CR#6). Refuse to boot without a real shared secret,
+  // unless a single-node deployment explicitly opts in.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_EPHEMERAL_JWT_SECRET !== 'true') {
+    throw new Error(
+      'JWT_SECRET must be set to a strong, shared value in production. ' +
+      'Set JWT_SECRET (same value on every replica), or set ALLOW_EPHEMERAL_JWT_SECRET=true for a deliberate single-node deployment.',
+    );
+  }
+
   try {
     const existing = fs.readFileSync(SECRET_FILE, 'utf8').trim();
     if (existing) {

@@ -64,7 +64,9 @@ const DEFAULT_CONFIG = {
   auth: {
     mode: 'login' as const,
     headerName: 'X-Auth-User',
-    allowSelfRegistration: true,
+    // Default closed: a fresh deployment should not be open to public signup
+    // until an admin explicitly enables it (CR#24).
+    allowSelfRegistration: false,
     allowedEmailDomains: [] as string[],
     jwtTtlDays: 7,
     jwtRefreshHoursBeforeExpiry: 24,

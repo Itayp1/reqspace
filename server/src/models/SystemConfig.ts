@@ -42,7 +42,8 @@ const SystemConfigSchema = new Schema<ISystemConfig>({
   auth: {
     mode: { type: String, enum: ['login', 'header', 'both'], default: 'login' },
     headerName: { type: String, default: 'X-Auth-User' },
-    allowSelfRegistration: { type: Boolean, default: true },
+    // Default closed to public signup until an admin enables it (CR#24).
+    allowSelfRegistration: { type: Boolean, default: false },
     allowedEmailDomains: { type: [String], default: [] },
     jwtTtlDays: { type: Number, default: 7 },
     jwtRefreshHoursBeforeExpiry: { type: Number, default: 24 },
@@ -84,7 +85,7 @@ export async function ensureSystemConfig() {
       auth: {
         mode: 'login',
         headerName: 'X-Auth-User',
-        allowSelfRegistration: true,
+        allowSelfRegistration: false,
         allowedEmailDomains: [],
         jwtTtlDays: 7,
         jwtRefreshHoursBeforeExpiry: 24,

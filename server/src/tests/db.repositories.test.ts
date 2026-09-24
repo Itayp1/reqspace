@@ -436,6 +436,9 @@ describe('AuditLogRepository (SQL)', () => {
     const userId = uuidv4();
     for (let i = 0; i < 5; i++) {
       await AuditLogRepository.log({ userId, action: `a${i}` });
+      // Ensure distinct createdAt values — otherwise same-millisecond inserts
+      // tie and the DESC ordering assertion below is non-deterministic.
+      await new Promise((r) => setTimeout(r, 5));
     }
     const logs = await AuditLogRepository.findByUser(userId, 3);
     expect(logs.length).toBe(3);
