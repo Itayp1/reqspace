@@ -1,4 +1,6 @@
-import mongoose from 'mongoose';
+import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
+import { encryptSecret, publicCertificate } from '../utils/certCrypto';
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
@@ -137,7 +139,7 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
     settings: user.settings,
-    clientCertificates: user.clientCertificates,
+    clientCertificates: (user.clientCertificates || []).map(publicCertificate),
     authType: user.authType,
   });
 });
@@ -180,9 +182,27 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
 });
 
 // ── POST /api/auth/google ───────────────────────────────────────────────────
+router.get('/google/start', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(32).toString('hex');
+  res.cookie('oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 10 * 60 * 1000,
+  });
+  return res.json({ state });
+});
+
 router.post('/google', loginLimiter, async (req: Request, res: Response) => {
-  const { code, redirectUri } = req.body;
+  const { code, redirectUri, state } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
+  const cookieState = req.cookies?.oauth_state;
+  const stateOk = typeof state === 'string' && typeof cookieState === 'string'
+    && state.length === cookieState.length
+    && crypto.timingSafeEqual(Buffer.from(state), Buffer.from(cookieState));
+  res.clearCookie('oauth_state', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/' });
+  if (!stateOk) return res.status(400).json({ message: 'Invalid OAuth state' });
 
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth.googleOAuth;
@@ -298,16 +318,16 @@ router.post('/certificates', authenticate, async (req: AuthRequest, res: Respons
   
   try {
     const newCert = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: uuidv4(),
       hostname,
       cert,
-      key,
-      passphrase,
-      createdAt: new Date()
+      key: encryptSecret(key),
+      passphrase: passphrase ? encryptSecret(passphrase) : '',
+      createdAt: new Date(),
     };
     const updatedCerts = [...(user.clientCertificates || []), newCert];
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.status(201).json(updatedUser!.clientCertificates);
+    return res.status(201).json((updatedUser!.clientCertificates || []).map(publicCertificate));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
@@ -319,7 +339,7 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
   try {
     const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.json(updatedUser!.clientCertificates);
+    return res.json((updatedUser!.clientCertificates || []).map(publicCertificate));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }

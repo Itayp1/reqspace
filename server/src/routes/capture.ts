@@ -1,12 +1,13 @@
 import { Router, Response } from 'express';
-import { Collection } from '../models/Collection';
-import { Request as ApiRequest } from '../models/Request';
 import { io } from '../index';
-import mongoose from 'mongoose';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getUserWorkspaceRole } from '../middleware/rbac';
-import { SystemConfig } from '../models/SystemConfig';
-import { assertSsrfSafe, SsrfBlockedError } from '../utils/ssrf';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { assertSsrfSafe, createSafeLookup, SsrfBlockedError } from '../utils/ssrf';
+import { isValidId } from '../utils/ids';
+import { readCappedBody } from '../utils/proxyLimits';
 
 const router = Router();
 
@@ -21,7 +22,7 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
   const workspaceId = req.params.workspaceId as string;
   const targetPath = req.params[0];
 
-  if (!mongoose.Types.ObjectId.isValid(workspaceId)) {
+  if (!isValidId(workspaceId)) {
     return res.status(400).json({ message: 'Invalid workspace ID' });
   }
 
@@ -34,14 +35,14 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
 
   try {
     // 1. Find or create the "Captured Requests" collection
-    let collection = await Collection.findOne({ workspaceId, name: 'Captured Requests' });
+    let collection = await CollectionRepository.findByWorkspaceAndName(workspaceId, 'Captured Requests');
     if (!collection) {
-      collection = new Collection({
+      collection = await CollectionRepository.create({
         workspaceId,
         name: 'Captured Requests',
         description: 'Automatically captured proxy requests',
+        createdBy: String(req.user!._id),
       });
-      await collection.save();
     }
 
     // 2. Extract target URL from path or header
@@ -95,16 +96,15 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
     }
 
     // 5. Create Request Document
-    const newRequest = new ApiRequest({
+    const newRequest = await RequestRepository.create({
       collectionId: collection._id,
       name: `Captured: ${req.method} ${targetUrl ? new URL(finalUrl).hostname : finalUrl || 'Unknown'}`,
       method: req.method,
       url: finalUrl,
       headers,
       body: requestBody,
+      createdBy: String(req.user!._id),
     });
-    
-    await newRequest.save();
 
     // 6. Notify connected clients
     io.to(`workspace:${workspaceId}`).emit('collection:update', {
@@ -121,24 +121,27 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
     // 7. Forward request if target is known
     if (finalUrl) {
       try {
-        const systemConfig = await SystemConfig.findById('global');
-        await assertSsrfSafe(finalUrl, systemConfig?.proxy?.allowPrivateTargets ?? false);
+        const systemConfig = await SystemConfigRepository.getConfig();
+        const allowPrivate = systemConfig?.proxy?.allowPrivateTargets ?? false;
+        await assertSsrfSafe(finalUrl, allowPrivate);
 
         const outHeaders = new Headers(req.headers as any);
         outHeaders.delete('host');
         outHeaders.delete('x-target-url');
 
-        const fetchOptions: RequestInit = {
+        const { fetch: undiciFetch, Agent } = await import('undici');
+        const fetchOptions: any = {
           method: req.method,
           headers: outHeaders,
+          dispatcher: new Agent({ connect: { lookup: createSafeLookup(allowPrivate) } }),
         };
 
         if (!['GET', 'HEAD'].includes(req.method) && requestBody.mode !== 'none') {
           fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
 
-        const response = await fetch(finalUrl, fetchOptions);
-        const responseBody = await response.text();
+        const response = await undiciFetch(finalUrl, fetchOptions);
+        const responseBody = (await readCappedBody(response.body as any)).toString('utf8');
         
         // Forward status and headers
         res.status(response.status);

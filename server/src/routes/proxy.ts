@@ -1,17 +1,23 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { saveHistoryEntry } from './history';
-import mongoose from 'mongoose';
-import { SystemConfig } from '../models/SystemConfig';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { createSafeLookup } from '../utils/ssrf';
+import { decryptSecret } from '../utils/certCrypto';
+import { clampTimeout, readCappedBody } from '../utils/proxyLimits';
+import { rateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 router.use(authenticate);
+router.use(rateLimit({ windowMs: 60_000, max: 60, message: 'Too many proxy requests' }));
 
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
 // ── POST /api/proxy ─────────────────────────────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response) => {
+import { validateBody } from '../validation/validate';
+import { proxySchema } from '../validation/schemas';
+
+router.post('/', validateBody(proxySchema), async (req: AuthRequest, res: Response) => {
   const { method, url, headers = {}, body, workspaceId, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
 
   if (!url) return res.status(400).json({ message: 'url is required' });
@@ -35,9 +41,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const controller = new AbortController();
     let timeoutId: NodeJS.Timeout | undefined;
-    if (timeout > 0) {
-      timeoutId = setTimeout(() => controller.abort(), timeout);
-    }
+    const timeoutMs = clampTimeout(timeout);
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const fetchOptions: any = {
       method: method.toUpperCase(),
@@ -46,7 +51,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       redirect: followRedirects ? 'follow' : 'manual',
     };
 
-    const systemConfig = await SystemConfig.findById('global');
+    const systemConfig = await SystemConfigRepository.getConfig();
     const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
 
     let activeProxy = null;
@@ -76,8 +81,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const connectOpts: any = { rejectUnauthorized: verifySsl !== false, lookup: createSafeLookup(allowPrivateTargets) };
     if (matchedCert) {
       connectOpts.cert = matchedCert.cert;
-      connectOpts.key = matchedCert.key;
-      if (matchedCert.passphrase) connectOpts.passphrase = matchedCert.passphrase;
+      connectOpts.key = decryptSecret(matchedCert.key);
+      if (matchedCert.passphrase) connectOpts.passphrase = decryptSecret(matchedCert.passphrase);
     }
 
     const { ProxyAgent, Agent, fetch: undiciFetch } = await import('undici');
@@ -122,8 +127,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (timeoutId) clearTimeout(timeoutId);
 
     const responseTime = Date.now() - startTime;
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer = await readCappedBody(response.body as any);
     
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => { responseHeaders[key] = value; });
@@ -150,8 +154,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     if (workspaceId && req.user && shouldSaveHistory && isUnderLimit) {
       saveHistoryEntry(
-        req.user._id as mongoose.Types.ObjectId,
-        new mongoose.Types.ObjectId(workspaceId),
+        String(req.user._id),
+        String(workspaceId),
         {
           requestSnapshot: { method, url, headers, body },
           responseBody: isBase64 ? `[Binary Data: ${contentType}]` : responseBody,

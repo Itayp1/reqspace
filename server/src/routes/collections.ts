@@ -60,6 +60,11 @@ router.use(authenticate);
 router.get('/workspaces/:workspaceId/collections',
   requireWorkspaceRole('viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = Number(req.query.limit || 0);
+    if (limit > 0) {
+      const page = await CollectionRepository.findPage(req.params.workspaceId, { limit, cursor: req.query.cursor ? String(req.query.cursor) : undefined });
+      return res.json(page);
+    }
     const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
     return res.json(collections);
   }
@@ -108,6 +113,11 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
 router.get('/collections/:collectionId/folders',
   checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = Number(req.query.limit || 0);
+    if (limit > 0) {
+      const page = await FolderRepository.findPage(req.params.collectionId, { limit, cursor: req.query.cursor ? String(req.query.cursor) : undefined });
+      return res.json(page);
+    }
     const folders = await FolderRepository.findByCollection(req.params.collectionId);
     return res.json(folders);
   }
@@ -154,6 +164,15 @@ router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: A
 router.get('/collections/:collectionId/requests',
   checkPermission('collection', 'viewer'),
   async (req: AuthRequest, res: Response) => {
+    const limit = Number(req.query.limit || 0);
+    if (limit > 0 && req.query.folderId === undefined) {
+      const page = await RequestRepository.findPage(req.params.collectionId, {
+        limit,
+        cursor: req.query.cursor ? String(req.query.cursor) : undefined,
+        summary: req.query.summary === '1',
+      });
+      return res.json(page);
+    }
     let requests;
     if (req.query.folderId !== undefined) {
       const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);

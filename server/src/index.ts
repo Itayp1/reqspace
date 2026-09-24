@@ -111,7 +111,22 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.en
 app.use(morgan('dev'));
 // Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
 // currently need a permissive policy; tighten via a dedicated CSP later.
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'", 'ws:', 'wss:', 'http://localhost:5173'],
+      fontSrc: ["'self'", 'data:'],
+      workerSrc: ["'self'", 'blob:'],
+      frameSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  },
+}));
 // Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
 // MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
 const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';
@@ -124,7 +139,7 @@ app.use(cors({
 }));
 
 // ── Health check — always responds, reports DB state ─────────────────────────
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   const status = dbStatus === 'ok' ? 200 : (dbStatus === 'starting' ? 503 : 503);
   // Never leak the raw DB error (can contain a connection string) in
   // production — return a generic message instead (CR#24).
@@ -136,6 +151,7 @@ app.get('/api/health', (_req, res) => {
     uptime: process.uptime(),
     mongoState: mongoose.connection.readyState,
     timestamp: new Date().toISOString(),
+    redis: (await import('./redis')).getRedisStatus(),
   });
 });
 
@@ -204,6 +220,11 @@ async function bootstrap() {
   // Start listening first — so the client can load and show errors
   server.listen(port, () => {
     console.log('🚀 Server running on http://localhost:' + port);
+  });
+
+  const { attachSocketRedis } = await import('./redis');
+  await attachSocketRedis(io).catch((err) => {
+    console.error('Redis adapter failed, staying single-node:', err);
   });
 
   const dbConfig = getDbConfig();

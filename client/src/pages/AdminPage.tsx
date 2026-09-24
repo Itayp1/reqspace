@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
@@ -17,10 +18,12 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [redisMode, setRedisMode] = useState<'active' | 'inactive'>('inactive');
 
   useEffect(() => {
     if (user?.isSuperAdmin) {
       fetchUsers();
+      api.get('/admin/runtime').then((r) => setRedisMode(r.data.redis)).catch(() => setRedisMode('inactive'));
     }
   }, [user]);
 
@@ -80,9 +83,16 @@ export default function AdminPage() {
     }
   };
 
+  if (!user?.isSuperAdmin) return <Navigate to="/" replace />;
+
   return (
     <div className="flex-1 flex flex-col bg-surface p-8">
-      <h1 className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Super Admin Dashboard</h1>
+        <span className={`text-sm font-semibold px-3 py-1 rounded-full ${redisMode === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>
+          Redis Concurrency Mode: {redisMode === 'active' ? 'Active' : 'Inactive'}
+        </span>
+      </div>
       
       <div className="flex border-b border-border mb-6">
         {['users', 'workspaces', 'logs', 'settings'].map(tab => (

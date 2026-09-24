@@ -251,15 +251,12 @@ Not new features. Things the code already claims to do and does not. Do these fi
 
 The Features list at the top of this file promises things the server does not deliver.
 
-* [ ] **Multi-database support — finish the remaining routes** — `CR#1` (core done)
+* [x] **Multi-database support — finish the remaining routes** — `CR#1` (core done)
   * ✅ **Done:** `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check in `utils/ids.ts`), `routes/workspaces.ts` and `routes/collections.ts` now go through the repositories. The authenticated core path (login → `/me` → workspace → collection → folder → request → comment → delete → logout) is verified on **both SQLite and MongoDB**.
-  * **Remaining — Where:** `routes/{environments,history,admin,capture,importExport,share}.ts` still call Mongoose models directly and will fail under `DB_TYPE≠mongodb`. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) schemas reconciled.
-  * **Do:** route those files through the repositories (extending `EnvironmentRepository`/`HistoryRepository` to the full shape) and fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
+  * ✅ **Done:** `environments`, `history`, `admin`, `capture`, `importExport`, `share`, and `users` go through repositories. Environment globals stay in `global_environments` (with `name`) while local envs gained `order`. History snapshots are mapped onto the SQL `requestData`/`responseData` columns. `saveHistoryEntry` takes string ids, so SQL UUIDs no longer hit `ObjectId`.
 
-* [ ] **Import / Export / Runner are server-side stubs** — `CR#13`
-  * **Where:** `server/src/routes/importExport.ts` (`GET /collections/:id/export` returns `{ item: [] }`), `server/src/routes/runner.ts` (near-empty)
-  * **Why it matters:** real import happens client-side in `ImportModal`, so some flows skip server-side permission checks entirely.
-  * **Do:** implement ReqSpace v2.1 export/import server-side with RBAC, or remove the entry points from the UI. Do not keep shipping buttons that resolve to nothing.
+* [x] **Import / Export / Runner are server-side stubs** — `CR#13`
+  * ✅ **Done:** `GET /collections/:id/export` and `POST /collections/import` speak ReqSpace collection v2.1 and require workspace membership. `POST /runner/run` returns the ordered run plan after an RBAC check. WSDL import requires `editor`.
 
 * [x] **`sync({ alter: true })` runs on every boot** — `CR#18`
   * ✅ **Done:** `server/src/db/connect.ts` only auto-`alter`s outside production (`sync({})` in production, non-destructive); the dead `/admin/db-config` carve-out was removed from the DB-down gate. (Full migrations via `umzug`/Sequelize-CLI are still a future improvement.)
@@ -273,22 +270,22 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Header auth allows impersonation** — `CR#2`
   * ✅ **Done:** `X-Auth-User` is honoured only when the request source is trusted (`HEADER_AUTH_TRUSTED_IPS`, loopback by default) in `server/src/middleware/auth.ts`.
 
-* [ ] **Share-proxy is an open proxy for anonymous users** — `CR#3`
+* [x] **Share-proxy is an open proxy for anonymous users** — `CR#3`
   * **Where:** `server/src/routes/shareProxy.ts`, `server/src/routes/share.ts`
   * **Why:** `POST /api/share/:shortId/proxy` requires no login, so a link holder can make the server issue arbitrary HTTP requests. `GET /api/share/:shortId` returns every request **including headers, tokens and scripts**.
-  * **Do:** restrict the public proxy to URLs present in the shared collection (or remove it); strip auth / cookies / variables from the public payload; block `localProxy` on the public path; widen `shortId` beyond 48 bits and rate-limit it.
+  * ✅ **Done:** the public proxy only forwards a method+URL that exists on the shared collection, drops auth/cookie headers, rejects `localProxy`, uses `createSafeLookup`, and is rate-limited. Public GET returns name/method/url/description only. `shortId` is 32 random bytes.
 
-* [ ] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
+* [x] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
   * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error.
   * **Where:** `POST /api/auth/google` in `server/src/routes/auth.ts` (+ the client callback page)
-  * **Do:** issue a random `state` in a cookie and verify it on callback (needs a matching client change).
+  * ✅ **Done:** `GET /api/auth/google/start` sets an httpOnly `oauth_state` cookie; the login button sends it and `POST /api/auth/google` checks it with `timingSafeEqual` before the token exchange.
 
 * [x] **Default admin credentials, shared JWT secret, insecure TLS** — `CR#6`
   * ✅ **Done:** production refuses to bootstrap `admin`/`admin`; `jwtSecret.ts` refuses a per-pod ephemeral secret in production (require `JWT_SECRET`, opt out with `ALLOW_EPHEMERAL_JWT_SECRET`); Mongo `tlsInsecure` is opt-in via `MONGO_TLS_INSECURE`. (Populating a real value in `k8s/secret.yaml` remains a deploy-time action.)
 
-* [ ] **Mass assignment and cross-workspace writes** — `CR#7` (main routes done)
+* [x] **Mass assignment and cross-workspace writes** — `CR#7` (main routes done)
   * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` now allowlist writable fields (no `workspaceId`/`collectionId` reassignment) and no longer leak `err.message`.
-  * **Do:** `POST /api/history/:id/save` still creates a request in a client-supplied `collectionId` with no membership check, and `POST /api/import/wsdl` still has no `requireWorkspaceRole` — add the guards.
+  * ✅ **Done:** history save checks editor membership on the target collection (and that `folderId` belongs to it). WSDL import uses `requireWorkspaceRole('editor')`. Zod schemas cover login-adjacent bodies, proxy, history save, collection import, and WSDL import.
 
 * [x] **History endpoints have no workspace RBAC** — `CR#11`
   * ✅ **Done:** `GET`/`DELETE /workspaces/:workspaceId/history` now require `requireWorkspaceRole('viewer')`, and the workspace-scoped clear decrements `historyUsedBytes` by the bytes actually freed instead of zeroing the user's whole counter. (The `Types.ObjectId(workspaceId)` SQL issue folds into the `CR#1` follow-up for `history.ts`.)
@@ -304,79 +301,76 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 **Sandboxing & input validation**
 
-* [ ] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
+* [x] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
   * **Where:** `client/src/utils/scripts.ts:131` and `:306` (`new Function(...)`); `client/src/sandbox/worker.ts` exists but is referenced **only from a comment** in `RunnerModal.tsx:16`; the visualizer iframe in `ResponseViewer.tsx` has no `sandbox` attribute and injects Handlebars output via `innerHTML` from a CDN
   * **Why:** scripts get `window`, `document`, `localStorage` and the app's authenticated axios instance — enough to read persisted bearer tokens and issue requests as the user.
-  * **Do:** run scripts only in the Worker (or an iframe with `sandbox` and **without** `allow-same-origin`); expose `pm.sendRequest` through an allowlisted message channel rather than handing over `api`; add `sandbox` to the visualizer iframe and self-host Handlebars. Consolidate onto **one** sandbox implementation — the `scripts.ts` / `worker.ts` split is currently two half-built paths.
+  * ✅ **Done:** `scripts.ts` only posts code into `sandbox/worker.ts` (no `new Function` on the main thread). The visualizer iframe is `sandbox=""` and compiles Handlebars from the bundled package.
 
-* [ ] **Zod is a dependency that is never imported** — `CR#19`
+* [x] **Zod is a dependency that is never imported** — `CR#19`
   * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
-  * **Do:** add request schemas route by route, starting with the mass-assignment routes above, then proxy / auth / admin bodies. While there, replace `req.user?: any` and the scattered `as any` casts with real types.
+  * ✅ **Done:** `server/src/validation/schemas.ts` validates proxy, history-save, collection import, and WSDL bodies through `validateBody`. Further route typing still uses `AuthRequest`.
 
-* [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit done)
+* [x] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit done)
   * ✅ **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`) and correct client-error statuses (413) are in place in `server/src/index.ts`.
-  * **Do:** cap the proxy response size and client-supplied timeout, add a CSP, rate-limit `POST /api/proxy`, and move the in-memory rate limiter to a shared store (alongside the Redis work) so it holds across replicas.
+  * ✅ **Done:** proxy timeout is clamped to 120s, response bodies cap at 10MB, helmet sends a CSP, `POST /api/proxy` is rate-limited, and the limiter uses Redis `INCR` when `REDIS_URL` is attached.
 
-* [ ] **SSRF: gaps in coverage** — `CR#25` (parser + proxy protocol check done)
+* [x] **SSRF: gaps in coverage** — `CR#25` (parser + proxy protocol check done)
   * ✅ **Done:** `ssrf.ts` now blocks NAT64 (`64:ff9b:`), IPv4-mapped forms, integer/hex/octal literals (`0x7f000001`) and trailing-dot hosts (offline unit tests in `server/src/tests/ssrf.test.ts`); `proxy.ts` asserts `http:`/`https:` before dispatching.
-  * **Do:** make `server/src/routes/capture.ts` forward via `createSafeLookup` instead of the global `fetch` (currently only a pre-flight `assertSsrfSafe`, which is TOCTOU / DNS-rebind vulnerable); add a test that a redirect to a private host is refused.
+  * ✅ **Done:** capture forwards with undici and `createSafeLookup`. `ssrf.test.ts` asserts a hop that resolves to `127.0.0.1` is refused.
 
-* [ ] **Secrets persisted to `localStorage`** — `CR#21`
+* [x] **Secrets persisted to `localStorage`** — `CR#21`
   * **Where:** `client/src/store/requestStore.ts` (persists all tabs including `auth.bearer.token`, basic passwords, bodies), `client/src/store/cookieStore.ts` (also ships a dummy `sess_default_123`), `client/src/store/settingsStore.ts` (local proxy password)
-  * **Do:** strip credential fields from the persisted slice; keep them in memory or in the OS keychain for the Electron build. This is a prerequisite for the sandbox work to mean anything.
+  * ✅ **Done:** request tabs persist with auth secrets and Authorization/Cookie headers blanked. Cookie values and the proxy password are not written to `localStorage`. The dummy `sess_default_123` seed is gone.
 
 * [x] **Information disclosure and open registration** — `CR#24`
   * ✅ **Done:** `allowSelfRegistration` now defaults to **false**, and `GET /api/health` masks the raw `dbError` in production.
 
-* [ ] **Client certificates stored in plaintext** — *P3*
+* [x] **Client certificates stored in plaintext** — *P3*
   * **Where:** client-certificate records in the DB hold private keys as clear text
-  * **Do:** encrypt at rest with a server-held key, or store a reference and keep the material out of the DB.
+  * ✅ **Done:** certificate private keys and passphrases are AES-256-GCM under `CERT_ENCRYPTION_KEY` (falling back to `JWT_SECRET`). API responses only return hostname and id; the proxy decrypts at connect time.
 
 ### 🔵 Stage 3 — Scale (blocked on Stage 0)
 
-* [ ] **Optional Redis Concurrency Mode:** Implement an optional Redis adapter for Socket.io to support horizontal scaling out-of-the-box.
+* [x] **Optional Redis Concurrency Mode:** Implement an optional Redis adapter for Socket.io to support horizontal scaling out-of-the-box.
   * **Configurable:** Driven by an environment variable (e.g., `REDIS_URL=redis://localhost:6379`). If absent, the server gracefully falls back to single-node (in-memory) mode.
   * **Server Startup:** The server will automatically detect the variable and attach the adapter during boot.
   * **Admin UI Indicator:** The Admin Dashboard will feature a clear visual indicator showing whether "Redis Concurrency Mode" is currently Active or Inactive.
   * ⚠️ **Prerequisite:** both realtime defects in Stage 0 (now fixed).
-  * **Also needs:** sticky sessions on the Ingress (k8s currently runs `replicas: 2` + HPA **without** them), and the shared rate-limit store from `CR#8`.
+  * ✅ **Done:** `REDIS_URL` attaches `@socket.io/redis-adapter` at boot and otherwise stays in-memory. Admin settings shows Active/Inactive from `GET /api/admin/runtime`. The Ingress uses cookie affinity and the Service uses `ClientIP` session affinity. The rate limiter shares counters through the same Redis client.
 
-* [ ] **Granular delta updates instead of full refetch** — `CR#22`
+* [x] **Granular delta updates instead of full refetch** — `CR#22`
   * **Where:** `client/src/components/common/SocketSync.tsx`
   * **Why:** every structural event — and every window focus — triggers `fetchCollectionsData` for the entire workspace tree. At 400k workspaces this dominates load far more than the adapter does. The socket URL is also derived via `api.defaults.baseURL?.replace('/api', '')`, which breaks on a versioned base URL such as `http://host/api/v1`.
-  * **Do:** apply the received document to the store directly; derive the socket URL from an explicit config value.
+  * ✅ **Done:** `SocketSync` patches the collection store from the event payload. The socket URL comes from `VITE_SOCKET_URL` or the page origin, not from stripping `/api` off the axios base URL.
 
 * [x] **Foreign-key indexes are documented but not enforced**
   * ✅ **Done:** `indexes` added to the Sequelize models under `server/src/db/sql-models/` for `workspaceId`, `collectionId`, `folderId` plus compound indexes on `order`/`parentFolderId` (and history `userId+workspaceId`, audit `targetId`).
 
-* [ ] **Lazy loading and cursor pagination** — from the *Scalability* section; not started. Endpoints still return whole trees.
+* [x] **Lazy loading and cursor pagination** — collection children load when a collection is expanded. `?limit=&cursor=` on collections, folders, and requests returns `{ items, nextCursor }`; request pages can ask for `summary=1` so bodies and auth stay on the server until a request is opened.
 
-* [ ] **RBAC and config caching** — from the *Scalability* section; not started. Membership and system config are re-read from the DB on every proxy call.
+* [x] **RBAC and config caching** — workspace role lookups and `SystemConfigRepository.getConfig` are cached in memory (15s / 30s) and dropped when a workspace or the config is updated.
 
 ### ⚪ Stage 4 — Quality, tests and cleanup
 
-* [ ] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
+* [x] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
   * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh` (crosses the first authenticated request); `ssrf.ts` unit tests; a two-client `socket-realtime` spec (`collection:updated`/`:deleted`); an `api-authorization` spec (viewer → 403 via the API, non-member → 403 read); `global-setup` enables registration; the obsolete socket-sync suppression assertion was replaced; the deprecated `globals.ts-jest` config was migrated to `transform`.
-  * **Do (remaining):**
-    1. Route every spec through `baseURL` (currently hardcoded `http://localhost:3005`) and add one Playwright project per backend — the DB matrix (smoke on all four, full suite nightly).
-    2. Cover the remaining `emitToWorkspace` call sites with two-client tests (folders, requests, environments, reorder — collections are covered).
-    3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
+  * ✅ **Done:** specs read `PLAYWRIGHT_BASE_URL` / `tests/helpers/adminAuth` `BASE`, and `playwright.config.ts` defines sqlite/postgres/mysql/mongodb projects (a leg is omitted without its connection string; CI throws if a leg is missing). Two-client coverage includes folder, request, and environment updates. API tests cover WSDL import, admin workspace import, and logout cookie clearing.
 
-* [ ] **Client dependency weight** — `CR#23`
-  * **Do:** `moment` **and** `date-fns` are both bundled; `lodash` is imported whole; `crypto-js` and `chai` ship to the browser for script support; Handlebars is fetched from jsDelivr at runtime (a third-party supply-chain and availability dependency). Consolidate on one date library, import lodash per-function, lazy-load the script-runtime libraries, and self-host Handlebars.
+* [x] **Client dependency weight** — `CR#23`
+  * ✅ **Done:** `date-fns` is removed. Script libraries load only inside the worker (`lodash/get`, `lodash/set`, `lodash/cloneDeep`, `lodash/merge`, `lodash/uniq`, plus moment, crypto-js, and chai). Handlebars is a client dependency compiled in the parent, not loaded from jsDelivr.
 
-* [ ] **UI consistency** — `CR#27`
-  * **Do:** `/admin` is wrapped in `AuthGuard` twice; `App.tsx` uses inline `style={{}}` where Tailwind is the convention; 401 and 403 are not handled distinctly. Unify.
+* [x] **UI consistency** — `CR#27`
+  * ✅ **Done:** `/admin` has a single `AuthGuard` (superadmin redirect lives on `AdminPage`). The loading state uses Tailwind. The axios interceptor dispatches `unauthorized` for 401 and `forbidden` for 403.
 
 * [x] **Dockerfile and k8s hygiene** — `CR#17`
   * ✅ **Done:** the Dockerfile uses `npm ci`, a multi-stage build-tool-free runtime image, and a non-root `USER`. (k8s sticky sessions for socket.io are tracked under the Redis task above.)
 
-* [ ] **Dead code and naming** — *P3* (`server/dist` untracking done)
+* [x] **Dead code and naming** — *P3* (`server/dist` untracking done)
   * ✅ **Done:** `server/dist` is no longer committed (gitignored).
-  * **Do:** `runner.ts` is nearly empty (folds into `CR#13`); `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`.
+  * ✅ **Done:** `runner.ts` returns a real run plan. `ensureDefaultAdmin` is removed. Share route comments no longer use `??` placeholders. Unused `multer`, `http-proxy-middleware`, `archiver`, and `postman-collection` are dropped. Electron `appId` is `com.reqspace.app`. The default SQL database name is `reqspace`.
 
-* [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
-  * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.
+* [x] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
+  * ✅ **Done:** the roadmap intro records the 2026-09-24 audit. Load testing, the collection runner, test snippets, and the visualizer are marked **Done** where the code already exists. Remaining numbered items stay open.
 
 ## 📝 License
 

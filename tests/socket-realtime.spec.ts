@@ -1,7 +1,7 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { io as ioClient } from '../client/node_modules/socket.io-client';
 
-const BASE = 'http://localhost:3005';
+const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005';
 
 /**
  * Regression coverage for CR#9: collection/folder/request `:updated` and
@@ -70,6 +70,65 @@ test.describe('Realtime broadcasts reach a second client (CR#9)', () => {
     await expect.poll(() => deleted.length, { timeout: 3000 }).toBeGreaterThan(0);
     expect(String(deleted[0])).toBe(String(col._id));
 
+    a.close();
+    b.close();
+  });
+
+  test('folder, request, and environment updates reach an observer', async ({ request }) => {
+    test.setTimeout(30000);
+    const owner = await registerAndGetWorkspace(request, 'tree');
+    const a = connectSocket(owner.cookie);
+    const b = connectSocket(owner.cookie);
+    await Promise.all([once(a, 'connect'), once(b, 'connect')]);
+    a.emit('join:workspace', owner.workspaceId);
+    b.emit('join:workspace', owner.workspaceId);
+    await new Promise((r) => setTimeout(r, 400));
+
+    const events: string[] = [];
+    for (const name of ['folder:updated', 'request:updated', 'environment:updated', 'workspace:reordered']) {
+      b.on(name, () => events.push(name));
+    }
+
+    const colRes = await request.post(`${BASE}/api/workspaces/${owner.workspaceId}/collections`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Tree' },
+    });
+    const col = await colRes.json();
+    const folderRes = await request.post(`${BASE}/api/collections/${col._id}/folders`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Folder' },
+    });
+    const folder = await folderRes.json();
+    await request.put(`${BASE}/api/folders/${folder._id}`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Folder Renamed' },
+    });
+    const reqRes = await request.post(`${BASE}/api/collections/${col._id}/requests`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Req', method: 'GET', url: 'https://example.com' },
+    });
+    const saved = await reqRes.json();
+    await request.put(`${BASE}/api/requests/${saved._id}`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Req Renamed' },
+    });
+    const envRes = await request.post(`${BASE}/api/workspaces/${owner.workspaceId}/environments`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Staging' },
+    });
+    const env = await envRes.json();
+    await request.put(`${BASE}/api/environments/${env._id}`, {
+      headers: { cookie: owner.cookie },
+      data: { name: 'Staging Renamed' },
+    });
+    await request.put(`${BASE}/api/reorder`, {
+      headers: { cookie: owner.cookie },
+      data: { items: [{ id: col._id, order: 1, type: 'collection' }] },
+    });
+
+    await expect.poll(() => events.filter((e) => e === 'folder:updated').length, { timeout: 4000 }).toBeGreaterThan(0);
+    await expect.poll(() => events.filter((e) => e === 'request:updated').length, { timeout: 4000 }).toBeGreaterThan(0);
+    await expect.poll(() => events.filter((e) => e === 'environment:updated').length, { timeout: 4000 }).toBeGreaterThan(0);
     a.close();
     b.close();
   });

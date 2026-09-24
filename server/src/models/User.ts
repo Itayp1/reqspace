@@ -96,29 +96,3 @@ UserSchema.index({ isSuperAdmin: 1 });
 
 export const User = mongoose.model<IUser>('User', UserSchema);
 
-export async function ensureDefaultAdmin() {
-  const adminCount = await User.countDocuments({ isSuperAdmin: true });
-  if (adminCount === 0) {
-    const bcrypt = await import('bcryptjs');
-    const passwordHash = await bcrypt.hash('admin', 10);
-    const adminUser = await User.create({
-      name: 'Admin',
-      email: 'admin', // The user requested 'admin' as username, but our schema uses 'email' field and validates lowercase etc. Let's just use 'admin'. Wait, we will need to bypass email validation if it expects '@' ? It just says lowercase and trim. We'll use 'admin'
-      passwordHash,
-      authType: 'password',
-      isSuperAdmin: true,
-      mustChangePassword: true
-    });
-
-    // Create a personal workspace for the admin
-    const { Workspace } = await import('./Workspace');
-    await Workspace.create({
-      name: `Admin's Workspace`,
-      description: 'Personal workspace',
-      ownerId: adminUser._id,
-      members: [{ userId: adminUser._id, role: 'owner', joinedAt: new Date() }],
-    });
-    
-    console.log('✅ Default superadmin created (admin / admin) - password change required');
-  }
-}

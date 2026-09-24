@@ -190,19 +190,8 @@ function App() {
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: '1rem', background: '#0f172a', color: '#94a3b8',
-        fontFamily: '-apple-system, sans-serif',
-      }}>
-        <div style={{
-          width: 40, height: 40,
-          border: '3px solid #1e293b',
-          borderTopColor: '#3b82f6',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-900 text-slate-400">
+        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-slate-800 border-t-blue-500" />
         <span>Loading...</span>
       </div>
     );
@@ -227,7 +216,7 @@ function App() {
             
             <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
               <Route index element={<AppScreen />} />
-              <Route path="admin" element={<AuthGuard requireSuperAdmin><AdminPage /></AuthGuard>} />
+              <Route path="admin" element={<AdminPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

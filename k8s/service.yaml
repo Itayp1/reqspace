@@ -3,6 +3,10 @@ kind: Service
 metadata:
   name: reqspace-web
 spec:
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
   selector:
     app: reqspace-web
   ports:

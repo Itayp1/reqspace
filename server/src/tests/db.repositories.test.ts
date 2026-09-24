@@ -388,8 +388,8 @@ describe('HistoryRepository (SQL)', () => {
   it('responseData round-trips', async () => {
     const h = await HistoryRepository.findByUser(userId, wsId);
     const entry = h.find(e => e.method === 'GET');
-    expect(entry!.responseData.statusCode).toBe(200);
-    expect(entry!.responseData.body).toBe('{"ok":true}');
+    expect(entry!.responseSnapshot.status).toBe(200);
+    expect(entry!.responseSnapshot.body).toBe('{"ok":true}');
   });
 
   it('limits history results', async () => {

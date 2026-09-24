@@ -1,6 +1,6 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 
-const BASE = 'http://localhost:3005';
+const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005';
 
 /**
  * Regression coverage for a set of broken-access-control (IDOR) bugs found in a

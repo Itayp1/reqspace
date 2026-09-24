@@ -75,7 +75,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           const preScripts = [];
           if (req.preRequestScript) preScripts.push(req.preRequestScript);
           if (preScripts.length > 0) {
-            const preRes = runPreRequestScript(preScripts.join('\n\n'), collectionId, iterationData, localVariables);
+            const preRes = await runPreRequestScript(preScripts.join('\n\n'), collectionId, iterationData, localVariables);
             if (preRes && preRes.nextRequest !== undefined) nextReqName = preRes.nextRequest;
           }
 
@@ -120,7 +120,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           if (req.testScript) testScripts.push(req.testScript);
           
           if (testScripts.length > 0) {
-            const scriptReturn = runTestScript(testScripts.join('\n\n'), {
+            const scriptReturn = await runTestScript(testScripts.join('\n\n'), {
               status: statusCode,
               statusText: res.data?.statusText || res.statusText,
               headers: res.data?.headers || res.headers || {},

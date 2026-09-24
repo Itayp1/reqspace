@@ -1,3 +1,4 @@
+import { BASE } from './helpers/adminAuth';
 import { test, expect } from '@playwright/test';
 
 // This file previously had 19 tests. 18 of them (numbered comments below preserved
@@ -50,7 +51,7 @@ test.describe('Socket Live Sync & Real-time Collaboration', () => {
       });
     });
 
-    await page.goto('http://localhost:3005/register');
+    await page.goto(`${BASE}/register`);
     await page.fill('input[type="text"]', `Sync User ${suffix}`);
     await page.fill('input[placeholder="admin or test@example.com"]', `sync${suffix}@test.com`);
     await page.fill('input[type="password"]', 'password123');
@@ -60,7 +61,7 @@ test.describe('Socket Live Sync & Real-time Collaboration', () => {
 
     // ── Second client in the same workspace: broadcasts are delivered ────────
     const page2 = await context.newPage();
-    await page2.goto('http://localhost:3005/');
+    await page2.goto(`${BASE}/`);
     await expect(page2.getByRole('button', { name: 'Collections' })).toBeVisible({ timeout: 10000 });
     await page2.waitForTimeout(1500); // let the second socket join the same room
 

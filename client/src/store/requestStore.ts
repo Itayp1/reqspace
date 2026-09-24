@@ -325,7 +325,25 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
-      partialize: (state) => ({ tabs: state.tabs, activeTabId: state.activeTabId }),
+      partialize: (state) => ({
+        activeTabId: state.activeTabId,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          auth: tab.auth ? {
+            ...tab.auth,
+            bearer: tab.auth.bearer ? { ...tab.auth.bearer, token: '' } : tab.auth.bearer,
+            basic: tab.auth.basic ? { ...tab.auth.basic, password: '' } : tab.auth.basic,
+            apikey: tab.auth.apikey ? { ...tab.auth.apikey, value: '' } : tab.auth.apikey,
+            oauth2: tab.auth.oauth2 ? { ...tab.auth.oauth2, token: '', clientSecret: '' } : tab.auth.oauth2,
+            ntlm: tab.auth.ntlm ? { ...tab.auth.ntlm, password: '' } : tab.auth.ntlm,
+          } : tab.auth,
+          headers: (tab.headers || []).map((h: any) => {
+            const key = String(h?.key || '').toLowerCase();
+            if (key === 'authorization' || key === 'cookie') return { ...h, value: '' };
+            return h;
+          }),
+        })),
+      }),
       onRehydrateStorage: () => (state) => {
         if (state && state.activeTabId && state.tabs) {
           state.activeRequest = state.tabs.find(t => t.tabId === state.activeTabId) || null;

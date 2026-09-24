@@ -1,6 +1,6 @@
-# ReqSpace Features Roadmap (100 Missing Features)
+# ReqSpace Features Roadmap
 
-This document outlines 100 features that exist in the official ReqSpace application but are currently missing from our clone. We will begin working through this list to reach feature parity.
+Audited against the client and server on 2026-09-24. Items marked **Done** already exist in this repo (sometimes partially). Unmarked items are still missing.
 
 ## Protocols & API Types
 1. **GraphQL Support** - Full support including schema introspection and query builder.
@@ -23,14 +23,14 @@ This document outlines 100 features that exist in the official ReqSpace applicat
 16. **ASAPS Auth** - Advanced security authentication.
 
 ## Automation & Testing
-17. **CLI Integration (Newman)** - Command-line runner for collections.
-18. **Performance/Load Testing** - Simulating multiple virtual users.
+17. **CLI Integration (Newman)** - Command-line runner for collections. **Done (partial):** `POST /api/runner/run` returns an RBAC-checked run plan; the in-app runner is `CollectionRunnerModal`.
+18. **Performance/Load Testing** - Simulating multiple virtual users. **Done:** `LoadTestModal` drives `/api/proxy`.
 19. **CI/CD Integration** - GitHub Actions, GitLab, Jenkins native support.
 20. **Scheduled Monitors** - Running collections on a cron schedule in the cloud.
 21. **Webhooks** - Triggering collection runs via external URLs.
 22. **Data-Driven Testing** - Importing CSV/JSON files in the Collection Runner.
-23. **Advanced Test Snippets** - Built-in Chai BDD assertions in the sidebar.
-24. **Visualizer (`pm.visualizer`)** - Rendering HTML/Handlebars templates from response data.
+23. **Advanced Test Snippets** - Built-in Chai BDD assertions in the sidebar. **Done:** `ScriptEditor` snippets; scripts run in the web worker sandbox.
+24. **Visualizer (`pm.visualizer`)** - Rendering HTML/Handlebars templates from response data. **Done:** self-hosted Handlebars, sandboxed iframe.
 25. **Test Reporting** - Exporting results to HTML, JUnit, or JSON.
 
 ## Collaboration & Workspaces

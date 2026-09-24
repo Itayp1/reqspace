@@ -13,7 +13,7 @@
 
 import { test, expect } from '@playwright/test';
 
-const BASE = 'http://localhost:3005';
+const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005';
 
 test.describe('Environment duplicate', () => {
   test('POST /environments/:id/duplicate creates a copy with the same variables', async ({ request }) => {

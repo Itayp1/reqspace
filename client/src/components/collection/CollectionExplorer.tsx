@@ -598,7 +598,7 @@ const CollectionNode = ({
 export const CollectionExplorer: React.FC = () => {
   const {
     collections, folders, requests,
-    createCollection, openCollectionIds, toggleCollectionOpen,
+    createCollection, openCollectionIds, toggleCollectionOpen, ensureCollectionLoaded,
     deleteCollection, deleteFolder, deleteRequest,
     duplicateCollection, duplicateFolder,
   } = useCollectionStore();
@@ -976,7 +976,7 @@ export const CollectionExplorer: React.FC = () => {
                 key={collection._id}
                 collection={collection}
                 isOpen={openCollectionIds.has(collection._id) || !!filterLower}
-                onToggle={() => toggleCollectionOpen(collection._id)}
+                onToggle={() => { toggleCollectionOpen(collection._id); ensureCollectionLoaded(collection._id); }}
                 onPrompt={openPrompt}
                 onDelete={handleCollectionDelete}
                 onDuplicate={handleDuplicate}

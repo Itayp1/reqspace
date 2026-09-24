@@ -1,5 +1,10 @@
 import { assert, expect } from 'chai';
-import _ from 'lodash';
+import cloneDeep from 'lodash/cloneDeep';
+import get from 'lodash/get';
+import set from 'lodash/set';
+import merge from 'lodash/merge';
+import uniq from 'lodash/uniq';
+const _ = { cloneDeep, get, set, merge, uniq };
 import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
@@ -11,23 +16,35 @@ self.onmessage = async (e) => {
   let testResults: Array<{ name: string; passed: boolean; error?: string }> = [];
 
   const pm = {
+    visualizer: {
+      set: (template: string, data?: any) => postMessage({ type: 'visualizer', template, data, executionId }),
+    },
     environment: {
       get: (key: string) => context.environment?.[key],
       set: (key: string, value: any) => {
-        postMessage({ type: 'mutation', scope: 'environment', action: 'set', key, value });
+        context.environment = { ...(context.environment || {}), [key]: value };
+        postMessage({ type: 'mutation', scope: 'environment', action: 'set', key, value, executionId });
       }
     },
     globals: {
       get: (key: string) => context.globals?.[key],
       set: (key: string, value: any) => {
-        postMessage({ type: 'mutation', scope: 'globals', action: 'set', key, value });
+        context.globals = { ...(context.globals || {}), [key]: value };
+        postMessage({ type: 'mutation', scope: 'globals', action: 'set', key, value, executionId });
       }
     },
     variables: {
       get: (key: string) => context.variables?.[key]
     },
     request: context.request,
-    response: context.response,
+    response: context.response ? {
+      code: context.response.status,
+      status: context.response.statusText,
+      responseTime: context.response.time,
+      headers: context.response.headers,
+      text: () => context.response.body,
+      json: () => JSON.parse(context.response.body),
+    } : undefined,
     test: (name: string, fn: () => void) => {
       try {
         fn();
@@ -56,9 +73,9 @@ self.onmessage = async (e) => {
   const sandboxScope = {
     pm,
     console: {
-      log: (...args: any[]) => postMessage({ type: 'log', level: 'info', args }),
-      warn: (...args: any[]) => postMessage({ type: 'log', level: 'warn', args }),
-      error: (...args: any[]) => postMessage({ type: 'log', level: 'error', args }),
+      log: (...args: any[]) => postMessage({ type: 'log', level: 'info', args, executionId }),
+      warn: (...args: any[]) => postMessage({ type: 'log', level: 'warn', args, executionId }),
+      error: (...args: any[]) => postMessage({ type: 'log', level: 'error', args, executionId }),
     },
     require: (moduleName: string) => {
       if (moduleName === 'lodash') return _;

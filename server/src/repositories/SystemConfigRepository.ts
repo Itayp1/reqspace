@@ -1,4 +1,5 @@
 import { isMongo } from '../db/connect';
+import { cacheDel, cacheGet, cacheSet, CONFIG_CACHE_KEY, CONFIG_TTL } from '../utils/cache';
 import { SystemConfig, ISystemConfig } from '../models/SystemConfig';
 import { SqlSystemConfig } from '../db/sql-models';
 
@@ -92,6 +93,14 @@ const DEFAULT_CONFIG = {
 
 export const SystemConfigRepository = {
   async getConfig(): Promise<ISystemConfigRecord | null> {
+    const cached = cacheGet<ISystemConfigRecord>(CONFIG_CACHE_KEY);
+    if (cached) return cached;
+    const loaded = await this.loadConfig();
+    if (loaded) cacheSet(CONFIG_CACHE_KEY, loaded, CONFIG_TTL);
+    return loaded;
+  },
+
+  async loadConfig(): Promise<ISystemConfigRecord | null> {
     if (isMongo()) {
       const c = await SystemConfig.findOne().lean();
       return c ? mongoToRecord(c) : null;
@@ -122,6 +131,7 @@ export const SystemConfigRepository = {
   },
 
   async updateConfig(data: any): Promise<ISystemConfigRecord | null> {
+    cacheDel(CONFIG_CACHE_KEY);
     // Merge rather than replace: a caller that PUTs only { auth: { mode: 'both' } }
     // must not silently wipe out unrelated fields like allowSelfRegistration.
     const current = await this.getConfig();
@@ -140,6 +150,7 @@ export const SystemConfigRepository = {
 
     if (isMongo()) {
       const c = await SystemConfig.findOneAndUpdate({}, { $set: merged }, { new: true, upsert: true }).lean();
+      cacheDel(CONFIG_CACHE_KEY);
       return c ? mongoToRecord(c) : null;
     }
 
@@ -151,6 +162,7 @@ export const SystemConfigRepository = {
     existing.proxy = JSON.stringify(merged.proxy);
 
     await existing.save();
+    cacheDel(CONFIG_CACHE_KEY);
     return this.getConfig();
   },
 };

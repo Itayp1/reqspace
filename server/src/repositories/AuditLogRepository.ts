@@ -43,6 +43,18 @@ function mongoToRecord(a: any): IAuditLogRecord {
   };
 }
 
+export interface IAuditLogQuery {
+  actionContains?: string;
+  userId?: string;
+  createdFrom?: Date;
+  createdTo?: Date;
+}
+
+function isStructured(filter: Record<string, any>): filter is IAuditLogQuery {
+  return 'actionContains' in filter || 'createdFrom' in filter || 'createdTo' in filter
+    || (filter.userId !== undefined && !filter.$regex && !filter.action);
+}
+
 export const AuditLogRepository = {
   async log(data: Omit<IAuditLogRecord, '_id' | 'id' | 'createdAt'>): Promise<void> {
     if (isMongo()) {
@@ -63,20 +75,54 @@ export const AuditLogRepository = {
     return (await SqlAuditLog.findAll({ where: { userId }, order: [['createdAt', 'DESC']], limit })).map(sqlToRecord);
   },
 
-  async list(filter: Record<string, any> = {}, limit = 100, skip = 0): Promise<IAuditLogRecord[]> {
+  async list(filter: IAuditLogQuery | Record<string, any> = {}, limit = 100, skip = 0): Promise<IAuditLogRecord[]> {
     if (isMongo()) {
-      return (await AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean()).map(mongoToRecord);
+      return (await AuditLog.find(mongoFilter(filter)).sort({ createdAt: -1 }).skip(skip).limit(limit).lean()).map(mongoToRecord);
     }
-    return (await SqlAuditLog.findAll({ where: filter, order: [['createdAt', 'DESC']], limit, offset: skip })).map(sqlToRecord);
+    return (await SqlAuditLog.findAll({ where: sqlFilter(filter), order: [['createdAt', 'DESC']], limit, offset: skip })).map(sqlToRecord);
   },
 
-  async count(filter: Record<string, any> = {}): Promise<number> {
+  async count(filter: IAuditLogQuery | Record<string, any> = {}): Promise<number> {
     if (isMongo()) {
-      return AuditLog.countDocuments(filter);
+      return AuditLog.countDocuments(mongoFilter(filter));
     }
-    return SqlAuditLog.count({ where: filter });
+    return SqlAuditLog.count({ where: sqlFilter(filter) });
   },
 };
+
+function mongoFilter(filter: IAuditLogQuery | Record<string, any>): Record<string, unknown> {
+  if (!isStructured(filter)) return filter;
+  const q: Record<string, unknown> = {};
+  if (filter.userId) q.userId = filter.userId;
+  if (filter.actionContains) q.action = { $regex: filter.actionContains, $options: 'i' };
+  if (filter.createdFrom || filter.createdTo) {
+    const range: Record<string, Date> = {};
+    if (filter.createdFrom) range.$gte = filter.createdFrom;
+    if (filter.createdTo) range.$lte = filter.createdTo;
+    q.createdAt = range;
+  }
+  return q;
+}
+
+function sqlFilter(filter: IAuditLogQuery | Record<string, any>): Record<string, unknown> {
+  const { Op } = require('sequelize');
+  if (!isStructured(filter)) {
+    const where: Record<string, unknown> = {};
+    if (filter.userId) where.userId = String(filter.userId);
+    if (typeof filter.action === 'string') where.action = filter.action;
+    return where;
+  }
+  const where: Record<string, unknown> = {};
+  if (filter.userId) where.userId = filter.userId;
+  if (filter.actionContains) where.action = { [Op.like]: `%${filter.actionContains}%` };
+  if (filter.createdFrom || filter.createdTo) {
+    where.createdAt = {
+      ...(filter.createdFrom ? { [Op.gte]: filter.createdFrom } : {}),
+      ...(filter.createdTo ? { [Op.lte]: filter.createdTo } : {}),
+    };
+  }
+  return where;
+}
 
 export async function logAudit(
   userId: string,

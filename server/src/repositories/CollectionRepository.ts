@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Collection } from '../models/Collection';
 import { SqlCollection } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { sliceCursor } from '../utils/cursor';
 
 export interface ICollectionRecord {
   _id: string;
@@ -58,6 +59,20 @@ export const CollectionRepository = {
     }
     const c = await SqlCollection.findByPk(id);
     return c ? sqlToRecord(c) : null;
+  },
+
+  async findByWorkspaceAndName(workspaceId: string, name: string): Promise<ICollectionRecord | null> {
+    if (isMongo()) {
+      const c = await Collection.findOne({ workspaceId, name }).lean();
+      return c ? mongoToRecord(c) : null;
+    }
+    const c = await SqlCollection.findOne({ where: { workspaceId, name } });
+    return c ? sqlToRecord(c) : null;
+  },
+
+  async findPage(workspaceId: string, opts: { limit: number; cursor?: string }): Promise<{ items: ICollectionRecord[]; nextCursor: string | null }> {
+    const all = await this.findByWorkspace(workspaceId);
+    return sliceCursor(all, opts.limit, opts.cursor);
   },
 
   async findByWorkspace(workspaceId: string): Promise<ICollectionRecord[]> {

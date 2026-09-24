@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Workspace } from '../models/Workspace';
 import { SqlWorkspace } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { cacheDel } from '../utils/cache';
 
 export interface IWorkspaceMemberRecord {
   userId: string;
@@ -111,6 +112,7 @@ export const WorkspaceRepository = {
   },
 
   async update(id: string, data: Partial<{ name: string; description: string; isPublic: boolean; members: IWorkspaceMemberRecord[] }>): Promise<IWorkspaceRecord | null> {
+    cacheDel('role:');
     if (isMongo()) {
       const w = await Workspace.findByIdAndUpdate(id, data, { new: true }).lean();
       return w ? mongoToRecord(w) : null;
