@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireWorkspaceRole } from '../middleware/rbac';
 import { History } from '../models/History';
 import { User } from '../models/User';
 import { SystemConfig } from '../models/SystemConfig';
@@ -11,7 +12,9 @@ const router = Router();
 router.use(authenticate);
 
 // ── GET /api/workspaces/:workspaceId/history ────────────────────────────────
-router.get('/workspaces/:workspaceId/history', async (req: AuthRequest, res: Response) => {
+// Require workspace membership — previously this filtered on userId only, with
+// no membership check (CR#11).
+router.get('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   const { method, status, page = '1', limit = '50' } = req.query as Record<string, string>;
   const query: Record<string, unknown> = {
     userId: req.user!._id,
@@ -62,9 +65,14 @@ router.delete('/history', async (req: AuthRequest, res: Response) => {
 });
 
 // ── DELETE /api/workspaces/:workspaceId/history – Clear all ─────────────────
-router.delete('/workspaces/:workspaceId/history', async (req: AuthRequest, res: Response) => {
+router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
+  // Only clear this user's history in this workspace, and decrement the byte
+  // counter by what was actually removed — zeroing it wiped the accounting for
+  // the user's history in *other* workspaces too (CR#11).
+  const removed = await History.find({ userId: req.user!._id, workspaceId: req.params.workspaceId }).lean();
+  const freed = removed.reduce((sum, h: any) => sum + Buffer.byteLength(h.responseSnapshot?.body ?? '', 'utf8'), 0);
   await History.deleteMany({ userId: req.user!._id, workspaceId: req.params.workspaceId });
-  await User.findByIdAndUpdate(req.user!._id, { historyUsedBytes: 0 });
+  await User.findByIdAndUpdate(req.user!._id, { $inc: { historyUsedBytes: -freed } });
   return res.json({ message: 'History cleared' });
 });
 

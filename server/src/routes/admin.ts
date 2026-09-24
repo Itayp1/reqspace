@@ -309,10 +309,10 @@ router.post('/import/:workspaceId', async (req: AuthRequest, res: Response) => {
     if (dump.folders) await Folder.insertMany(dump.folders.map((f: any) => ({ ...f, workspaceId, _id: undefined })));
     if (dump.requests) await ApiRequest.insertMany(dump.requests.map((r: any) => ({ ...r, workspaceId, _id: undefined })));
     if (dump.environments) await Environment.insertMany(dump.environments.map((e: any) => ({ ...e, workspaceId, _id: undefined })));
-    
-    if (dump.config) {
-      await SystemConfigRepository.updateConfig(dump.config);
-    }
+
+    // Deliberately ignore dump.config: importing a *workspace* must never
+    // rewrite system-wide settings (SMTP creds, OAuth secrets, proxy) — that
+    // let a crafted export hijack the whole instance (CR#14).
 
     await logAudit(req.user!._id as any, 'admin.import', { ip: req.ip, targetId: workspaceId as any });
     return res.json({ message: 'Import successful' });
