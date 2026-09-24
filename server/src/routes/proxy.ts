@@ -16,6 +16,7 @@ const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIO
 // ── POST /api/proxy ─────────────────────────────────────────────────────────
 import { validateBody } from '../validation/validate';
 import { proxySchema } from '../validation/schemas';
+import { authorizationForAuth, digestAuthorization, ntlmType1, ntlmType3, parseDigestChallenge } from '../features/schemes';
 
 router.post('/', validateBody(proxySchema), async (req: AuthRequest, res: Response) => {
   const { method, url, headers = {}, body, workspaceId, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
@@ -44,9 +45,23 @@ router.post('/', validateBody(proxySchema), async (req: AuthRequest, res: Respon
     const timeoutMs = clampTimeout(timeout);
     timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+    const outboundHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+      if (key.toLowerCase().startsWith('x-reqspace-ntlm-')) continue;
+      outboundHeaders[key] = value;
+    }
+    const bodyText = body == null || body?._isFormData ? undefined : (typeof body === 'string' ? body : JSON.stringify(body));
+    const schemeHeaders = authorizationForAuth(req.body.auth, method, url, bodyText);
+    for (const [key, value] of Object.entries(schemeHeaders)) {
+      if (!outboundHeaders[key] && !outboundHeaders[key.toLowerCase()]) outboundHeaders[key] = value;
+    }
+    if (req.body.auth?.type === 'ntlm' && req.body.auth.ntlm?.username && !outboundHeaders.authorization && !outboundHeaders.Authorization) {
+      outboundHeaders.Authorization = `NTLM ${ntlmType1(req.body.auth.ntlm.domain, req.body.auth.ntlm.workstation)}`;
+    }
+
     const fetchOptions: any = {
       method: method.toUpperCase(),
-      headers: new Headers(headers as any),
+      headers: new Headers(outboundHeaders),
       signal: controller.signal,
       redirect: followRedirects ? 'follow' : 'manual',
     };
@@ -123,7 +138,46 @@ router.post('/', validateBody(proxySchema), async (req: AuthRequest, res: Respon
     }
 
     
-    const response = await undiciFetch(url, fetchOptions);
+    let response = await undiciFetch(url, fetchOptions);
+    const auth = req.body.auth;
+    const wwwAuth = response.headers.get('www-authenticate') || '';
+    if (response.status === 401 && auth?.type === 'digest' && auth.digest?.username && wwwAuth.toLowerCase().includes('digest')) {
+      await response.body?.cancel?.();
+      const challenge = parseDigestChallenge(wwwAuth);
+      if (challenge) {
+        const uri = `${parsedUrl.pathname}${parsedUrl.search}`;
+        outboundHeaders.Authorization = digestAuthorization({
+          username: auth.digest.username,
+          password: auth.digest.password || '',
+          method,
+          uri,
+          ...challenge,
+        });
+        fetchOptions.headers = new Headers(outboundHeaders);
+        response = await undiciFetch(url, fetchOptions);
+      }
+    } else if (response.status === 401 && auth?.type === 'ntlm' && auth.ntlm?.username && /NTLM\s+[A-Za-z0-9+/=]+/i.test(wwwAuth)) {
+      await response.body?.cancel?.();
+      const type2 = wwwAuth.match(/NTLM\s+([A-Za-z0-9+/=]+)/i)?.[1];
+      if (type2) {
+        outboundHeaders.Authorization = `NTLM ${ntlmType3({
+          username: auth.ntlm.username,
+          password: auth.ntlm.password || '',
+          domain: auth.ntlm.domain,
+          workstation: auth.ntlm.workstation,
+          type2,
+        })}`;
+        fetchOptions.headers = new Headers(outboundHeaders);
+        response = await undiciFetch(url, fetchOptions);
+      }
+    }
+    const retries = Math.min(3, Math.max(0, Number(req.body.retries) || 0));
+    let attempt = 0;
+    while (attempt < retries && (response.status >= 500 || response.status === 429)) {
+      attempt += 1;
+      await response.body?.cancel?.();
+      response = await undiciFetch(url, fetchOptions);
+    }
     if (timeoutId) clearTimeout(timeoutId);
 
     const responseTime = Date.now() - startTime;

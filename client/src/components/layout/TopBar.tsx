@@ -19,8 +19,11 @@ export default function TopBar() {
   const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('reqspace_theme') as 'dark' | 'light') || 'dark';
+    const saved = localStorage.getItem('reqspace_theme') as 'dark' | 'light' | null;
+    if (saved) return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
+  const [zoom, setZoom] = useState(100);
   const [isQuickLookOpen, setIsQuickLookOpen] = useState(false);
   const eyeRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +47,10 @@ export default function TopBar() {
     }
     localStorage.setItem('reqspace_theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${zoom}%`;
+  }, [zoom]);
 
   const toggleTheme = () => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
@@ -100,6 +107,19 @@ export default function TopBar() {
           title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
         >
           {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+        </button>
+        <div className="flex items-center gap-1 text-xs text-text-muted">
+          <button type="button" className="px-1" onClick={() => setZoom((value) => Math.max(80, value - 10))} title="Zoom out">-</button>
+          <span>{zoom}%</span>
+          <button type="button" className="px-1" onClick={() => setZoom((value) => Math.min(160, value + 10))} title="Zoom in">+</button>
+        </div>
+        <button
+          type="button"
+          className="px-2 py-1 text-xs text-text-muted hover:text-text"
+          title="Restore closed tab"
+          onClick={() => useRequestStore.getState().restoreClosedTab()}
+        >
+          Reopen
         </button>
 
         {/* Cookies Manager Button */}

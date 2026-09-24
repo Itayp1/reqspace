@@ -26,6 +26,7 @@ import shareRouter from './routes/share';
 import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
 import runnerRouter from './routes/runner';
+import platformRouter from './routes/platform';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
@@ -171,7 +172,9 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-// API Routes
+// API Routes. Platform is mounted first so public mocks and webhooks are not
+// rejected by the authenticated routers' blanket middleware.
+app.use('/api', platformRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);
 app.use('/api', collectionsRouter);

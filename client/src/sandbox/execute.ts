@@ -1,3 +1,5 @@
+import api from '../api/axios';
+
 export interface ScriptOutcome {
   testResults: Array<{ name: string; passed: boolean; error?: string }>;
   nextRequest?: string | null;
@@ -31,6 +33,14 @@ export function executeInSandbox(code: string, context: Record<string, unknown>)
     const onMessage = (event: MessageEvent) => {
       const msg = event.data;
       if (!msg || msg.executionId !== executionId) return;
+      if (msg.type === 'sendRequest') {
+        const target = typeof msg.req === 'string' ? { url: msg.req, method: 'GET' } : (msg.req || {});
+        api.post('/proxy', { method: target.method || 'GET', url: target.url, headers: target.headers || {}, body: target.body }).then((res) => {
+          w.postMessage({ type: 'sendRequestResult', executionId, requestId: msg.requestId, response: { code: res.data.status, json: () => JSON.parse(res.data.body), text: () => res.data.body } });
+        }).catch((err) => {
+          w.postMessage({ type: 'sendRequestResult', executionId, requestId: msg.requestId, error: err?.message || 'sendRequest failed' });
+        });
+      }
       if (msg.type === 'log') outcome.logs.push({ level: msg.level, args: msg.args });
       if (msg.type === 'mutation') outcome.mutations.push({ scope: msg.scope, key: msg.key, value: msg.value });
       if (msg.type === 'visualizer') outcome.visualizerData = { template: msg.template, data: msg.data };

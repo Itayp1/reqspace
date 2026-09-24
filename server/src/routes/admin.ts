@@ -10,6 +10,8 @@ import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { getRedisStatus } from '../redis';
 import bcrypt from 'bcryptjs';
+import { validateBody } from '../validation/validate';
+import { adminConfigSchema } from '../validation/schemas';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -192,7 +194,7 @@ router.get('/config', async (_req: AuthRequest, res: Response) => {
 });
 
 // ── PUT /api/admin/config ───────────────────────────────────────────────────
-router.put('/config', async (req: AuthRequest, res: Response) => {
+router.put('/config', validateBody(adminConfigSchema), async (req: AuthRequest, res: Response) => {
   const update = JSON.parse(JSON.stringify(req.body));
   // The client only ever sees the masked placeholder for secret fields (see
   // GET /config above); if it comes back unchanged, drop it from the update

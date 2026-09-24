@@ -169,13 +169,6 @@ export function UrlBar() {
         reqHeaders[auth.apikey.key] = auth.apikey.value || '';
       } else if (auth?.type === 'oauth2' && auth.oauth2?.token) {
         reqHeaders['Authorization'] = `Bearer ${auth.oauth2.token}`;
-      } else if (auth?.type === 'ntlm') {
-        // NTLM is complex, for now we will pass it to proxy so the proxy can handle it if it supports it.
-        // We set a custom header that the proxy can interpret.
-        reqHeaders['x-reqspace-ntlm-username'] = auth.ntlm?.username || '';
-        reqHeaders['x-reqspace-ntlm-password'] = auth.ntlm?.password || '';
-        reqHeaders['x-reqspace-ntlm-domain'] = auth.ntlm?.domain || '';
-        reqHeaders['x-reqspace-ntlm-workstation'] = auth.ntlm?.workstation || '';
       }
 
       // Apply request settings
@@ -259,6 +252,7 @@ export function UrlBar() {
         localProxy: getLocalProxyConfig(),
         saveHistory: useSettingsStore.getState().settings.saveHistory,
         clientCertPath: useSettingsStore.getState().settings.clientCertPath,
+        auth,
       }, { signal: abortController.signal });
       const endTime = Date.now();
       const responseTime = res.data?.time || (endTime - startTime);

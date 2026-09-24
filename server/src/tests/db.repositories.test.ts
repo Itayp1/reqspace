@@ -419,6 +419,7 @@ describe('AuditLogRepository (SQL)', () => {
       details: { foo: 'bar' },
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     await AuditLogRepository.log({
       userId,
       action: 'test.action2',

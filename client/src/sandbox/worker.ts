@@ -10,7 +10,15 @@ import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
 
 // Setup environment for the script
+const pendingRequests = new Map<string, (err: any, res: any) => void>();
+
 self.onmessage = async (e) => {
+  if (e.data?.type === 'sendRequestResult') {
+    const callback = pendingRequests.get(e.data.requestId);
+    pendingRequests.delete(e.data.requestId);
+    callback?.(e.data.error ? new Error(e.data.error) : null, e.data.response || null);
+    return;
+  }
   const { code, context, executionId } = e.data;
   
   let testResults: Array<{ name: string; passed: boolean; error?: string }> = [];
@@ -55,17 +63,9 @@ self.onmessage = async (e) => {
     },
     expect: expect,
     sendRequest: (req: any, callback: (err: any, res: any) => void) => {
-       // Since it's a web worker, we could use fetch directly here if we want
-       // but typically we'd proxy it back to the main thread to use the proxy server.
-       // For simplicity in this v1, we will just use fetch in the worker directly if it's external,
-       // but wait, CORS! We must route through main thread -> proxy!
-       
-       // Because of async nature, we'd need to pause script execution or use Promises.
-       // ReqSpace's pm.sendRequest is callback-based. 
-       postMessage({ type: 'sendRequest', req, executionId });
-       // We can't synchronously block a callback in a web worker easily without SharedArrayBuffer.
-       // We'll leave a stub for now.
-       callback(new Error('pm.sendRequest is currently experimental/stubbed in Web Worker'), null);
+       const requestId = `${executionId}-${Math.random().toString(36).slice(2)}`;
+       pendingRequests.set(requestId, callback);
+       postMessage({ type: 'sendRequest', req, executionId, requestId });
     }
   };
 
@@ -104,8 +104,16 @@ self.onmessage = async (e) => {
     
     // Run the code
     fn(...values);
-    
-    postMessage({ type: 'done', testResults, executionId });
+
+    const finish = () => {
+      const waiting = [...pendingRequests.keys()].some((id) => id.startsWith(`${executionId}-`));
+      if (waiting) {
+        setTimeout(finish, 40);
+        return;
+      }
+      postMessage({ type: 'done', testResults, executionId });
+    };
+    finish();
   } catch (err: any) {
     postMessage({ type: 'error', error: err.message, executionId });
   }
