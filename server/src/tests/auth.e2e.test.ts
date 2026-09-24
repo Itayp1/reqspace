@@ -44,7 +44,7 @@ describe('E2E Auth - Registration and Login', () => {
       body: JSON.stringify({ name: 'Test User', email, password })
     });
 
-    const regData = await regRes.json() as any;
+    const regData = await regRes.json() as { user: { email: string } };
     expect(regRes.status).toBe(201);
     expect(regData.user.email).toBe(email);
   });
@@ -56,7 +56,7 @@ describe('E2E Auth - Registration and Login', () => {
       body: JSON.stringify({ email, password })
     });
 
-    const loginData = await loginRes.json() as any;
+    const loginData = await loginRes.json() as { user: { email: string } };
     expect(loginRes.status).toBe(200);
     expect(loginData.user.email).toBe(email);
     // Session lives in the httpOnly cookie, not in the response body (a JWT

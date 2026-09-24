@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { History } from '../models/History';
 import { SqlHistory } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { WhereOptions } from 'sequelize';
 
 export interface IHistorySnapshotRequest {
   method?: string;
@@ -168,13 +169,13 @@ export const HistoryRepository = {
       ]);
       return { items: rows.map(mongoToRecord), total };
     }
-    const where: Record<string, unknown> = { userId: opts.userId };
+    const where: WhereOptions = { userId: opts.userId };
     if (opts.workspaceId) where.workspaceId = opts.workspaceId;
     if (opts.method) where.method = opts.method.toUpperCase();
     if (opts.status != null) where.statusCode = opts.status;
-    const total = await SqlHistory.count({ where: where as any });
+    const total = await SqlHistory.count({ where });
     const rows = await SqlHistory.findAll({
-      where: where as any,
+      where,
       order: [['createdAt', 'DESC']],
       limit: opts.limit,
       offset: opts.skip,
@@ -206,9 +207,9 @@ export const HistoryRepository = {
       if (workspaceId) filter.workspaceId = workspaceId;
       return (await History.find(filter).lean()).map(mongoToRecord);
     }
-    const where: Record<string, unknown> = { userId };
+    const where: WhereOptions = { userId };
     if (workspaceId) where.workspaceId = workspaceId;
-    return (await SqlHistory.findAll({ where: where as any })).map(sqlToRecord);
+    return (await SqlHistory.findAll({ where })).map(sqlToRecord);
   },
 
   async delete(id: string): Promise<void> {
@@ -230,8 +231,8 @@ export const HistoryRepository = {
       await History.deleteMany(filter);
       return;
     }
-    const where: Record<string, unknown> = { userId };
+    const where: WhereOptions = { userId };
     if (workspaceId) where.workspaceId = workspaceId;
-    await SqlHistory.destroy({ where: where as any });
+    await SqlHistory.destroy({ where });
   },
 };

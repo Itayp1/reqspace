@@ -6,9 +6,17 @@ import { RequestRepository } from '../repositories/RequestRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { getUserWorkspaceRole, requireWorkspaceRole } from '../middleware/rbac';
 import { emitToWorkspace } from '../socketUtils';
+import { validateBody, collectionImportBody, curlImportBody, rawImportBody, wsdlImportBody } from '../validation/body';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
 import { v4 as uuidv4 } from 'uuid';
+
+interface SoapServiceMap {
+  ports?: Record<string, {
+    location?: string;
+    binding?: { methods?: Record<string, { soapAction?: string }> };
+  }>;
+}
 
 const router = Router();
 router.use(authenticate);
@@ -108,7 +116,7 @@ router.get('/collections/:id/export', async (req: AuthRequest, res: Response) =>
   return res.json(built.doc);
 });
 
-router.post('/collections/import', async (req: AuthRequest, res: Response) => {
+router.post('/collections/import', validateBody(collectionImportBody), async (req: AuthRequest, res: Response) => {
   const workspaceId = req.body?.workspaceId as string | undefined;
   const doc = req.body?.collection ?? req.body;
   if (!workspaceId) return res.status(400).json({ message: 'workspaceId required' });
@@ -175,7 +183,7 @@ router.post('/collections/import', async (req: AuthRequest, res: Response) => {
   return res.status(201).json({ collectionId: collection.id, name: collection.name });
 });
 
-router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => {
+router.post('/requests/import/curl', validateBody(curlImportBody), async (req: AuthRequest, res: Response) => {
   const { curl, workspaceId } = req.body;
   if (!curl) return res.status(400).json({ message: 'curl string required' });
 
@@ -225,7 +233,7 @@ router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => 
   });
 });
 
-router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response) => {
+router.post('/requests/import/raw-http', validateBody(rawImportBody), async (req: AuthRequest, res: Response) => {
   const { raw, workspaceId } = req.body;
   if (!raw) return res.status(400).json({ message: 'raw HTTP string required' });
 
@@ -275,7 +283,7 @@ router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response)
 });
 
 // ──────── POST /api/import/wsdl ────────────────────────────────────────────────────
-router.post('/import/wsdl', requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
+router.post('/import/wsdl', requireWorkspaceRole('editor'), validateBody(wsdlImportBody), async (req: AuthRequest, res: Response) => {
   const { url, workspaceId } = req.body;
   if (!url || !workspaceId) {
     return res.status(400).json({ message: 'url and workspaceId are required' });
@@ -294,7 +302,7 @@ router.post('/import/wsdl', requireWorkspaceRole('editor'), async (req: AuthRequ
       createdBy: String(req.user!._id),
     });
 
-    const services = (client as any).wsdl.services;
+    const services = (client as unknown as { wsdl?: { services?: Record<string, SoapServiceMap> } }).wsdl?.services;
 
     for (const [serviceName, service] of Object.entries(description)) {
       // Create Folder for Service
@@ -314,7 +322,7 @@ router.post('/import/wsdl', requireWorkspaceRole('editor'), async (req: AuthRequ
         const location = services?.[serviceName]?.ports?.[portName]?.location || url;
 
         for (const [operationName, operation] of Object.entries(port as Record<string, any>)) {
-          const methods = (client as any).wsdl.services?.[serviceName]?.ports?.[portName]?.binding?.methods || {};
+          const methods = services?.[serviceName]?.ports?.[portName]?.binding?.methods || {};
           const soapAction = methods[operationName]?.soapAction || '';
 
           // Generate dummy XML body

@@ -4,6 +4,8 @@ import { saveHistoryEntry } from './history';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { createSafeLookup } from '../utils/ssrf';
 import { rateLimit } from '../middleware/rateLimit';
+import { validateBody, proxyBody } from '../validation/body';
+import { HttpError, errorCause } from '../utils/errors';
 
 const router = Router();
 router.use(authenticate);
@@ -25,9 +27,7 @@ async function readCappedBody(body: AsyncIterable<Uint8Array> | null, maxBytes: 
     const buf = Buffer.from(chunk);
     total += buf.length;
     if (total > maxBytes) {
-      const err = new Error('Proxy response exceeded the size limit');
-      (err as any).status = 413;
-      throw err;
+      throw new HttpError(413, 'Proxy response exceeded the size limit');
     }
     chunks.push(buf);
   }
@@ -36,8 +36,15 @@ async function readCappedBody(body: AsyncIterable<Uint8Array> | null, maxBytes: 
 
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
+type FormItem = { type?: string; content?: string; key: string; filename?: string; value?: string };
+type FormBody = { _isFormData: true; items: FormItem[] };
+
+function isFormBody(body: unknown): body is FormBody {
+  return typeof body === 'object' && body !== null && (body as FormBody)._isFormData === true && Array.isArray((body as FormBody).items);
+}
+
 // ── POST /api/proxy ─────────────────────────────────────────────────────────
-router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
+router.post('/', proxyLimiter, validateBody(proxyBody), async (req: AuthRequest, res: Response) => {
   const { method, url, headers = {}, body, workspaceId, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
   const effectiveTimeout = Math.min(Math.max(Number(timeout) || 30000, 1), MAX_PROXY_TIMEOUT_MS);
 
@@ -66,9 +73,16 @@ router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
       timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
     }
 
-    const fetchOptions: any = {
+    const fetchOptions: {
+      method: string;
+      headers: Record<string, string>;
+      signal: AbortSignal;
+      redirect: 'follow' | 'manual';
+      body?: import('undici').RequestInit['body'];
+      dispatcher?: import('undici').Dispatcher;
+    } = {
       method: method.toUpperCase(),
-      headers: new Headers(headers as any),
+      headers: headers ?? {},
       signal: controller.signal,
       redirect: followRedirects ? 'follow' : 'manual',
     };
@@ -107,7 +121,7 @@ router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
       if (matchedCert.passphrase) connectOpts.passphrase = matchedCert.passphrase;
     }
 
-    const { ProxyAgent, Agent, fetch: undiciFetch } = await import('undici');
+    const { ProxyAgent, Agent, fetch: undiciFetch, FormData: UndiciFormData } = await import('undici');
 
     if (activeProxy?.url) {
       let proxyUrlStr = activeProxy.url;
@@ -127,11 +141,11 @@ router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
     }
 
     if (!['GET', 'HEAD'].includes(method.toUpperCase()) && body !== undefined) {
-      if (body._isFormData) {
-        const formData = new FormData();
+      if (isFormBody(body)) {
+        const formData = new UndiciFormData();
         for (const item of body.items) {
           if (item.type === 'file') {
-            const buffer = Buffer.from(item.content, 'base64');
+            const buffer = Buffer.from(item.content || '', 'base64');
             const blob = new Blob([buffer]);
             formData.append(item.key, blob, item.filename);
           } else {
@@ -167,7 +181,7 @@ router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
     let reqSize = 0;
     if (body) {
       if (typeof body === 'string') reqSize = body.length;
-      else if (body._isFormData) reqSize = JSON.stringify(body).length;
+      else if (isFormBody(body)) reqSize = JSON.stringify(body).length;
       else reqSize = JSON.stringify(body).length;
     }
     const resSize = buffer.length;
@@ -179,7 +193,12 @@ router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
         String(req.user._id),
         String(workspaceId),
         {
-          requestSnapshot: { method, url, headers, body },
+          requestSnapshot: {
+            method,
+            url,
+            headers,
+            body: typeof body === 'string' ? body : body == null ? undefined : JSON.stringify(body),
+          },
           responseBody: isBase64 ? `[Binary Data: ${contentType}]` : responseBody,
           responseStatus: response.status,
           responseStatusText: response.statusText,
@@ -207,11 +226,12 @@ router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
     }
     // undici wraps connect-time errors (incl. our SSRF-guard lookup) in a
     // TypeError with the original error as `.cause`.
-    const cause = err instanceof Error ? (err as any).cause : undefined;
+    const cause = errorCause(err);
     if ((err instanceof Error && err.name === 'SsrfBlockedError') || cause?.name === 'SsrfBlockedError') {
-      return res.status(400).json({ message: (cause ?? err as Error).message, responseTime: elapsed });
+      const blocked = cause ?? err;
+      return res.status(400).json({ message: blocked instanceof Error ? blocked.message : 'Blocked', responseTime: elapsed });
     }
-    if (err instanceof Error && (err as any).status === 413) {
+    if (err instanceof HttpError && err.status === 413) {
       return res.status(413).json({ message: err.message, responseTime: elapsed });
     }
     return res.status(502).json({

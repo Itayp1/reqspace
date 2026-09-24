@@ -139,7 +139,7 @@ export const EnvironmentRepository = {
     }
     const [existing] = await SqlGlobalEnvironment.findOrCreate({
       where: { workspaceId },
-      defaults: { id: uuidv4(), workspaceId, variables: JSON.stringify(variables), updatedAt: new Date() } as any,
+      defaults: { id: uuidv4(), workspaceId, variables: JSON.stringify(variables), updatedAt: new Date() },
     });
     await existing.update({ variables: JSON.stringify(variables), updatedAt: new Date() });
     return globalSql(existing);

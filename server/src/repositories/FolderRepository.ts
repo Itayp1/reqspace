@@ -67,7 +67,23 @@ export const FolderRepository = {
 
   async update(id: string, data: Partial<IFolderRecord>): Promise<IFolderRecord | null> {
     if (isMongo()) { const f = await Folder.findByIdAndUpdate(id, data, { new: true }).lean(); return f ? mongoToRecord(f) : null; }
-    await SqlFolder.update(data as any, { where: { id } }); return this.findById(id);
+    const values: {
+      collectionId?: string;
+      parentFolderId?: string | null;
+      name?: string;
+      description?: string;
+      preRequestScript?: string;
+      testScript?: string;
+      order?: number;
+    } = {};
+    if (data.collectionId !== undefined) values.collectionId = data.collectionId;
+    if (data.parentFolderId !== undefined) values.parentFolderId = data.parentFolderId;
+    if (data.name !== undefined) values.name = data.name;
+    if (data.description !== undefined) values.description = data.description;
+    if (data.preRequestScript !== undefined) values.preRequestScript = data.preRequestScript;
+    if (data.testScript !== undefined) values.testScript = data.testScript;
+    if (data.order !== undefined) values.order = data.order;
+    await SqlFolder.update(values, { where: { id } }); return this.findById(id);
   },
 
   async delete(id: string): Promise<void> {

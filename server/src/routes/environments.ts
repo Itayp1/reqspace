@@ -4,6 +4,7 @@ import { requireWorkspaceRole } from '../middleware/rbac';
 import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { emitToWorkspace } from '../socketUtils';
+import { validateBody, environmentCreateBody, environmentUpdateBody, environmentReorderBody, environmentDuplicateBody } from '../validation/body';
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.get('/workspaces/:workspaceId/environments',
 
 router.post('/workspaces/:workspaceId/environments',
   requireWorkspaceRole('editor'),
+  validateBody(environmentCreateBody),
   async (req: AuthRequest, res: Response) => {
     const { name, isGlobal, variables } = req.body;
     if (!name) return res.status(400).json({ message: 'name required' });
@@ -52,7 +54,7 @@ router.post('/workspaces/:workspaceId/environments',
   }
 );
 
-router.put('/environments/reorder', async (req: AuthRequest, res: Response) => {
+router.put('/environments/reorder', validateBody(environmentReorderBody), async (req: AuthRequest, res: Response) => {
   const { items } = req.body;
   if (!items || !Array.isArray(items)) return res.status(400).json({ message: 'Invalid items array' });
   if (items.length === 0) return res.json({ success: true });
@@ -81,7 +83,7 @@ router.get('/environments/:id', checkEnvPermission('viewer'), async (req: AuthRe
   return res.json(env);
 });
 
-router.put('/environments/:id', checkEnvPermission('editor'), async (req: AuthRequest, res: Response) => {
+router.put('/environments/:id', checkEnvPermission('editor'), validateBody(environmentUpdateBody), async (req: AuthRequest, res: Response) => {
   const { name, variables, order, isGlobal } = req.body ?? {};
   const patch: { name?: string; variables?: any; order?: number; isGlobal?: boolean } = {};
   if (name !== undefined) patch.name = name;
@@ -100,7 +102,7 @@ router.delete('/environments/:id', checkEnvPermission('editor'), async (req: Aut
   return res.json({ message: 'Environment deleted' });
 });
 
-router.post('/environments/:id/duplicate', checkEnvPermission('viewer'), async (req: AuthRequest, res: Response) => {
+router.post('/environments/:id/duplicate', checkEnvPermission('viewer'), validateBody(environmentDuplicateBody), async (req: AuthRequest, res: Response) => {
   const env = await EnvironmentRepository.findById(req.params.id as string);
   if (!env) return res.status(404).json({ message: 'Environment not found' });
 

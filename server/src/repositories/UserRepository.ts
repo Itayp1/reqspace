@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, WhereOptions } from 'sequelize';
 import { isMongo } from '../db/connect';
 import { escapeRegex } from '../utils/escapeRegex';
 import { openCertificates, sealCertificates } from '../utils/secretBox';
@@ -95,6 +95,7 @@ export const UserRepository = {
     isSuperAdmin?: boolean;
     status?: string;
     mustChangePassword?: boolean;
+    avatar?: string | null;
   }): Promise<IUserRecord> {
     if (isMongo()) {
       const u = await User.create({
@@ -143,7 +144,7 @@ export const UserRepository = {
       const users = await User.find(filter).lean();
       return users.map(mongoToRecord);
     }
-    const users = await SqlUser.findAll({ where: filter as any });
+    const users = await SqlUser.findAll({ where: filter as WhereOptions });
     return users.map(sqlToRecord);
   },
 
@@ -166,18 +167,14 @@ export const UserRepository = {
       ]);
       return { users: users.map(mongoToRecord), total };
     }
-    const where: any = {};
-    if (opts.status) where.status = opts.status;
-    if (opts.search) {
-      const like = `%${opts.search.replace(/[%_]/g, '')}%`;
-      where[Op.or] = [
-        { name: { [Op.like]: like } },
-        { email: { [Op.like]: like } },
-      ];
-    }
-    const total = await SqlUser.count({ where: where as any });
+    const like = opts.search ? `%${opts.search.replace(/[%_]/g, '')}%` : '';
+    const where: WhereOptions = {
+      ...(opts.status ? { status: opts.status } : {}),
+      ...(opts.search ? { [Op.or]: [{ name: { [Op.like]: like } }, { email: { [Op.like]: like } }] } : {}),
+    };
+    const total = await SqlUser.count({ where });
     const users = await SqlUser.findAll({
-      where: where as any,
+      where,
       order: [['createdAt', 'DESC']],
       limit,
       offset: skip,

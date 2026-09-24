@@ -10,6 +10,7 @@ import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { UserRepository, IUserRecord } from '../repositories/UserRepository';
 import { redisMode } from '../redis';
 import bcrypt from 'bcryptjs';
+import { validateBody, adminCreateUserBody, adminUpdateUserBody, adminConfigBody, smtpTestBody, adminImportBody } from '../validation/body';
 
 function publicUser(user: IUserRecord) {
   const { passwordHash: _passwordHash, ...rest } = user;
@@ -36,19 +37,19 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
 });
 
 // ── PUT /api/admin/users/:id ────────────────────────────────────────────────
-router.put('/users/:id', async (req: AuthRequest, res: Response) => {
+router.put('/users/:id', validateBody(adminUpdateUserBody), async (req: AuthRequest, res: Response) => {
   const { name, email, status, password } = req.body;
-  const update: Record<string, unknown> = {};
+  const update: Partial<IUserRecord & { passwordHash: string }> = {};
   if (name) update.name = name;
   if (email) update.email = email.toLowerCase();
   if (status) update.status = status;
   if (password) update.passwordHash = await bcrypt.hash(password, 12);
 
-  const user = await UserRepository.update(req.params.id as string, update as any);
+  const user = await UserRepository.update(req.params.id, update);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  await logAudit(req.user!._id as any, 'admin.user.update', {
-    targetType: 'User', targetId: user._id as any,
+  await logAudit(req.user!._id, 'admin.user.update', {
+    targetType: 'User', targetId: user._id,
     ip: req.ip, details: { fields: Object.keys(update) },
   });
 
@@ -56,7 +57,7 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/admin/users ── Create User ──────────────────────────────────────
-router.post('/users', async (req: AuthRequest, res: Response) => {
+router.post('/users', validateBody(adminCreateUserBody), async (req: AuthRequest, res: Response) => {
   const { name, email, password, isSuperAdmin } = req.body;
   
   if (!name || !email || !password) {
@@ -81,8 +82,8 @@ router.post('/users', async (req: AuthRequest, res: Response) => {
   const { createPersonalWorkspace } = require('../middleware/auth');
   await createPersonalWorkspace(user);
 
-  await logAudit(req.user!._id as any, 'user.create', {
-    targetType: 'User', targetId: user._id as any, ip: req.ip,
+  await logAudit(req.user!._id, 'user.create', {
+    targetType: 'User', targetId: user._id, ip: req.ip,
   });
 
   return res.status(201).json({ message: 'User created successfully', user: { _id: user._id, name: user.name, email: user.email } });
@@ -93,8 +94,8 @@ router.post('/users/:id/promote', async (req: AuthRequest, res: Response) => {
   const user = await UserRepository.update(req.params.id as string, { isSuperAdmin: true });
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  await logAudit(req.user!._id as any, 'user.promote', {
-    targetType: 'User', targetId: user._id as any, ip: req.ip,
+  await logAudit(req.user!._id, 'user.promote', {
+    targetType: 'User', targetId: user._id, ip: req.ip,
   });
   return res.json({ message: 'User promoted to SuperAdmin', user: publicUser(user) });
 });
@@ -107,8 +108,8 @@ router.post('/users/:id/revoke', async (req: AuthRequest, res: Response) => {
   const user = await UserRepository.update(req.params.id as string, { isSuperAdmin: false });
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  await logAudit(req.user!._id as any, 'user.revoke', {
-    targetType: 'User', targetId: user._id as any, ip: req.ip,
+  await logAudit(req.user!._id, 'user.revoke', {
+    targetType: 'User', targetId: user._id, ip: req.ip,
   });
   return res.json({ message: 'SuperAdmin revoked', user: publicUser(user) });
 });
@@ -121,8 +122,8 @@ router.post('/users/:id/suspend', async (req: AuthRequest, res: Response) => {
   const user = await UserRepository.update(req.params.id as string, { status: 'suspended' });
   if (!user) return res.status(404).json({ message: 'User not found' });
 
-  await logAudit(req.user!._id as any, 'user.suspend', {
-    targetType: 'User', targetId: user._id as any, ip: req.ip,
+  await logAudit(req.user!._id, 'user.suspend', {
+    targetType: 'User', targetId: user._id, ip: req.ip,
   });
   return res.json({ message: 'User suspended', user: publicUser(user) });
 });
@@ -136,8 +137,8 @@ router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   if (!user) return res.status(404).json({ message: 'User not found' });
   await UserRepository.delete(user.id);
 
-  await logAudit(req.user!._id as any, 'user.delete', {
-    targetType: 'User', targetId: user._id as any, ip: req.ip,
+  await logAudit(req.user!._id, 'user.delete', {
+    targetType: 'User', targetId: user._id, ip: req.ip,
   });
   return res.json({ message: 'User deleted' });
 });
@@ -167,7 +168,7 @@ router.get('/audit-logs', async (req: AuthRequest, res: Response) => {
 
   const userIds = [...new Set(logs.map(l => l.userId))];
   const users = await Promise.all(userIds.map(id => UserRepository.findById(id)));
-  const userMap = Object.fromEntries(users.filter(Boolean).map((u: any) => [u!.id || (u as any)._id.toString(), { _id: u!.id || (u as any)._id.toString(), name: u!.name, email: u!.email }]));
+  const userMap = Object.fromEntries(users.flatMap(u => u ? [[u._id, { _id: u._id, name: u.name, email: u.email }]] : []));
   
   const populatedLogs = logs.map(l => ({
     ...l,
@@ -200,7 +201,7 @@ router.get('/config', async (_req: AuthRequest, res: Response) => {
 });
 
 // ── PUT /api/admin/config ───────────────────────────────────────────────────
-router.put('/config', async (req: AuthRequest, res: Response) => {
+router.put('/config', validateBody(adminConfigBody), async (req: AuthRequest, res: Response) => {
   const update = JSON.parse(JSON.stringify(req.body));
   // The client only ever sees the masked placeholder for secret fields (see
   // GET /config above); if it comes back unchanged, drop it from the update
@@ -210,7 +211,7 @@ router.put('/config', async (req: AuthRequest, res: Response) => {
   if (update.proxy?.password === SECRET_MASK) delete update.proxy.password;
 
   const config = await SystemConfigRepository.updateConfig(update);
-  await logAudit(req.user!._id as any, 'admin.config.update', {
+  await logAudit(req.user!._id, 'admin.config.update', {
     // Field names only — never the raw values, which can include SMTP/OAuth/proxy secrets.
     ip: req.ip, details: { fields: Object.keys(req.body) },
   });
@@ -218,7 +219,7 @@ router.put('/config', async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/admin/test-smtp ──────────────────────────────────────
-router.post('/test-smtp', async (req: AuthRequest, res: Response) => {
+router.post('/test-smtp', validateBody(smtpTestBody), async (req: AuthRequest, res: Response) => {
   const { host, port, user, pass, fromAddress } = req.body;
   if (!host || !port) return res.status(400).json({ message: 'Host and port are required' });
   
@@ -268,7 +269,7 @@ router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
             config
     };
 
-    await logAudit(req.user!._id as any, 'admin.export', { ip: req.ip, targetId: workspaceId as any });
+    await logAudit(req.user!._id, 'admin.export', { ip: req.ip, targetId: workspaceId });
     
     // Set headers to trigger a download of the JSON file
     res.setHeader('Content-disposition', `attachment; filename=reqspace-export-${workspaceId}-${new Date().toISOString().split('T')[0]}.json`);
@@ -280,7 +281,7 @@ router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/admin/import/:workspaceId ─────────────────────────────
-router.post('/import/:workspaceId', async (req: AuthRequest, res: Response) => {
+router.post('/import/:workspaceId', validateBody(adminImportBody), async (req: AuthRequest, res: Response) => {
   try {
     const workspaceId = req.params.workspaceId as string;
     const dump = req.body;
@@ -349,7 +350,7 @@ router.post('/import/:workspaceId', async (req: AuthRequest, res: Response) => {
     // rewrite system-wide settings (SMTP creds, OAuth secrets, proxy) — that
     // let a crafted export hijack the whole instance (CR#14).
 
-    await logAudit(req.user!._id as any, 'admin.import', { ip: req.ip, targetId: workspaceId as any });
+    await logAudit(req.user!._id, 'admin.import', { ip: req.ip, targetId: workspaceId });
     return res.json({ message: 'Import successful' });
   } catch(err: any) {
     return res.status(500).json({ message: err.message });

@@ -7,6 +7,7 @@ import { UserRepository } from '../repositories/UserRepository';
 import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { AuditLogRepository } from '../repositories/AuditLogRepository';
+import { validateBody, workspaceCreateBody, workspaceUpdateBody, memberInviteBody, memberRoleBody } from '../validation/body';
 
 const router = Router();
 router.use(authenticate);
@@ -43,7 +44,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/workspaces ────────────────────────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', validateBody(workspaceCreateBody), async (req: AuthRequest, res: Response) => {
   const { name, description, isPublic } = req.body;
   if (!name) return res.status(400).json({ message: 'name is required' });
 
@@ -83,7 +84,7 @@ router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequ
 });
 
 // ── PUT /api/workspaces/:id ─────────────────────────────────────────────────
-router.put('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
+router.put('/:id', requireWorkspaceRole('owner'), validateBody(workspaceUpdateBody), async (req: AuthRequest, res: Response) => {
   const { name, description } = req.body;
   // Allowlist writable fields — never spread req.body into the update (CR#7).
   const patch: { name?: string; description?: string } = {};
@@ -107,6 +108,7 @@ router.delete('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, re
 router.post(
   '/:id/members',
   requireWorkspaceRole('owner'),
+  validateBody(memberInviteBody),
   async (req: AuthRequest, res: Response) => {
     const { email, role } = req.body;
     if (!email || !role || !VALID_ROLES.includes(role)) {
@@ -153,6 +155,7 @@ router.post(
 router.put(
   '/:id/members/:userId',
   requireWorkspaceRole('owner'),
+  validateBody(memberRoleBody),
   async (req: AuthRequest, res: Response) => {
     const { role } = req.body;
     if (!role || !VALID_ROLES.includes(role)) {

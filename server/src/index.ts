@@ -13,6 +13,7 @@ import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
+import { httpStatus } from './utils/errors';
 import authRouter from './routes/auth';
 import workspacesRouter from './routes/workspaces';
 import collectionsRouter from './routes/collections';
@@ -214,7 +215,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   console.error(err);
   // Honour explicit client-error statuses (e.g. 413 payload-too-large, 400) so
   // they aren't masked as 500. Server errors stay generic in production.
-  const status = (err as any).status || (err as any).statusCode || 500;
+  const status = httpStatus(err);
   const message = status < 500
     ? (err.message ?? 'Request error')
     : (process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message ?? 'Internal server error'));

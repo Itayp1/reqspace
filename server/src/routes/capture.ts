@@ -58,9 +58,12 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
     }
 
     // Include query parameters in target URL
-    const queryString = Object.keys(req.query).length > 0 
-      ? '?' + new URLSearchParams(req.query as any).toString() 
-      : '';
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(req.query)) {
+      if (Array.isArray(value)) value.forEach((v) => query.append(key, String(v)));
+      else if (value != null) query.append(key, String(value));
+    }
+    const queryString = query.toString() ? `?${query.toString()}` : '';
     
     const finalUrl = (targetUrl || '') + queryString;
 
@@ -124,7 +127,11 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
         const systemConfig = await SystemConfigRepository.getConfig();
         const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
 
-        const outHeaders = new Headers(req.headers as any);
+        const outHeaders = new Headers();
+        for (const [key, value] of Object.entries(req.headers)) {
+          if (value == null) continue;
+          outHeaders.set(key, Array.isArray(value) ? value.join(', ') : value);
+        }
         outHeaders.delete('host');
         outHeaders.delete('x-target-url');
 

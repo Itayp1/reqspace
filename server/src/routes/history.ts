@@ -1,11 +1,12 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
-import { HistoryRepository, IHistoryRecord } from '../repositories/HistoryRepository';
+import { HistoryRepository, IHistoryRecord, IHistorySnapshotRequest } from '../repositories/HistoryRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
+import { validateBody, historySaveBody } from '../validation/body';
 
 const router = Router();
 router.use(authenticate);
@@ -65,7 +66,7 @@ router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer')
   return res.json({ message: 'History cleared' });
 });
 
-router.post('/history/:id/save', async (req: AuthRequest, res: Response) => {
+router.post('/history/:id/save', validateBody(historySaveBody), async (req: AuthRequest, res: Response) => {
   const item = await HistoryRepository.findOwned(req.params.id as string, String(req.user!._id));
   if (!item) return res.status(404).json({ message: 'Not found' });
 
@@ -106,7 +107,7 @@ export async function saveHistoryEntry(
   userId: string,
   workspaceId: string,
   data: {
-    requestSnapshot: Record<string, unknown>;
+    requestSnapshot: IHistorySnapshotRequest;
     responseBody: string;
     responseStatus: number;
     responseStatusText: string;
@@ -143,7 +144,7 @@ export async function saveHistoryEntry(
   await HistoryRepository.createFromSnapshots({
     userId: String(userId),
     workspaceId: String(workspaceId),
-    requestSnapshot: data.requestSnapshot as any,
+    requestSnapshot: data.requestSnapshot,
     responseSnapshot: {
       status: data.responseStatus,
       statusText: data.responseStatusText,

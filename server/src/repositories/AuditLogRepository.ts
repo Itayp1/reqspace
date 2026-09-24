@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, WhereOptions } from 'sequelize';
 import { isMongo } from '../db/connect';
 import { AuditLog } from '../models/AuditLog';
 import { SqlAuditLog } from '../db/sql-models';
@@ -88,7 +88,7 @@ export const AuditLogRepository = {
       ]);
       return { logs: rows.map(mongoToRecord), total };
     }
-    const where: Record<string, unknown> = {};
+    const where: WhereOptions = {};
     if (opts.action) where.action = opts.action;
     if (opts.userId) where.userId = opts.userId;
     if (opts.from || opts.to) {
@@ -97,9 +97,9 @@ export const AuditLogRepository = {
       if (opts.to) createdAt[Op.lte] = new Date(opts.to);
       where.createdAt = createdAt;
     }
-    const total = await SqlAuditLog.count({ where: where as any });
+    const total = await SqlAuditLog.count({ where });
     const rows = await SqlAuditLog.findAll({
-      where: where as any,
+      where,
       order: [['createdAt', 'DESC']],
       limit: opts.limit,
       offset: opts.skip,

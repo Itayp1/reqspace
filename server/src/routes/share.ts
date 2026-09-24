@@ -6,6 +6,7 @@ import { rateLimit } from '../middleware/rateLimit';
 import { SharedLinkRepository } from '../repositories/SharedLinkRepository';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
+import { validateBody, shareCreateBody } from '../validation/body';
 
 const router = Router();
 const publicShareLimiter = rateLimit({
@@ -55,7 +56,7 @@ router.get('/:shortId', publicShareLimiter, async (req: Request, res: Response) 
   });
 });
 
-router.post('/collection/:id', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/collection/:id', authenticate, validateBody(shareCreateBody), async (req: AuthRequest, res: Response) => {
   const { expiresInDays } = req.body;
   const days = parseInt(expiresInDays) || 7;
 
