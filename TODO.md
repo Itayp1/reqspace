@@ -83,40 +83,6 @@ still proxies nothing.
 
 ---
 
-### SEC-0.1 — Inventory every server-side outbound call
-
-* **Goal:** know exactly what is being deleted before deleting it.
-* **Where:** `server/src/routes/proxy.ts`, `shareProxy.ts`, `capture.ts`, `importExport.ts`,
-  `auth.ts`, `admin.ts`, `server/src/utils/ssrf.ts`
-
-#### Steps
-
-1. Run the inventory command below.
-2. Classify every hit as **`move`** (the server acts on a user's behalf → must move to the client) or
-   **`keep`** (the server acts as *itself* against a fixed, known host).
-3. Paste the classified list into this task before proceeding.
-
-#### Technical detail
-
-```bash
-grep -rn "undiciFetch\|await fetch(\|ProxyAgent\|createSafeLookup\|assertSsrfSafe\|soap\." server/src
-```
-
-Expected classification:
-
-| Call site | Verdict | Reason |
-|---|---|---|
-| `routes/proxy.ts` — the whole file | **move** | This *is* the user proxy |
-| `routes/shareProxy.ts` — the whole file | **move** (then delete) | Anonymous user proxy |
-| `routes/capture.ts:140` `fetch(finalUrl, …)` | **move** | Forwards user traffic — see SEC-0.5 |
-| `routes/importExport.ts:134` `soap.createClientAsync(url)` | **move** | Fetches a user-supplied WSDL URL |
-| `routes/auth.ts:202,218` Google token + userinfo | **keep** | Server-to-Google, fixed hosts, server's own credentials |
-| `routes/admin.ts` SMTP send | **keep** | Server-to-SMTP, admin-configured, not a user URL |
-
-* **Done when:** the table above is filled in from real grep output and committed.
-
----
-
 ### SEC-0.2 — Build the client transport abstraction
 
 * **Goal:** one module decides *how* a request goes out, so no UI component ever knows or cares.
