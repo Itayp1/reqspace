@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const { registerSendHandler } = require('./transport-main');
 
 let mainWindow;
 let serverProcess;
@@ -131,6 +132,7 @@ function launchApp(config) {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
+registerSendHandler(ipcMain);
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

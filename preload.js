@@ -7,3 +7,12 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('reqspaceSetup', {
   choose: (choice) => ipcRenderer.send('setup-choice', choice),
 });
+
+// The client transport abstraction (TODO.md SEC-0.2) — the only way the
+// renderer can reach the network in the desktop build. `req` must be JSON
+// structured-cloneable; the AbortSignal on OutboundRequest never survives the
+// IPC boundary, so the caller (client/src/transport/electron.ts) strips it
+// before invoking this and handles cancellation on its own side.
+contextBridge.exposeInMainWorld('reqspace', {
+  send: (req) => ipcRenderer.invoke('reqspace:send', req),
+});

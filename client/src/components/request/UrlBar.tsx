@@ -4,10 +4,11 @@ import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useConsoleStore } from '../../store/consoleStore';
 import { useCookieStore } from '../../store/cookieStore';
-import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import { Save, Play, Code2, Cookie, Activity } from 'lucide-react';
 import { VariableInput } from '../common/VariableInput';
 import api from '../../api/axios';
+import { sendRequest, TransportError } from '../../transport';
 import { SaveRequestModal } from './SaveRequestModal';
 import { LoadTestModal } from './LoadTestModal';
 import { CodeGenModal } from './CodeGenModal';
@@ -247,31 +248,26 @@ export function UrlBar() {
       const abortController = new AbortController();
       (window as any).__abortController = abortController;
 
-      const res = await api.post('/proxy', {
+      const res = await sendRequest({
         method: activeRequest.method,
         url: finalUrl,
         headers: reqHeaders,
         body: requestBody,
-        workspaceId: useAuthStore.getState().activeWorkspace?._id,
         followRedirects: activeRequest.settings?.followRedirects ?? useSettingsStore.getState().settings.followRedirects,
         verifySsl: activeRequest.settings?.verifySsl ?? useSettingsStore.getState().settings.verifySsl,
         timeout: activeRequest.settings?.timeout ?? useSettingsStore.getState().settings.timeout,
-        localProxy: getLocalProxyConfig(),
-        saveHistory: useSettingsStore.getState().settings.saveHistory,
-        clientCertPath: useSettingsStore.getState().settings.clientCertPath,
-      }, { signal: abortController.signal });
+        signal: abortController.signal,
+      });
       const endTime = Date.now();
-      const responseTime = res.data?.time || (endTime - startTime);
-      const responseBody = typeof res.data?.body === 'string'
-        ? res.data.body
-        : JSON.stringify(res.data?.body || res.data, null, 2);
-      const isBase64 = !!res.data?.isBase64;
+      const responseTime = res.responseTime || (endTime - startTime);
+      const responseBody = res.body;
+      const isBase64 = !!res.isBase64;
 
       // 3. Run combined Test script
       const scriptReturn = runTestScript(testScripts.join('\n\n'), {
-        status: res.data?.status || res.status,
-        statusText: res.data?.statusText || res.statusText,
-        headers: res.data?.headers || res.headers || {},
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers || {},
         body: responseBody,
         time: responseTime,
       }, colId, undefined, localVariables);
@@ -280,13 +276,13 @@ export function UrlBar() {
       const visualizerData = scriptReturn?.visualizerData;
 
       setActiveResponse({
-        status: res.data?.status || res.status,
-        statusText: res.data?.statusText || res.statusText,
-        headers: res.data?.headers || res.headers || {},
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers || {},
         body: responseBody,
         isBase64,
         responseTime,
-        size: res.data?.size || 0,
+        size: res.size || 0,
         testResults,
         visualizerData,
       } as any);
@@ -296,18 +292,35 @@ export function UrlBar() {
         type: 'request',
         method: activeRequest.method,
         url: resolvedUrl,
-        status: res.data?.status || res.status,
+        status: res.status,
         time: responseTime,
         requestHeaders: activeRequest.headers?.reduce((acc: any, h: any) => {
           if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId);
           return acc;
         }, {}) || {},
         requestBody: requestBody,
-        responseHeaders: res.data?.headers || res.headers || {},
+        responseHeaders: res.headers || {},
         responseBody,
       });
+
+      // Best-effort history write — the server recomputes size and enforces
+      // quota itself, so it is never trusted with the client's own numbers
+      // (SEC-0.3).
+      const activeWs = useAuthStore.getState().activeWorkspace;
+      if (useSettingsStore.getState().settings.saveHistory && activeWs?._id) {
+        api.post(`/workspaces/${activeWs._id}/history`, {
+          requestSnapshot: { method: activeRequest.method, url: finalUrl, headers: reqHeaders, body: requestBody },
+          responseBody: isBase64 ? `[Binary Data]` : responseBody,
+          responseStatus: res.status,
+          responseStatusText: res.statusText,
+          responseHeaders: res.headers || {},
+          responseTime,
+          responseSize: res.size || 0,
+          testResults,
+        }).catch(() => { /* history is best-effort; never block the user */ });
+      }
     } catch (err: any) {
-      if (err.name === 'CanceledError' || err.message === 'canceled') {
+      if (err?.name === 'AbortError') {
         setActiveResponse({
           status: 0,
           statusText: 'Canceled',
@@ -318,13 +331,13 @@ export function UrlBar() {
         });
         return;
       }
-      const errorBody = err.response?.data ? JSON.stringify(err.response.data, null, 2) : err.message;
+      const errorBody = err instanceof TransportError ? err.message : (err?.message || String(err));
       setActiveResponse({
-        status: err.response?.status || 500,
-        statusText: err.response?.statusText || 'Error',
-        headers: err.response?.headers || {},
+        status: 0,
+        statusText: err instanceof TransportError ? err.code : 'Error',
+        headers: {},
         body: errorBody,
-        responseTime: 0,
+        responseTime: Date.now() - startTime,
         size: 0,
       });
 
@@ -332,7 +345,7 @@ export function UrlBar() {
         type: 'request',
         method: activeRequest.method,
         url: activeRequest.url,
-        status: err.response?.status || 500,
+        status: 0,
         time: 0,
         responseBody: errorBody,
       });

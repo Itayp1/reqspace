@@ -5,7 +5,7 @@ import * as chai from 'chai';
 import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 import { useConsoleStore } from '../store/consoleStore';
-import api from '../api/axios';
+import { sendRequest } from '../transport';
 
 export function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
   if (!script || !script.trim()) return;
@@ -172,8 +172,8 @@ export function runTestScript(
       sendRequest: (urlOrConfig: any, cb: (err: any, res: any) => void) => {
         const url = typeof urlOrConfig === 'string' ? urlOrConfig : urlOrConfig.url;
         const method = urlOrConfig.method || 'GET';
-        api.post('/proxy', { method, url, headers: urlOrConfig.header || {} })
-          .then(res => cb(null, { ...res.data, json: () => res.data.body }))
+        sendRequest({ method, url, headers: urlOrConfig.header || {} })
+          .then(res => cb(null, { ...res, json: () => res.body }))
           .catch(err => cb(err, null));
       },
       response: {
