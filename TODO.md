@@ -648,118 +648,6 @@ project-level args are not enough.
 
 ---
 
-## SEC-1 — Rotate and remove the committed JWT secret
-
-* **Goal:** no signing key in the repository, and no way to boot with a known one.
-* **Where:** `k8s/secret.yaml:7`, `server/src/utils/jwtSecret.ts:9-12`
-* **Why:** `JWT_SECRET` is `Y2hhbmdlX21lX2luX3Byb2R1Y3Rpb24=` = base64 of `change_me_in_production`. That
-  exact string is **not** in `KNOWN_INSECURE_VALUES` (which holds `changeme` and
-  `change_me_in_production_very_long_secret_key`), so `resolveJwtSecret()` accepts it as a real secret.
-  Production boots happily with a signing key published in a public repository. Anyone can mint a token
-  for any user id, superadmin included.
-
-#### Technical detail
-
-```ts
-// server/src/utils/jwtSecret.ts
-const KNOWN_INSECURE_VALUES = new Set([
-  'changeme',
-  'change_me_in_production',                              // ← the k8s value
-  'change_me_in_production_very_long_secret_key',
-  'secret', 'jwt_secret', 'your-secret-key',
-]);
-
-const MIN_SECRET_LENGTH = 32;
-
-export function resolveJwtSecret(): string {
-  if (cached) return cached;
-  const fromEnv = process.env.JWT_SECRET;
-  const isProd = process.env.NODE_ENV === 'production';
-
-  if (fromEnv) {
-    if (KNOWN_INSECURE_VALUES.has(fromEnv)) {
-      throw new Error('JWT_SECRET is a known placeholder value. Generate a real one: openssl rand -hex 32');
-    }
-    if (isProd && fromEnv.length < MIN_SECRET_LENGTH) {
-      throw new Error(`JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters in production.`);
-    }
-    console.log('🔑 JWT secret source: JWT_SECRET env var');
-    cached = fromEnv; return cached;
-  }
-  // …existing production refusal / local-file fallback…
-}
-```
-
-`k8s/secret.yaml` — remove the value entirely so a misconfigured cluster fails instead of silently working:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: reqspace-web-secret
-type: Opaque
-# JWT_SECRET is intentionally NOT committed. Supply it from a SealedSecret or an
-# external secrets manager:
-#   kubectl create secret generic reqspace-web-secret --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
-# The pod must fail to start if it is missing — see server/src/utils/jwtSecret.ts.
-```
-
-Then: rotate the value everywhere this manifest was applied, and treat all existing sessions as
-compromised (they are signed with a public key) — invalidate them.
-
-* **Done when:** jest tests assert `resolveJwtSecret()` throws for `change_me_in_production`, throws in
-  production for a 20-character secret, and succeeds for a 64-character one.
-
----
-
-## SEC-2 — Close the four remaining authorization holes
-
-* **Goal:** no route accepts a client-supplied parent id without checking membership.
-* **Why:** these four are reachable only by bypassing the UI, which is exactly why the UI test suite
-  never caught them.
-
-| # | Where | Hole | Fix |
-|---|---|---|---|
-| 1 | `routes/history.ts:80-106` `POST /api/history/:id/save` | Creates a request in a client-supplied `collectionId` with no check | Resolve collection → workspace, require `editor` |
-| 2 | `routes/importExport.ts:124` `POST /api/import/wsdl` | Creates a collection in a client-supplied `workspaceId`, no `requireWorkspaceRole` | `requireWorkspaceRole('editor')` |
-| 3 | `routes/importExport.ts:15-18` `GET /collections/:id/export` | Authenticated but no role check at all | Resolve workspace, require `viewer` |
-| 4 | `routes/importExport.ts:20-22` `POST /collections/import` | Stub with no checks | Require `editor` (or delete with FEAT-10) |
-
-#### Technical detail
-
-Add a reusable guard rather than repeating the resolution logic — `routes/collections.ts:40-54` already
-has this shape; extract it to `server/src/middleware/resolveWorkspace.ts` and use it in both places:
-
-```ts
-export function requireRoleOnCollection(minRole: UserRole) {
-  return async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const collectionId = req.params.id ?? req.body.collectionId;
-    if (!collectionId || !isValidId(collectionId)) {
-      return res.status(400).json({ message: 'Invalid collection id' });
-    }
-    const collection = await CollectionRepository.findById(collectionId);
-    if (!collection) return res.status(404).json({ message: 'Collection not found' });
-    req.params.workspaceId = collection.workspaceId;
-    (req as any).resolvedWorkspaceId = collection.workspaceId;
-    if (req.user?.isSuperAdmin) return next();
-    return requireWorkspaceRole(minRole)(req, res, next);
-  };
-}
-```
-
-Then sweep for the same shape:
-
-```bash
-grep -n "req.body.workspaceId\|req.body.collectionId\|req.body.folderId" server/src/routes/*.ts
-```
-
-Every hit must be preceded by a role check on the resolved workspace.
-
-* **Done when:** `tests/api-authorization.spec.ts` covers all four as a non-member and asserts 403 — and
-  each test fails against the current code.
-
----
-
 ## SEC-3 — Sandbox user scripts
 
 * **Goal:** a pre-request or test script cannot read the user's session, tokens, cookies or DOM.
@@ -1080,7 +968,7 @@ export const updateCollectionSchema = z.object({
 }).strict();     // ← .strict() rejects workspaceId outright instead of silently dropping it
 ```
 
-Roll-out order: SEC-2 routes → auth → admin → collections/environments/history.
+Roll-out order: history.ts and importExport.ts routes → auth → admin → collections/environments/history.
 
 Also replace `AuthRequest.user?: any` (`middleware/auth.ts:11`) with a real type:
 
@@ -1203,66 +1091,6 @@ Client: call `/start`, keep `state` in memory, send it back from the callback pa
 ---
 
 # FIX — Broken in place
-
-## FIX-1 — Admin export exports nothing
-
-* **Where:** `server/src/routes/admin.ts:274-277` (export) and `:308-311` (import)
-* **Why:** it queries `Folder.find({ workspaceId })` and `ApiRequest.find({ workspaceId })`, but **neither
-  model has a `workspaceId` field** — `models/Folder.ts` is scoped by `collectionId`, `models/Request.ts`
-  likewise (confirmed: `grep -n workspaceId server/src/models/` lists only Collection, Environment,
-  History, SharedLink). Both queries always return `[]`. The export therefore contains collections and
-  environments and **zero folders and zero requests**, and the import writes a `workspaceId` field that
-  Mongoose strips. Both report success.
-
-#### Technical detail — export
-
-```ts
-const collections = await Collection.find({ workspaceId }).lean();
-const collectionIds = collections.map((c) => c._id);
-
-const folders     = await Folder.find({ collectionId: { $in: collectionIds } }).lean();
-const requests    = await ApiRequest.find({ collectionId: { $in: collectionIds } }).lean();
-const environments = await Environment.find({ workspaceId }).lean();
-```
-
-#### Technical detail — import (id remapping is the part that is easy to get wrong)
-
-```ts
-const idMap = new Map<string, string>();       // old id → new id
-
-for (const c of dump.collections ?? []) {
-  const created = await CollectionRepository.create({ ...stripIds(c), workspaceId });
-  idMap.set(String(c._id), String(created._id));
-}
-
-// Folders must be inserted parents-first so parentFolderId can be remapped.
-for (const f of topologicalByParent(dump.folders ?? [])) {
-  const created = await FolderRepository.create({
-    ...stripIds(f),
-    collectionId:   idMap.get(String(f.collectionId))!,
-    parentFolderId: f.parentFolderId ? idMap.get(String(f.parentFolderId)) ?? null : null,
-  });
-  idMap.set(String(f._id), String(created._id));
-}
-
-for (const r of dump.requests ?? []) {
-  await RequestRepository.create({
-    ...stripIds(r),
-    collectionId: idMap.get(String(r.collectionId))!,
-    folderId:     r.folderId ? idMap.get(String(r.folderId)) ?? null : null,
-    createdBy:    String(req.user!._id),
-  });
-}
-```
-
-Also: add `version: 1` to the export and reject an import without it. Use the repositories, not the
-Mongoose models (FIX-2). Insert in batches of 500, not one-by-one, for a large workspace.
-
-* **Done when:** a round-trip test exports a workspace containing 2 collections, 3 nested folders and 5
-  requests, imports it into a fresh workspace, and asserts the resulting tree — names, nesting and
-  order — matches the source exactly.
-
----
 
 ## FIX-2 — Finish multi-database support
 
@@ -1663,8 +1491,9 @@ indexes: [{ fields: ['workspaceId'] }, { fields: ['collectionId'] }, /* … */]
 ```
 
 Backfill in a migration (FIX-3, migration 002). Then `checkPermission` reads the item once and has the
-workspace id directly — no chain. This also fixes FIX-1's export queries for free and makes
-`searchInWorkspace` (#7) a single indexed query instead of a 100k-element `$in`.
+workspace id directly — no chain. This also simplifies the admin export/import queries further (they
+currently join through `collectionId`) and makes `searchInWorkspace` (#7) a single indexed query instead
+of a 100k-element `$in`.
 
 * **Done when:** `measure.ts` reports: reorder of 500 items ≤ 3 queries (from ~1,500); no endpoint above
   5 queries; history clear O(1) queries.
@@ -2077,7 +1906,7 @@ runnable on any backend. For each: the happy path, one permission-denied path, a
 | 9 | **Runner** | Run a collection; iterations; CSV and JSON data files; per-request pass/fail; stop mid-run |
 | 10 | **Import / Export** | cURL, raw HTTP, OpenAPI, Reqspace v2.1, environment; export then re-import and assert the tree matches |
 | 11 | **Share** | Create a link; open it anonymously; **assert no auth, token or script is present** (SEC-0.6); revoke; assert 404 |
-| 12 | **Admin** | User CRUD; promote / revoke / suspend; config save with masked secrets; audit log; workspace export and import (FIX-1) |
+| 12 | **Admin** | User CRUD; promote / revoke / suspend; config save with masked secrets; audit log; workspace export and import |
 | 13 | **Tabs** | Open many; reorder; close with unsaved changes; restore closed tab (FEAT-8); split pane (FEAT-7) |
 | 14 | **Multi-user realtime** | Two browser contexts: a rename in A appears in B's sidebar; a delete in A removes it from B's tree |
 
@@ -2568,29 +2397,31 @@ async function readCapped(stream: ReadableStream<Uint8Array>, cap: number) {
 
 ## FEAT-10 — Server-side collection export/import (v2.1) *(parity item 59)*
 
-* **Goal:** export and import work from the API, not only from the client's in-memory tree.
-* **Where:** `server/src/routes/importExport.ts:15-18` returns `{ info: { name }, item: [] }` — a
-  placeholder; `:20-22` returns `'Import successful (stub)'`. The **working** implementation is
-  client-side at `client/src/components/collection/CollectionExplorer.tsx:720+` (`exportCollection`,
-  which builds real v2.1 output).
+* **Goal:** export and import work from the API, not only from the client's in-memory tree, in the same
+  v2.1 format the client already produces.
+* **Where:** `server/src/routes/importExport.ts` now has a real, role-checked, id-remapping
+  `GET /collections/:id/export` and `POST /collections/import` (closed as part of SEC-2's holes #3/#4),
+  but they use their own flat `{ version: 1, collection, folders, requests }` shape — **not** the nested
+  v2.1 `item` tree the client already builds at
+  `client/src/components/collection/CollectionExplorer.tsx:720+` (`exportCollection`). Nothing calls
+  these two routes yet; the UI still only exports/imports through that client-side function.
+* **Remaining steps:**
+  1. Move the v2.1 serialiser into code both sides can import (e.g. `shared/collectionFormat.ts`, or
+     duplicate deliberately with a shared test fixture if there is no shared build), and switch the two
+     routes above to produce/consume it.
+  2. **Stream** the export JSON (`res.write` per item) rather than building the whole string — a
+     5,000-request collection must not be serialised into one buffer.
+  3. Add Zod validation (SEC-9) and a size cap on import.
+  4. **Strip secrets by default** on export: request `auth` blocks and headers matching the SEC-0.6
+     denylist are replaced with placeholders. An explicit `?includeSecrets=true` is allowed for an
+     `owner` and is **audit-logged**.
+  5. Wire the UI to the server routes and delete the client-side duplicate, so there is one
+     implementation.
 
-#### Steps
-
-1. Move the v2.1 serialiser into code both sides can import (e.g. `shared/collectionFormat.ts`, or
-   duplicate deliberately with a shared test fixture if there is no shared build).
-2. `GET /api/collections/:id/export` with `requireWorkspaceRole('viewer')` (SEC-2). **Stream** the JSON
-   (`res.write` per item) rather than building the whole string — a 5,000-request collection must not be
-   serialised into one buffer.
-3. `POST /api/collections/import` with `requireWorkspaceRole('editor')`, Zod validation (SEC-9), a size
-   cap, and the same id-remapping logic as FIX-1.
-4. **Strip secrets by default** on export: request `auth` blocks and headers matching the SEC-0.6 denylist
-   are replaced with placeholders. An explicit `?includeSecrets=true` is allowed for an `owner` and is
-   **audit-logged**.
-5. Delete the client-side duplicate once the server path is proven, so there is one implementation.
-
-* **Done when:** an API round-trip test exports a collection containing folders, scripts and variables,
-  re-imports it into a different workspace, and asserts the tree matches — plus a test asserting a bearer
-  token is absent from a default export and present with `includeSecrets=true` as an owner.
+* **Done when:** an API round-trip test exports a collection containing folders, scripts and variables in
+  the v2.1 format, re-imports it into a different workspace, and asserts the tree matches — plus a test
+  asserting a bearer token is absent from a default export and present with `includeSecrets=true` as an
+  owner.
 
 ---
 
