@@ -1,13 +1,36 @@
-import _ from 'lodash';
-import moment from 'moment';
-import CryptoJS from 'crypto-js';
-import * as chai from 'chai';
 import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 import { useConsoleStore } from '../store/consoleStore';
 import api from '../api/axios';
 
-export function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
+type ScriptRuntime = {
+  _: any;
+  moment: any;
+  CryptoJS: any;
+  expect: any;
+};
+
+let runtimePromise: Promise<ScriptRuntime> | null = null;
+
+/** Lodash, moment, crypto-js, and chai are only fetched when a user script runs. */
+function loadScriptRuntime(): Promise<ScriptRuntime> {
+  if (!runtimePromise) {
+    runtimePromise = Promise.all([
+      import('lodash'),
+      import('moment'),
+      import('crypto-js'),
+      import('chai'),
+    ]).then(([lodashMod, momentMod, cryptoMod, chaiMod]) => ({
+      _: lodashMod.default,
+      moment: momentMod.default,
+      CryptoJS: cryptoMod.default,
+      expect: chaiMod.expect,
+    }));
+  }
+  return runtimePromise;
+}
+
+export async function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
   if (!script || !script.trim()) return;
   let nextRequest: string | null | undefined = undefined;
   
@@ -128,6 +151,7 @@ export function runPreRequestScript(script?: string, collectionId?: string, iter
       }
     };
     
+    const { _, moment, CryptoJS } = await loadScriptRuntime();
     const fn = new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script);
     fn(pm, reqSpace, _, moment, CryptoJS, consoleMock);
   } catch (e) {
@@ -136,7 +160,7 @@ export function runPreRequestScript(script?: string, collectionId?: string, iter
   return { nextRequest };
 }
 
-export function runTestScript(
+export async function runTestScript(
   script: string | undefined,
   response: { status: number; statusText: string; headers: Record<string, string>; body: string; time: number },
   collectionId?: string,
@@ -192,7 +216,7 @@ export function runTestScript(
           testResults.push({ name, passed: false, error: err.message || String(err) });
         }
       },
-      expect: chai.expect,
+      expect: (await loadScriptRuntime()).expect,
       environment: {
         get: (key: string) => {
           const { environments, activeEnvironmentId } = useEnvironmentStore.getState();
@@ -303,6 +327,7 @@ export function runTestScript(
       }
     };
 
+    const { _, moment, CryptoJS } = await loadScriptRuntime();
     const runFn = new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script);
     runFn(pm, reqSpace, _, moment, CryptoJS, consoleMock);
   } catch (err: any) {

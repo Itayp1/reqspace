@@ -108,8 +108,21 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.en
 
 // Middleware
 app.use(morgan('dev'));
-// Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
-// currently need a permissive policy; tighten via a dedicated CSP later.
+// Baseline HTTP hardening. frame-src 'self' lets the response visualizer iframe
+// load /visualizer.html. A sandboxed iframe is a unique origin, so those assets
+// must opt out of Helmet's default same-origin CORP or the frame stays blank.
+app.use((req, res, next) => {
+  if (req.path === '/visualizer.html' || req.path.startsWith('/vendor/')) {
+    const setHeader = res.setHeader.bind(res);
+    res.setHeader = ((name: string, value: number | string | readonly string[]) => {
+      if (String(name).toLowerCase() === 'cross-origin-resource-policy') {
+        return setHeader(name, 'cross-origin');
+      }
+      return setHeader(name, value);
+    }) as typeof res.setHeader;
+  }
+  next();
+});
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -120,7 +133,7 @@ app.use(helmet({
       connectSrc: ["'self'"],
       fontSrc: ["'self'", 'data:'],
       objectSrc: ["'none'"],
-      frameSrc: ["'none'"],
+      frameSrc: ["'self'"],
       baseUri: ["'self'"],
     },
   },

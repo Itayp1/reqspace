@@ -1,11 +1,14 @@
-import { assert, expect } from 'chai';
-import _ from 'lodash';
-import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
-import CryptoJS from 'crypto-js';
 
-// Setup environment for the script
+// Setup environment for the script. Heavy libs load only when a script message arrives.
 self.onmessage = async (e) => {
+  const [{ default: _ }, { default: moment }, { default: CryptoJS }, chai] = await Promise.all([
+    import('lodash'),
+    import('moment'),
+    import('crypto-js'),
+    import('chai'),
+  ]);
+  const { assert, expect } = chai;
   const { code, context, executionId } = e.data;
   
   let testResults: Array<{ name: string; passed: boolean; error?: string }> = [];

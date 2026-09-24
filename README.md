@@ -366,8 +366,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
     2. Cover the remaining `emitToWorkspace` call sites with two-client tests (folders, requests, environments, reorder — collections are covered).
     3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
 
-* [ ] **Client dependency weight** — `CR#23`
-  * **Do:** `moment` **and** `date-fns` are both bundled; `lodash` is imported whole; `crypto-js` and `chai` ship to the browser for script support; Handlebars is fetched from jsDelivr at runtime (a third-party supply-chain and availability dependency). Consolidate on one date library, import lodash per-function, lazy-load the script-runtime libraries, and self-host Handlebars.
+* [x] **Client dependency weight** — `CR#23`
+  * ✅ **Done:** `date-fns` is removed (nothing imported it). `moment` is the only date library, and it loads with `lodash`, `crypto-js`, and `chai` only when a pre-request or test script runs — not in the initial bundle. User scripts still receive the full `_` object, because they can call any lodash method; app code does not import lodash. Handlebars is copied from the `handlebars` package to `/vendor/handlebars.min.js` and the visualizer iframe no longer contacts jsDelivr. The iframe is `sandbox="allow-scripts"` (no `allow-same-origin`). User scripts themselves still run via `new Function` on the main thread — that remains `CR#5`.
 
 * [x] **UI consistency** — `CR#27`
   * ✅ **Done:** `/admin` sits inside the layout `AuthGuard` and adds only `SuperAdminGuard`. The database-error and loading screens in `App.tsx` use Tailwind. A 401 clears the session and returns to login; a 403 leaves the session in place and shows a dismissible notice.

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useRequestStore } from '../../store/requestStore';
 import { useCookieStore } from '../../store/cookieStore';
 import type { CookieItem } from '../../store/cookieStore';
@@ -46,6 +46,7 @@ export const ResponseViewer: React.FC = () => {
   const [isCopied, setIsCopied] = useState(false);
   const [wordWrap, setWordWrap] = useState<boolean>(false);
   const [forceRenderLarge, setForceRenderLarge] = useState<boolean>(false);
+  const visualizerRef = useRef<HTMLIFrameElement>(null);
 
   const requestDomain = useMemo(() => {
     try {
@@ -534,31 +535,18 @@ export const ResponseViewer: React.FC = () => {
         {activeTab === 'visualizer' && activeResponse.visualizerData && (
           <div className="flex flex-col h-full bg-white">
             <iframe
+              ref={visualizerRef}
               className="w-full h-full border-none"
               title="visualizer"
-              srcDoc={`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                  <meta charset="utf-8">
-                  <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.min.js"></script>
-                  <style>body { font-family: sans-serif; padding: 10px; margin: 0; }</style>
-                </head>
-                <body>
-                  <div id="root"></div>
-                  <script>
-                    try {
-                      var templateStr = ${JSON.stringify(activeResponse.visualizerData.template)};
-                      var data = ${JSON.stringify(activeResponse.visualizerData.data || {})};
-                      var template = Handlebars.compile(templateStr);
-                      document.getElementById('root').innerHTML = template(data);
-                    } catch (e) {
-                      document.getElementById('root').innerHTML = '<div style="color:red; font-family:monospace;">Visualizer Error: ' + e.message + '</div>';
-                    }
-                  </script>
-                </body>
-                </html>
-              `}
+              sandbox="allow-scripts"
+              src="/visualizer.html"
+              onLoad={() => {
+                visualizerRef.current?.contentWindow?.postMessage({
+                  type: 'reqspace-visualizer',
+                  template: activeResponse.visualizerData?.template ?? '',
+                  data: activeResponse.visualizerData?.data ?? {},
+                }, '*');
+              }}
             />
           </div>
         )}
