@@ -35,22 +35,22 @@ router.get('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), a
 // report its own quota usage honestly — saveHistoryEntry recomputes body size
 // and caps from SystemConfig regardless of what the request body claims.
 router.post('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
-  const { requestSnapshot, responseSnapshot, testResults } = req.body || {};
+  const { requestSnapshot, responseBody, responseStatus, responseStatusText, responseHeaders, responseTime, responseSize, testResults } = req.body || {};
   if (!requestSnapshot || typeof requestSnapshot !== 'object') {
     return res.status(400).json({ message: 'requestSnapshot required' });
   }
-  if (!responseSnapshot || typeof responseSnapshot !== 'object') {
-    return res.status(400).json({ message: 'responseSnapshot required' });
+  if (typeof responseBody !== 'string' || typeof responseStatus !== 'number') {
+    return res.status(400).json({ message: 'responseBody and responseStatus required' });
   }
 
   await saveHistoryEntry(String(req.user!._id), req.params.workspaceId, {
     requestSnapshot,
-    responseBody: typeof responseSnapshot.body === 'string' ? responseSnapshot.body : '',
-    responseStatus: Number(responseSnapshot.status) || 0,
-    responseStatusText: String(responseSnapshot.statusText || ''),
-    responseHeaders: responseSnapshot.headers || {},
-    responseTime: Number(responseSnapshot.responseTime) || 0,
-    responseSize: Number(responseSnapshot.size) || 0,
+    responseBody,
+    responseStatus,
+    responseStatusText: String(responseStatusText || ''),
+    responseHeaders: responseHeaders || {},
+    responseTime: Number(responseTime) || 0,
+    responseSize: Number(responseSize) || 0,
     testResults: Array.isArray(testResults) ? testResults : [],
   });
   return res.status(201).json({ ok: true });

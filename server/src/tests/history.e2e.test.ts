@@ -42,14 +42,12 @@ async function registerAndLogin(name: string, email: string, password = 'passwor
 function historyPayload(opts: { bodyLength: number; claimedSize: number }) {
   return {
     requestSnapshot: { method: 'GET', url: 'https://example.com/test' },
-    responseSnapshot: {
-      status: 200,
-      statusText: 'OK',
-      headers: {},
-      body: 'x'.repeat(opts.bodyLength),
-      responseTime: 42,
-      size: opts.claimedSize,
-    },
+    responseBody: 'x'.repeat(opts.bodyLength),
+    responseStatus: 200,
+    responseStatusText: 'OK',
+    responseHeaders: {},
+    responseTime: 42,
+    responseSize: opts.claimedSize,
     testResults: [],
   };
 }
