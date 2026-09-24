@@ -11,6 +11,7 @@ router.use(authenticate);
 const MAX_PROXY_TIMEOUT_MS = 120_000;
 const MAX_PROXY_RESPONSE_BYTES = Number(process.env.MAX_PROXY_RESPONSE_BYTES || 5 * 1024 * 1024);
 const proxyLimiter = rateLimit({
+  name: 'proxy',
   windowMs: 60 * 1000,
   max: 60,
   message: 'Too many proxy requests — please try again later.',

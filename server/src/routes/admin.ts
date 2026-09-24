@@ -8,6 +8,7 @@ import { FolderRepository } from '../repositories/FolderRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
 import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { UserRepository, IUserRecord } from '../repositories/UserRepository';
+import { redisMode } from '../redis';
 import bcrypt from 'bcryptjs';
 
 function publicUser(user: IUserRecord) {
@@ -17,6 +18,10 @@ function publicUser(user: IUserRecord) {
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
+
+router.get('/runtime', (_req: AuthRequest, res: Response) => {
+  return res.json({ redisConcurrency: redisMode() });
+});
 
 // ── GET /api/admin/users ────────────────────────────────────────────────────
 router.get('/users', async (req: AuthRequest, res: Response) => {

@@ -30,6 +30,7 @@ import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
 import { getUserWorkspaceRole } from './middleware/rbac';
 import { resolveJwtSecret } from './utils/jwtSecret';
+import { connectRedis, attachSocketAdapter, redisMode } from './redis';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = resolveJwtSecret();
@@ -158,6 +159,7 @@ app.get('/api/health', (_req, res) => {
   res.status(status).json({
     status: dbStatus,
     dbType,
+    redisConcurrency: redisMode(),
     dbError: dbError ? (isProd ? 'Database unavailable' : dbError) : undefined,
     uptime: process.uptime(),
     mongoState: mongoose.connection.readyState,
@@ -224,6 +226,9 @@ async function bootstrap() {
   const { connectDb } = await import('./db/connect');
 
   const port = parseInt(process.env.PORT ?? '3005', 10);
+
+  await connectRedis();
+  await attachSocketAdapter(io);
 
   // Start listening first — so the client can load and show errors
   server.listen(port, () => {

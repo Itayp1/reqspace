@@ -134,13 +134,13 @@ What the server actually does today, versus what is still only a plan. Open item
 
 ## 🚀 Scalability & Performance (High-Scale Architecture)
 
-The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ sockets) are a target, not a measured capacity. Of the five items, only indexing is implemented.
+The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ sockets) are a target, not a measured capacity. Indexing, realtime deltas, and optional Redis concurrency are implemented. Lazy loading and RBAC caching are not.
 
 1. **Database Indexing (in place):** Sequelize models under `server/src/db/sql-models/` declare indexes on `workspaceId`, `collectionId`, and `folderId`, plus compound indexes on `order` / `parentFolderId`. Sequelize emits the dialect-specific `CREATE INDEX` on sync for PostgreSQL, MySQL, SQLite, and MSSQL.
 2. **Lazy loading and pagination (not started):** List endpoints still return whole trees. Cursor pagination and expand-to-load are not implemented.
 3. **Realtime sync applies the event payload.** `SocketSync` writes the received collection, folder, request, environment, or reorder list into the store. It loads the full tree only when the socket connects. The socket origin is `VITE_SOCKET_URL`, or the page origin when that variable is unset.
 4. **RBAC and config caching (not started):** Membership and system config are read from the database on the request path. There is no Redis or in-memory cache.
-5. **Horizontal WebSockets (not started):** There is no Redis adapter. `k8s/deployment.yaml` sets `replicas: 2` and an HPA with no sticky sessions, so a second replica cannot share Socket.io rooms. Single-node `io.to(room).emit` is what runs today.
+5. **Horizontal WebSockets:** When `REDIS_URL` is set and Redis answers, Socket.io uses the Redis adapter and rate limits share that store. Otherwise the process stays single-node. The Ingress pins a client with the `reqspace-route` cookie, and the Service uses `sessionAffinity: ClientIP`.
 
 ## 🧪 Testing Strategy (target architecture)
 
@@ -318,9 +318,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
   * **Do:** add request schemas route by route, starting with the mass-assignment routes above, then proxy / auth / admin bodies. While there, replace `req.user?: any` and the scattered `as any` casts with real types.
 
-* [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit/proxy caps done)
-  * ✅ **Done:** `helmet` now sends a CSP (`script-src 'self'`; styles allow inline because the UI still uses some). `POST /api/proxy` is limited to 60 requests/minute/IP, client timeouts are capped at 120s, and proxy responses stop at `MAX_PROXY_RESPONSE_BYTES` (default 5 MB) with status 413.
-  * **Do:** move the in-memory rate limiter to a shared store when Redis mode lands, so the limit holds across replicas.
+* [x] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit/proxy caps done)
+  * ✅ **Done:** `helmet` sends a CSP (`script-src 'self'`; styles allow inline because the UI still uses some). `POST /api/proxy` is limited to 60 requests/minute/IP, client timeouts are capped at 120s, and proxy responses stop at `MAX_PROXY_RESPONSE_BYTES` (default 5 MB) with status 413. When `REDIS_URL` is set and Redis answers, every limiter uses that shared counter (`rl:<name>:<ip>`). With no Redis, the window stays in memory on this process.
 
 * [x] **SSRF: gaps in coverage** — `CR#25`
   * ✅ **Done:** `ssrf.ts` blocks NAT64, IPv4-mapped forms, integer/hex/octal literals, and trailing-dot hosts. `proxy.ts` asserts `http:`/`https:` before dispatching. `capture.ts` forwards with undici and `createSafeLookup` (no global `fetch`, redirects are manual). `assertRedirectTargetSafe` refuses a `Location` that points at a private host; covered in `server/src/tests/ssrf.test.ts`.
@@ -336,12 +335,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 ### 🔵 Stage 3 — Scale (blocked on Stage 0)
 
-* [ ] **Optional Redis Concurrency Mode:** Implement an optional Redis adapter for Socket.io to support horizontal scaling out-of-the-box.
-  * **Configurable:** Driven by an environment variable (e.g., `REDIS_URL=redis://localhost:6379`). If absent, the server gracefully falls back to single-node (in-memory) mode.
-  * **Server Startup:** The server will automatically detect the variable and attach the adapter during boot.
-  * **Admin UI Indicator:** The Admin Dashboard will feature a clear visual indicator showing whether "Redis Concurrency Mode" is currently Active or Inactive.
-  * ⚠️ **Prerequisite:** both realtime defects in Stage 0 (now fixed).
-  * **Also needs:** sticky sessions on the Ingress (k8s currently runs `replicas: 2` + HPA **without** them), and the shared rate-limit store from `CR#8`.
+* [x] **Optional Redis Concurrency Mode:** Implement an optional Redis adapter for Socket.io to support horizontal scaling out-of-the-box.
+  * ✅ **Done:** `REDIS_URL` attaches `@socket.io/redis-adapter` during boot. If the variable is absent, or Redis does not answer, the server stays on the in-memory adapter and logs that. `GET /api/health` and `GET /api/admin/runtime` report `redisConcurrency` as `active` or `inactive`. The Admin Dashboard shows that state under the title. The Ingress sets nginx cookie affinity (`reqspace-route`) and the Service sets `sessionAffinity: ClientIP`. Rate limits use the same Redis when it is active (`CR#8`).
 
 * [x] **Granular delta updates instead of full refetch** — `CR#22`
   * ✅ **Done:** `SocketSync` upserts or removes the document carried by `collection:*`, `folder:*`, `request:*`, and `environment:*`. Reorder events carry `{ type, items }` or `{ items }` and only those `order` fields change. Window focus no longer refetches the tree. A full load still runs once on socket connect, to cover time spent offline. The socket origin is `VITE_SOCKET_URL` when set, otherwise `window.location.origin` — it is not derived by stripping `/api` from the axios base URL.

@@ -7,6 +7,7 @@ import { createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
 const publicProxyLimiter = rateLimit({
+  name: 'share-proxy',
   windowMs: 60 * 1000,
   max: 30,
   message: 'Too many requests for this shared link — please try again later.',

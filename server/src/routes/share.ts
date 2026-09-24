@@ -9,6 +9,7 @@ import { RequestRepository } from '../repositories/RequestRepository';
 
 const router = Router();
 const publicShareLimiter = rateLimit({
+  name: 'share',
   windowMs: 60 * 1000,
   max: 30,
   message: 'Too many requests for this shared link — please try again later.',

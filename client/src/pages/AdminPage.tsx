@@ -13,6 +13,7 @@ export default function AdminPage() {
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
+  const [redisConcurrency, setRedisConcurrency] = useState<'active' | 'inactive' | null>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings'>('users');
   const [loading, setLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -21,6 +22,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (user?.isSuperAdmin) {
       fetchUsers();
+      api.get('/admin/runtime').then(res => setRedisConcurrency(res.data.redisConcurrency)).catch(() => setRedisConcurrency('inactive'));
     }
   }, [user]);
 
@@ -83,6 +85,12 @@ export default function AdminPage() {
   return (
     <div className="flex-1 flex flex-col bg-surface p-8">
       <h1 className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
+      {redisConcurrency && (
+        <div className={`mb-6 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${redisConcurrency === 'active' ? 'border-green-600 text-green-700 bg-green-50' : 'border-border text-text-muted bg-surface'}`}>
+          <span className={`h-2.5 w-2.5 rounded-full ${redisConcurrency === 'active' ? 'bg-green-500' : 'bg-gray-400'}`} />
+          Redis Concurrency Mode: {redisConcurrency === 'active' ? 'Active' : 'Inactive'}
+        </div>
+      )}
       
       <div className="flex border-b border-border mb-6">
         {['users', 'workspaces', 'logs', 'settings'].map(tab => (
