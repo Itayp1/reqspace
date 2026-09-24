@@ -371,8 +371,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Dead code and naming** — *P3*
   * ✅ **Done:** `server/dist` stays gitignored. `ensureDefaultAdmin` is gone; bootstrap lives in `index.ts`. `share.ts` no longer has `??` placeholders. `multer`, `http-proxy-middleware`, `archiver`, and `postman-collection` were unused and are removed. The Electron `appId` is `com.reqspace.app`. New SQL databases default to `reqspace`. (`runner.ts` was removed with `CR#13`.)
 
-* [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
-  * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.
+* [x] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
+  * ✅ **Done:** the list is audited against the code. 23 items are marked **Landed** (load test, visualizer, snippets, client certificates, SSL toggle, redirects, environment duplicate, globals, collection and local variables, cURL import and export, v2.1 export, raw import, tabs, context menus, response download, `pm.sendRequest`, folder scripts, timeout, response cap). 26 are **Partial** (GraphQL body, OAuth2 token, NTLM headers, OpenAPI import tab, Google OAuth, code generation for six targets, and others). 51 are still absent, including gRPC, MQTT, monitors, mock servers, 2FA, and data residency.
 
 ## 📝 License
 
