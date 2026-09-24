@@ -3,15 +3,42 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { saveHistoryEntry } from './history';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { createSafeLookup } from '../utils/ssrf';
+import { rateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 router.use(authenticate);
 
+const MAX_PROXY_TIMEOUT_MS = 120_000;
+const MAX_PROXY_RESPONSE_BYTES = Number(process.env.MAX_PROXY_RESPONSE_BYTES || 5 * 1024 * 1024);
+const proxyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: 'Too many proxy requests — please try again later.',
+});
+
+async function readCappedBody(body: AsyncIterable<Uint8Array> | null, maxBytes: number): Promise<Buffer> {
+  if (!body) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of body) {
+    const buf = Buffer.from(chunk);
+    total += buf.length;
+    if (total > maxBytes) {
+      const err = new Error('Proxy response exceeded the size limit');
+      (err as any).status = 413;
+      throw err;
+    }
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks);
+}
+
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
 // ── POST /api/proxy ─────────────────────────────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
   const { method, url, headers = {}, body, workspaceId, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
+  const effectiveTimeout = Math.min(Math.max(Number(timeout) || 30000, 1), MAX_PROXY_TIMEOUT_MS);
 
   if (!url) return res.status(400).json({ message: 'url is required' });
   if (!ALLOWED_METHODS.includes(method?.toUpperCase())) {
@@ -34,8 +61,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const controller = new AbortController();
     let timeoutId: NodeJS.Timeout | undefined;
-    if (timeout > 0) {
-      timeoutId = setTimeout(() => controller.abort(), timeout);
+    if (effectiveTimeout > 0) {
+      timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
     }
 
     const fetchOptions: any = {
@@ -121,8 +148,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (timeoutId) clearTimeout(timeoutId);
 
     const responseTime = Date.now() - startTime;
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer = await readCappedBody(response.body as AsyncIterable<Uint8Array> | null, MAX_PROXY_RESPONSE_BYTES);
     
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => { responseHeaders[key] = value; });
@@ -183,6 +209,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const cause = err instanceof Error ? (err as any).cause : undefined;
     if ((err instanceof Error && err.name === 'SsrfBlockedError') || cause?.name === 'SsrfBlockedError') {
       return res.status(400).json({ message: (cause ?? err as Error).message, responseTime: elapsed });
+    }
+    if (err instanceof Error && (err as any).status === 413) {
+      return res.status(413).json({ message: err.message, responseTime: elapsed });
     }
     return res.status(502).json({
       message: 'Proxy error',

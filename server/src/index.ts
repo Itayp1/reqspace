@@ -110,7 +110,21 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.en
 app.use(morgan('dev'));
 // Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
 // currently need a permissive policy; tighten via a dedicated CSP later.
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  },
+}));
 // Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
 // MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
 const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';
