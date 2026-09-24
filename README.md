@@ -253,13 +253,11 @@ The Features list at the top of this file promises things the server does not de
 
 * [ ] **Multi-database support — finish the remaining routes** — `CR#1` (core done)
   * ✅ **Done:** `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check in `utils/ids.ts`), `routes/workspaces.ts` and `routes/collections.ts` now go through the repositories. The authenticated core path (login → `/me` → workspace → collection → folder → request → comment → delete → logout) is verified on **both SQLite and MongoDB**.
-  * **Remaining — Where:** `routes/{environments,history,admin,capture,importExport,share}.ts` still call Mongoose models directly and will fail under `DB_TYPE≠mongodb`. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) schemas reconciled.
-  * **Do:** route those files through the repositories (extending `EnvironmentRepository`/`HistoryRepository` to the full shape) and fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
+  * **Remaining — Where:** `routes/{environments,history,admin,capture}.ts` and the `SharedLink` model in `routes/share.ts` still talk to Mongoose directly and will fail under `DB_TYPE≠mongodb`. `importExport.ts` and the collection/request reads inside `share.ts` now go through repositories. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) schemas reconciled, plus a SQL model for `SharedLink`.
+  * **Do:** route the remaining files through the repositories and add a `SharedLink` repository. Fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
 
-* [ ] **Import / Export / Runner are server-side stubs** — `CR#13`
-  * **Where:** `server/src/routes/importExport.ts` (`GET /collections/:id/export` returns `{ item: [] }`), `server/src/routes/runner.ts` (near-empty)
-  * **Why it matters:** real import happens client-side in `ImportModal`, so some flows skip server-side permission checks entirely.
-  * **Do:** implement ReqSpace v2.1 export/import server-side with RBAC, or remove the entry points from the UI. Do not keep shipping buttons that resolve to nothing.
+* [x] **Import / Export / Runner are server-side stubs** — `CR#13`
+  * ✅ **Done:** `GET /collections/:id/export` returns a collection v2.1 document (folders + requests) and `POST /collections/import` writes it back, both through the repositories with viewer/editor checks. WSDL import uses the same repositories. `POST /runner/run` no longer pretends to start a run — it returns 410, because collection runs already execute in the in-app runner.
 
 * [x] **`sync({ alter: true })` runs on every boot** — `CR#18`
   * ✅ **Done:** `server/src/db/connect.ts` only auto-`alter`s outside production (`sync({})` in production, non-destructive); the dead `/admin/db-config` carve-out was removed from the DB-down gate. (Full migrations via `umzug`/Sequelize-CLI are still a future improvement.)
@@ -273,22 +271,17 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [x] **Header auth allows impersonation** — `CR#2`
   * ✅ **Done:** `X-Auth-User` is honoured only when the request source is trusted (`HEADER_AUTH_TRUSTED_IPS`, loopback by default) in `server/src/middleware/auth.ts`.
 
-* [ ] **Share-proxy is an open proxy for anonymous users** — `CR#3`
-  * **Where:** `server/src/routes/shareProxy.ts`, `server/src/routes/share.ts`
-  * **Why:** `POST /api/share/:shortId/proxy` requires no login, so a link holder can make the server issue arbitrary HTTP requests. `GET /api/share/:shortId` returns every request **including headers, tokens and scripts**.
-  * **Do:** restrict the public proxy to URLs present in the shared collection (or remove it); strip auth / cookies / variables from the public payload; block `localProxy` on the public path; widen `shortId` beyond 48 bits and rate-limit it.
+* [x] **Share-proxy is an open proxy for anonymous users** — `CR#3`
+  * ✅ **Done:** the public proxy only forwards URLs that match a request in the shared collection, rejects `localProxy`, and is rate-limited. `GET /api/share/:shortId` strips auth, scripts, sensitive headers and variable values. New links use a 128-bit `shortId` (16 random bytes) and the public read is rate-limited.
 
-* [ ] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
-  * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error.
-  * **Where:** `POST /api/auth/google` in `server/src/routes/auth.ts` (+ the client callback page)
-  * **Do:** issue a random `state` in a cookie and verify it on callback (needs a matching client change).
+* [x] **OAuth: add `state`/CSRF** — `CR#4`
+  * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error. `GET /api/auth/google/state` sets an httpOnly `oauth_state` cookie; login/register send that value to Google and the callback must echo it or the exchange is rejected.
 
 * [x] **Default admin credentials, shared JWT secret, insecure TLS** — `CR#6`
   * ✅ **Done:** production refuses to bootstrap `admin`/`admin`; `jwtSecret.ts` refuses a per-pod ephemeral secret in production (require `JWT_SECRET`, opt out with `ALLOW_EPHEMERAL_JWT_SECRET`); Mongo `tlsInsecure` is opt-in via `MONGO_TLS_INSECURE`. (Populating a real value in `k8s/secret.yaml` remains a deploy-time action.)
 
-* [ ] **Mass assignment and cross-workspace writes** — `CR#7` (main routes done)
-  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` now allowlist writable fields (no `workspaceId`/`collectionId` reassignment) and no longer leak `err.message`.
-  * **Do:** `POST /api/history/:id/save` still creates a request in a client-supplied `collectionId` with no membership check, and `POST /api/import/wsdl` still has no `requireWorkspaceRole` — add the guards.
+* [x] **Mass assignment and cross-workspace writes** — `CR#7`
+  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` allowlist writable fields. `POST /api/history/:id/save` checks editor membership on the target collection before touching the history row. `POST /api/import/wsdl` requires an editor in `workspaceId`.
 
 * [x] **History endpoints have no workspace RBAC** — `CR#11`
   * ✅ **Done:** `GET`/`DELETE /workspaces/:workspaceId/history` now require `requireWorkspaceRole('viewer')`, and the workspace-scoped clear decrements `historyUsedBytes` by the bytes actually freed instead of zeroing the user's whole counter. (The `Types.ObjectId(workspaceId)` SQL issue folds into the `CR#1` follow-up for `history.ts`.)
@@ -305,9 +298,9 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 **Sandboxing & input validation**
 
 * [ ] **User scripts run unsandboxed on the main thread** — `CR#5`, `CR#20`
-  * **Where:** `client/src/utils/scripts.ts:131` and `:306` (`new Function(...)`); `client/src/sandbox/worker.ts` exists but is referenced **only from a comment** in `RunnerModal.tsx:16`; the visualizer iframe in `ResponseViewer.tsx` has no `sandbox` attribute and injects Handlebars output via `innerHTML` from a CDN
-  * **Why:** scripts get `window`, `document`, `localStorage` and the app's authenticated axios instance — enough to read persisted bearer tokens and issue requests as the user.
-  * **Do:** run scripts only in the Worker (or an iframe with `sandbox` and **without** `allow-same-origin`); expose `pm.sendRequest` through an allowlisted message channel rather than handing over `api`; add `sandbox` to the visualizer iframe and self-host Handlebars. Consolidate onto **one** sandbox implementation — the `scripts.ts` / `worker.ts` split is currently two half-built paths.
+  * ✅ **Done (visualizer):** the response visualizer iframe is `sandbox="allow-scripts"` (no `allow-same-origin`) and loads Handlebars from `client/public/vendor/handlebars.min.js` instead of jsDelivr. The HTML preview iframe no longer sets `allow-same-origin`.
+  * **Where:** `client/src/utils/scripts.ts` still runs user code with `new Function` on the main thread; `client/src/sandbox/worker.ts` is referenced only from a comment in `RunnerModal.tsx` and its `pm.sendRequest` is a stub.
+  * **Do:** run scripts only in the Worker; expose `pm.sendRequest` through an allowlisted message channel rather than handing over `api`. Consolidate onto one sandbox — `scripts.ts` and `worker.ts` are still two half-built paths. Credential stripping (`CR#21`) is in place, so a script can no longer read tokens that were persisted, but it can still read the in-memory session.
 
 * [ ] **Zod is a dependency that is never imported** — `CR#19`
   * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
@@ -315,22 +308,22 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 * [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit done)
   * ✅ **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`) and correct client-error statuses (413) are in place in `server/src/index.ts`.
-  * **Do:** cap the proxy response size and client-supplied timeout, add a CSP, rate-limit `POST /api/proxy`, and move the in-memory rate limiter to a shared store (alongside the Redis work) so it holds across replicas.
+  * ✅ **Done:** proxy and share-proxy cap the client timeout (`MAX_PROXY_TIMEOUT_MS`, default 120s) and the response body (`MAX_PROXY_RESPONSE_BYTES`, default 10MB, 413 when exceeded). `POST /api/proxy` is rate-limited (120/min/IP). Helmet now sends a CSP (Monaco still needs `unsafe-eval` and inline styles).
+  * **Do:** move the in-memory rate limiter to a shared store so it holds across replicas — tracked with the Redis task below.
 
 * [ ] **SSRF: gaps in coverage** — `CR#25` (parser + proxy protocol check done)
   * ✅ **Done:** `ssrf.ts` now blocks NAT64 (`64:ff9b:`), IPv4-mapped forms, integer/hex/octal literals (`0x7f000001`) and trailing-dot hosts (offline unit tests in `server/src/tests/ssrf.test.ts`); `proxy.ts` asserts `http:`/`https:` before dispatching.
-  * **Do:** make `server/src/routes/capture.ts` forward via `createSafeLookup` instead of the global `fetch` (currently only a pre-flight `assertSsrfSafe`, which is TOCTOU / DNS-rebind vulnerable); add a test that a redirect to a private host is refused.
+  * ✅ **Done:** `capture.ts` forwards with undici and `createSafeLookup`, so the address is checked at connect time.
+  * **Do:** add a test that a redirect to a private host is refused. The undici lookup pins the first resolution; a redirect to a new host should be re-checked by the same agent, and that needs a live assertion.
 
-* [ ] **Secrets persisted to `localStorage`** — `CR#21`
-  * **Where:** `client/src/store/requestStore.ts` (persists all tabs including `auth.bearer.token`, basic passwords, bodies), `client/src/store/cookieStore.ts` (also ships a dummy `sess_default_123`), `client/src/store/settingsStore.ts` (local proxy password)
-  * **Do:** strip credential fields from the persisted slice; keep them in memory or in the OS keychain for the Electron build. This is a prerequisite for the sandbox work to mean anything.
+* [x] **Secrets persisted to `localStorage`** — `CR#21`
+  * ✅ **Done:** the request-tab persist slice blanks bearer/basic/api-key/oauth/ntlm secrets and sensitive headers. The proxy password is omitted from the settings persist slice. The cookie jar is memory-only and the old `reqspace_cookies_v1` entry (including the dummy `sess_default_123`) is removed on load.
 
 * [x] **Information disclosure and open registration** — `CR#24`
   * ✅ **Done:** `allowSelfRegistration` now defaults to **false**, and `GET /api/health` masks the raw `dbError` in production.
 
-* [ ] **Client certificates stored in plaintext** — *P3*
-  * **Where:** client-certificate records in the DB hold private keys as clear text
-  * **Do:** encrypt at rest with a server-held key, or store a reference and keep the material out of the DB.
+* [x] **Client certificates stored in plaintext** — *P3*
+  * ✅ **Done:** cert, key and passphrase are sealed with AES-256-GCM (`enc:v1:`, key derived from `JWT_SECRET`) before they are stored. API responses return only hostname and id. The proxy decrypts at connect time and still accepts legacy plaintext rows.
 
 ### 🔵 Stage 3 — Scale (blocked on Stage 0)
 
@@ -356,24 +349,26 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 ### ⚪ Stage 4 — Quality, tests and cleanup
 
 * [ ] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
-  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh` (crosses the first authenticated request); `ssrf.ts` unit tests; a two-client `socket-realtime` spec (`collection:updated`/`:deleted`); an `api-authorization` spec (viewer → 403 via the API, non-member → 403 read); `global-setup` enables registration; the obsolete socket-sync suppression assertion was replaced; the deprecated `globals.ts-jest` config was migrated to `transform`.
+  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh`; `ssrf.ts` unit tests; `secretAtRest` unit test; a two-client `socket-realtime` spec; `api-authorization` now also covers history-save, WSDL import and collection import/export; `global-setup` enables registration.
   * **Do (remaining):**
     1. Route every spec through `baseURL` (currently hardcoded `http://localhost:3005`) and add one Playwright project per backend — the DB matrix (smoke on all four, full suite nightly).
     2. Cover the remaining `emitToWorkspace` call sites with two-client tests (folders, requests, environments, reorder — collections are covered).
     3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
 
 * [ ] **Client dependency weight** — `CR#23`
-  * **Do:** `moment` **and** `date-fns` are both bundled; `lodash` is imported whole; `crypto-js` and `chai` ship to the browser for script support; Handlebars is fetched from jsDelivr at runtime (a third-party supply-chain and availability dependency). Consolidate on one date library, import lodash per-function, lazy-load the script-runtime libraries, and self-host Handlebars.
+  * ✅ **Done:** unused `date-fns` was removed (nothing imported it). Handlebars is self-hosted for the visualizer.
+  * **Do:** `moment`, whole-package `lodash`, `crypto-js` and `chai` still ship in the script runtime (`scripts.ts` / `worker.ts`). Import lodash per function and lazy-load that runtime when the sandbox is consolidated (`CR#5`).
 
-* [ ] **UI consistency** — `CR#27`
-  * **Do:** `/admin` is wrapped in `AuthGuard` twice; `App.tsx` uses inline `style={{}}` where Tailwind is the convention; 401 and 403 are not handled distinctly. Unify.
+* [x] **UI consistency** — `CR#27`
+  * ✅ **Done:** `/admin` uses a `SuperAdminOnly` gate inside the single `AuthGuard` (no nested guard). `App.tsx` no longer uses inline styles. A 401 still logs the user out; a 403 shows a dismissible notice and keeps the session.
 
 * [x] **Dockerfile and k8s hygiene** — `CR#17`
   * ✅ **Done:** the Dockerfile uses `npm ci`, a multi-stage build-tool-free runtime image, and a non-root `USER`. (k8s sticky sessions for socket.io are tracked under the Redis task above.)
 
 * [ ] **Dead code and naming** — *P3* (`server/dist` untracking done)
   * ✅ **Done:** `server/dist` is no longer committed (gitignored).
-  * **Do:** `runner.ts` is nearly empty (folds into `CR#13`); `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`.
+  * ✅ **Done:** `ensureDefaultAdmin` was removed (bootstrap lives in `index.ts` and refuses `admin`/`admin` in production). `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` were unused and are no longer dependencies. The `??` placeholders in `share.ts` are gone. The runner stub returns 410 (`CR#13`).
+  * **Do:** naming is still inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`. Rename those together so links and existing SQLite files are not orphaned.
 
 * [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
   * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.

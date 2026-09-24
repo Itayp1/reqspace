@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { requireWorkspaceRole } from '../middleware/rbac';
+import { getUserWorkspaceRole, requireWorkspaceRole } from '../middleware/rbac';
+import { CollectionRepository } from '../repositories/CollectionRepository';
 import { History } from '../models/History';
 import { User } from '../models/User';
 import { SystemConfig } from '../models/SystemConfig';
@@ -78,14 +79,25 @@ router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer')
 
 // ── POST /api/history/:id/save – Save to Collection ─────────────────────────
 router.post('/history/:id/save', async (req: AuthRequest, res: Response) => {
+  const { collectionId, folderId, name } = req.body;
+  if (!collectionId) return res.status(400).json({ message: 'collectionId required' });
+
+  // Membership is checked before the history lookup so a caller cannot write
+  // into a collection they don't edit, even with a guessed history id (CR#7).
+  const collection = await CollectionRepository.findById(String(collectionId));
+  if (!collection) return res.status(404).json({ message: 'Collection not found' });
+  if (!req.user!.isSuperAdmin) {
+    const role = await getUserWorkspaceRole(String(req.user!._id), String(collection.workspaceId));
+    if (!role || role === 'viewer') {
+      return res.status(403).json({ message: 'Editor role required in this workspace' });
+    }
+  }
+
   const item = await History.findOne({
     _id: req.params.id,
     userId: req.user!._id,
   }).lean();
   if (!item) return res.status(404).json({ message: 'Not found' });
-
-  const { collectionId, folderId, name } = req.body;
-  if (!collectionId) return res.status(400).json({ message: 'collectionId required' });
 
   const count = await ApiRequest.countDocuments({ collectionId, folderId: folderId ?? null });
   const request = await ApiRequest.create({

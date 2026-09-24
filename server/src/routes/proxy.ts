@@ -4,14 +4,46 @@ import { saveHistoryEntry } from './history';
 import mongoose from 'mongoose';
 import { SystemConfig } from '../models/SystemConfig';
 import { createSafeLookup } from '../utils/ssrf';
+import { decryptSecret } from '../utils/secretAtRest';
+import { rateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 router.use(authenticate);
 
+const MAX_TIMEOUT_MS = Number(process.env.MAX_PROXY_TIMEOUT_MS || 120_000);
+const MAX_RESPONSE_BYTES = Number(process.env.MAX_PROXY_RESPONSE_BYTES || 10 * 1024 * 1024);
+
+const proxyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: 'Too many proxy requests — please slow down.',
+});
+
+async function readCapped(response: { body: ReadableStream<Uint8Array> | null }, maxBytes: number): Promise<Buffer> {
+  const body = response.body;
+  if (!body) return Buffer.alloc(0);
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel();
+      const err = new Error('Response exceeds the configured size limit') as Error & { status?: number };
+      err.status = 413;
+      throw err;
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
 // ── POST /api/proxy ─────────────────────────────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', proxyLimiter, async (req: AuthRequest, res: Response) => {
   const { method, url, headers = {}, body, workspaceId, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
 
   if (!url) return res.status(400).json({ message: 'url is required' });
@@ -33,11 +65,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   const startTime = Date.now();
 
   try {
+    const requestedTimeout = Number(timeout);
+    const timeoutMs = Math.min(
+      Math.max(Number.isFinite(requestedTimeout) && requestedTimeout > 0 ? requestedTimeout : 30_000, 1),
+      MAX_TIMEOUT_MS,
+    );
     const controller = new AbortController();
-    let timeoutId: NodeJS.Timeout | undefined;
-    if (timeout > 0) {
-      timeoutId = setTimeout(() => controller.abort(), timeout);
-    }
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const fetchOptions: any = {
       method: method.toUpperCase(),
@@ -75,9 +109,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     const connectOpts: any = { rejectUnauthorized: verifySsl !== false, lookup: createSafeLookup(allowPrivateTargets) };
     if (matchedCert) {
-      connectOpts.cert = matchedCert.cert;
-      connectOpts.key = matchedCert.key;
-      if (matchedCert.passphrase) connectOpts.passphrase = matchedCert.passphrase;
+      connectOpts.cert = decryptSecret(matchedCert.cert);
+      connectOpts.key = decryptSecret(matchedCert.key);
+      if (matchedCert.passphrase) connectOpts.passphrase = decryptSecret(matchedCert.passphrase);
     }
 
     const { ProxyAgent, Agent, fetch: undiciFetch } = await import('undici');
@@ -119,11 +153,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     
     const response = await undiciFetch(url, fetchOptions);
-    if (timeoutId) clearTimeout(timeoutId);
+    clearTimeout(timeoutId);
 
     const responseTime = Date.now() - startTime;
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer = await readCapped(response, MAX_RESPONSE_BYTES);
     
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => { responseHeaders[key] = value; });
@@ -176,6 +209,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     });
   } catch (err: unknown) {
     const elapsed = Date.now() - startTime;
+    if (err instanceof Error && (err as any).status === 413) {
+      return res.status(413).json({ message: err.message, responseTime: elapsed });
+    }
     if (err instanceof Error && err.name === 'AbortError') {
       return res.status(408).json({ message: 'Request timed out', responseTime: elapsed });
     }

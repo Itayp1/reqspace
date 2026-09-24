@@ -55,6 +55,16 @@ export function clearAuthCookie(res: Response) {
   res.clearCookie('token', authCookieOptions());
 }
 
+const OAUTH_STATE_COOKIE = 'oauth_state';
+
+export function setOAuthStateCookie(res: Response, state: string) {
+  res.cookie(OAUTH_STATE_COOKIE, state, { ...authCookieOptions(), maxAge: 10 * 60 * 1000 });
+}
+
+export function clearOAuthStateCookie(res: Response) {
+  res.clearCookie(OAUTH_STATE_COOKIE, authCookieOptions());
+}
+
 /**
  * Whether an identity header (`X-Auth-User`) may be trusted from this request's
  * source. Auto-provisioning a session from a client-supplied header is safe

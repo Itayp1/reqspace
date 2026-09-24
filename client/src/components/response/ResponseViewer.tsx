@@ -377,7 +377,7 @@ export const ResponseViewer: React.FC = () => {
                 srcDoc={body}
                 title="Response HTML Preview"
                 className="w-full h-full border-0 bg-white"
-                sandbox="allow-same-origin"
+                sandbox=""
               />
             ) : (
               <Editor
@@ -536,12 +536,13 @@ export const ResponseViewer: React.FC = () => {
             <iframe
               className="w-full h-full border-none"
               title="visualizer"
+              sandbox="allow-scripts"
               srcDoc={`
                 <!DOCTYPE html>
                 <html>
                 <head>
                   <meta charset="utf-8">
-                  <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.min.js"></script>
+                  <script src="${window.location.origin}/vendor/handlebars.min.js"></script>
                   <style>body { font-family: sans-serif; padding: 10px; margin: 0; }</style>
                 </head>
                 <body>
@@ -553,7 +554,7 @@ export const ResponseViewer: React.FC = () => {
                       var template = Handlebars.compile(templateStr);
                       document.getElementById('root').innerHTML = template(data);
                     } catch (e) {
-                      document.getElementById('root').innerHTML = '<div style="color:red; font-family:monospace;">Visualizer Error: ' + e.message + '</div>';
+                      document.getElementById('root').textContent = 'Visualizer Error: ' + e.message;
                     }
                   </script>
                 </body>

@@ -2,6 +2,27 @@
 
 This document outlines 100 features that exist in the official ReqSpace application but are currently missing from our clone. We will begin working through this list to reach feature parity.
 
+## Audit (2026-09-24)
+
+Checked against the client and server. Items marked **landed** below already have a working path in this repo. Everything else on the numbered list is still open.
+
+Landed (do not re-plan these as greenfield):
+
+- **24** Visualizer — `ResponseViewer` renders a Handlebars template from response data (self-hosted library, sandboxed iframe).
+- **49** Code generation — `CodeGenModal`.
+- **57** Import from cURL — `POST /api/requests/import/curl` and the Import modal.
+- **63** Raw text import — `POST /api/requests/import/raw-http`.
+- **64** Multi-tab support — `requestStore` tabs.
+- **68** History search exists as a history sidebar; dedicated filter UI is still thin.
+- **72** Right-click context menus — `ContextMenu`.
+- **81** `pm.sendRequest` — implemented on the main thread in `scripts.ts` (still unsandboxed; see README `CR#5`).
+- GraphQL **body mode** and an OAuth 2.0 **token field** exist. They are not items 1–2 or 9: there is no schema introspection, query builder, or token dance.
+
+Still open, and newly noticed while auditing:
+
+- Collection v2.1 export/import now exists on the server (`CR#13`). The Import modal still parses files in the browser and does not call `POST /api/collections/import`. Wire the modal to that endpoint so a large import is permission-checked once, not reimplemented.
+- `SharedLink` has no SQL repository, so public share links do not work on SQLite/Postgres/MySQL (`CR#1` follow-up).
+
 ## Protocols & API Types
 1. **GraphQL Support** - Full support including schema introspection and query builder.
 2. **GraphQL Variables** - Dedicated editor for GraphQL variables.
@@ -30,7 +51,7 @@ This document outlines 100 features that exist in the official ReqSpace applicat
 21. **Webhooks** - Triggering collection runs via external URLs.
 22. **Data-Driven Testing** - Importing CSV/JSON files in the Collection Runner.
 23. **Advanced Test Snippets** - Built-in Chai BDD assertions in the sidebar.
-24. **Visualizer (`pm.visualizer`)** - Rendering HTML/Handlebars templates from response data.
+24. **Visualizer (`pm.visualizer`)** - Rendering HTML/Handlebars templates from response data. ✅ landed
 25. **Test Reporting** - Exporting results to HTML, JUnit, or JSON.
 
 ## Collaboration & Workspaces
@@ -61,7 +82,7 @@ This document outlines 100 features that exist in the official ReqSpace applicat
 46. **Disable SSL Verification** - Toggle to ignore self-signed certificates.
 47. **Automatic Retries** - Retrying on network failure.
 48. **Follow HTTP Redirects** - Toggle for following 3xx redirects.
-49. **Extensive Code Generation** - Exporting to Java, Python, Go, Ruby, Swift, Dart, PHP, etc.
+49. **Extensive Code Generation** - Exporting to Java, Python, Go, Ruby, Swift, Dart, PHP, etc. ✅ landed (`CodeGenModal`)
 50. **Dynamic Variables** - Built-in Faker.js variables (`{{$guid}}`, `{{$timestamp}}`).
 
 ## Environments & Variables
@@ -73,16 +94,16 @@ This document outlines 100 features that exist in the official ReqSpace applicat
 56. **Scope Resolution Visualizer** - UI showing exactly which scope a variable resolved from.
 
 ## Import / Export
-57. **Import from cURL** - Pasting cURL commands to generate requests.
+57. **Import from cURL** - Pasting cURL commands to generate requests. ✅ landed
 58. **Export to cURL** - Quickly getting the cURL equivalent of the UI request.
 59. **Export Collection (v2.1)** - Standard ReqSpace JSON export.
 60. **Import ReqSpace Collection** - Supporting v2.0 and v2.1 formats.
 61. **Import Environment** - Loading environment JSON files.
 62. **Export Environment** - Sharing environment variables.
-63. **Raw Text Import** - Parsing raw HTTP messages.
+63. **Raw Text Import** - Parsing raw HTTP messages. ✅ landed
 
 ## UI & UX Enhancements
-64. **Multi-Tab Support** - Opening many requests simultaneously in tabs.
+64. **Multi-Tab Support** - Opening many requests simultaneously in tabs. ✅ landed
 65. **Split Pane Tabs** - Viewing multiple tabs side-by-side.
 66. **OS Theme Sync** - Automatically switching dark/light mode based on system.
 67. **Customizable Layout** - Toggling between horizontal and vertical split.
@@ -90,7 +111,7 @@ This document outlines 100 features that exist in the official ReqSpace applicat
 69. **Restore Closed Tabs** - Re-opening accidentally closed requests.
 70. **Rich Text Descriptions** - WYSIWYG editor for documentation.
 71. **Drag-and-Drop Reordering** - Reordering tabs and folders intuitively.
-72. **Right-Click Context Menus** - Advanced options on tree nodes.
+72. **Right-Click Context Menus** - Advanced options on tree nodes. ✅ landed
 73. **Global Keyboard Shortcuts** - Shortcuts for sending, saving, opening tabs.
 74. **UI Zoom Control** - Scaling the interface up and down.
 
@@ -103,7 +124,7 @@ This document outlines 100 features that exist in the official ReqSpace applicat
 80. **Save Response to File** - Downloading raw binary responses.
 
 ## Scripting & Sandbox
-81. **`pm.sendRequest`** - Firing async API requests from within scripts.
+81. **`pm.sendRequest`** - Firing async API requests from within scripts. ✅ landed on the main thread (sandbox still open — README `CR#5`)
 82. **Advanced Console** - Grouped object logging (collapsible objects/arrays).
 83. **External Libraries** - Support for `moment`, `lodash`, `cheerio`, `crypto-js`.
 84. **Script Library/Packages** - Reusing scripts across multiple collections.
