@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Workspace } from '../models/Workspace';
 import { SqlWorkspace } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { invalidate } from '../cache';
 
 export interface IWorkspaceMemberRecord {
   userId: string;
@@ -113,15 +114,18 @@ export const WorkspaceRepository = {
   async update(id: string, data: Partial<{ name: string; description: string; isPublic: boolean; members: IWorkspaceMemberRecord[] }>): Promise<IWorkspaceRecord | null> {
     if (isMongo()) {
       const w = await Workspace.findByIdAndUpdate(id, data, { new: true }).lean();
+      invalidate(`role:${id}:`);
       return w ? mongoToRecord(w) : null;
     }
     const patch: any = { ...data };
     if (data.members) patch.members = JSON.stringify(data.members);
     await SqlWorkspace.update(patch, { where: { id } });
+    invalidate(`role:${id}:`);
     return this.findById(id);
   },
 
   async delete(id: string): Promise<void> {
+    invalidate(`role:${id}:`);
     if (isMongo()) { await Workspace.findByIdAndDelete(id); return; }
     await SqlWorkspace.destroy({ where: { id } });
   },

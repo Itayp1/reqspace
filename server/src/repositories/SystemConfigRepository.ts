@@ -1,6 +1,7 @@
 import { isMongo } from '../db/connect';
 import { SystemConfig, ISystemConfig } from '../models/SystemConfig';
 import { SqlSystemConfig } from '../db/sql-models';
+import { invalidate, peek, store } from '../cache';
 
 export interface ISystemConfigRecord {
   _id: string;
@@ -90,14 +91,15 @@ const DEFAULT_CONFIG = {
   }
 };
 
+const CONFIG_KEY = 'config:system';
+
 export const SystemConfigRepository = {
   async getConfig(): Promise<ISystemConfigRecord | null> {
-    if (isMongo()) {
-      const c = await SystemConfig.findOne().lean();
-      return c ? mongoToRecord(c) : null;
-    }
-    const c = await SqlSystemConfig.findOne();
-    return c ? sqlToRecord(c) : null;
+    const cached = peek<ISystemConfigRecord>(CONFIG_KEY);
+    if (cached) return cached;
+    const loaded = await loadConfig();
+    if (loaded) store(CONFIG_KEY, loaded);
+    return loaded;
   },
 
   async ensure(): Promise<ISystemConfigRecord> {
@@ -109,7 +111,9 @@ export const SystemConfigRepository = {
         _id: 'global',
         ...DEFAULT_CONFIG
       });
-      return mongoToRecord(c);
+      const created = mongoToRecord(c);
+      store(CONFIG_KEY, created);
+      return created;
     }
     
     const c = await SqlSystemConfig.create({
@@ -118,7 +122,9 @@ export const SystemConfigRepository = {
       history: JSON.stringify(DEFAULT_CONFIG.history),
       proxy: JSON.stringify(DEFAULT_CONFIG.proxy),
     });
-    return sqlToRecord(c);
+    const created = sqlToRecord(c);
+    store(CONFIG_KEY, created);
+    return created;
   },
 
   async updateConfig(data: any): Promise<ISystemConfigRecord | null> {
@@ -140,7 +146,10 @@ export const SystemConfigRepository = {
 
     if (isMongo()) {
       const c = await SystemConfig.findOneAndUpdate({}, { $set: merged }, { new: true, upsert: true }).lean();
-      return c ? mongoToRecord(c) : null;
+      invalidate(CONFIG_KEY);
+      const saved = c ? mongoToRecord(c) : null;
+      if (saved) store(CONFIG_KEY, saved);
+      return saved;
     }
 
     const existing = await SqlSystemConfig.findOne();
@@ -151,6 +160,16 @@ export const SystemConfigRepository = {
     existing.proxy = JSON.stringify(merged.proxy);
 
     await existing.save();
+    invalidate(CONFIG_KEY);
     return this.getConfig();
   },
 };
+
+async function loadConfig(): Promise<ISystemConfigRecord | null> {
+  if (isMongo()) {
+    const c = await SystemConfig.findOne().lean();
+    return c ? mongoToRecord(c) : null;
+  }
+  const c = await SqlSystemConfig.findOne();
+  return c ? sqlToRecord(c) : null;
+}

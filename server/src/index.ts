@@ -31,6 +31,7 @@ import { WorkspaceRepository } from './repositories/WorkspaceRepository';
 import { getUserWorkspaceRole } from './middleware/rbac';
 import { resolveJwtSecret } from './utils/jwtSecret';
 import { connectRedis, attachSocketAdapter, redisMode } from './redis';
+import { subscribeCacheInvalidation } from './cache';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = resolveJwtSecret();
@@ -228,6 +229,7 @@ async function bootstrap() {
   const port = parseInt(process.env.PORT ?? '3005', 10);
 
   await connectRedis();
+  await subscribeCacheInvalidation();
   await attachSocketAdapter(io);
 
   // Start listening first — so the client can load and show errors
