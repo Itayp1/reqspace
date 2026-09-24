@@ -373,8 +373,8 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [ ] **Client dependency weight** — `CR#23`
   * **Do:** `moment` **and** `date-fns` are both bundled; `lodash` is imported whole; `crypto-js` and `chai` ship to the browser for script support; Handlebars is fetched from jsDelivr at runtime (a third-party supply-chain and availability dependency). Consolidate on one date library, import lodash per-function, lazy-load the script-runtime libraries, and self-host Handlebars.
 
-* [ ] **UI consistency** — `CR#27`
-  * **Do:** `/admin` is wrapped in `AuthGuard` twice; `App.tsx` uses inline `style={{}}` where Tailwind is the convention; 401 and 403 are not handled distinctly. Unify.
+* [x] **UI consistency** — `CR#27`
+  * ✅ **Done:** `/admin` sits inside the layout `AuthGuard` and adds only `SuperAdminGuard`. The database-error and loading screens in `App.tsx` use Tailwind. A 401 clears the session and returns to login; a 403 leaves the session in place and shows a dismissible notice.
 
 * [x] **Dockerfile and k8s hygiene** — `CR#17`
   * ✅ **Done:** the Dockerfile uses `npm ci`, a multi-stage build-tool-free runtime image, and a non-root `USER`. (k8s sticky sessions for socket.io are tracked under the Redis task above.)
