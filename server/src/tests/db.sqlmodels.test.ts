@@ -313,33 +313,34 @@ describe('SqlHistory table', () => {
   it('creates history entries', async () => {
     await SqlHistory.create({
       id: uuidv4(), userId, workspaceId: wsId,
-      method: 'GET', url: 'https://api.example.com/users',
-      statusCode: 200, duration: 123,
-      requestData: JSON.stringify({ headers: [] }),
-      responseData: JSON.stringify({ body: '{"users":[]}', statusCode: 200 }),
+      method: 'GET', status: 200,
+      requestSnapshot: JSON.stringify({ method: 'GET', url: 'https://api.example.com/users' }),
+      responseSnapshot: JSON.stringify({ status: 200, body: '{"users":[]}' }),
+      testResults: '[]',
+      executedAt: new Date(Date.now() - 1000),
     });
     await SqlHistory.create({
       id: uuidv4(), userId, workspaceId: wsId,
-      method: 'POST', url: 'https://api.example.com/users',
-      statusCode: 201, duration: 456,
-      requestData: '{}', responseData: '{}',
+      method: 'POST', status: 201,
+      requestSnapshot: '{}', responseSnapshot: '{}', testResults: '[]',
+      executedAt: new Date(),
     });
     const entries = await SqlHistory.findAll({ where: { userId, workspaceId: wsId } });
     expect(entries.length).toBe(2);
   });
 
-  it('sorts history by createdAt DESC', async () => {
+  it('sorts history by executedAt DESC', async () => {
     const entries = await SqlHistory.findAll({
       where: { userId, workspaceId: wsId },
-      order: [['createdAt', 'DESC']],
+      order: [['executedAt', 'DESC']],
     });
     expect(entries[0].method).toBeTruthy();
   });
 
-  it('responseData round-trips', async () => {
+  it('responseSnapshot round-trips', async () => {
     const entry = await SqlHistory.findOne({ where: { method: 'GET', userId } });
-    const parsed = JSON.parse(entry!.responseData);
-    expect(parsed.statusCode).toBe(200);
+    const parsed = JSON.parse(entry!.responseSnapshot);
+    expect(parsed.status).toBe(200);
   });
 });
 

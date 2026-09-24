@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { saveHistoryEntry } from './history';
-import mongoose from 'mongoose';
 import { SystemConfig } from '../models/SystemConfig';
 import { createSafeLookup } from '../utils/ssrf';
 
@@ -150,8 +149,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     if (workspaceId && req.user && shouldSaveHistory && isUnderLimit) {
       saveHistoryEntry(
-        req.user._id as mongoose.Types.ObjectId,
-        new mongoose.Types.ObjectId(workspaceId),
+        String(req.user._id),
+        String(workspaceId),
         {
           requestSnapshot: { method, url, headers, body },
           responseBody: isBase64 ? `[Binary Data: ${contentType}]` : responseBody,

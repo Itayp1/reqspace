@@ -83,58 +83,6 @@ still proxies nothing.
 
 ---
 
-### SEC-0.3 — Move history writing to a client-driven, server-validated endpoint
-
-* **Goal:** history still works once the server never sees the response.
-* **Where:** `server/src/routes/proxy.ts:149-170` (the current server-side write),
-  `server/src/routes/history.ts:111-171` (`saveHistoryEntry`), `client/src/components/request/UrlBar.tsx`
-* **Why:** history is written today inside the proxy handler, from data only the server had. After SEC-0
-  only the client has it — but the client must not be trusted to respect its own quota.
-
-#### Technical detail
-
-New route in `server/src/routes/history.ts`:
-
-```ts
-router.post(
-  '/workspaces/:workspaceId/history',
-  requireWorkspaceRole('viewer'),
-  validate(createHistorySchema),          // SEC-9
-  async (req: AuthRequest, res: Response) => {
-    // Reuse the existing quota + truncation logic. It must run server-side:
-    // a client that lies about `size` must not be able to exceed its quota.
-    await saveHistoryEntry(String(req.user!._id), req.params.workspaceId, req.body);
-    return res.status(201).json({ ok: true });
-  },
-);
-```
-
-Change `saveHistoryEntry`'s signature from
-`(userId: mongoose.Types.ObjectId, workspaceId: mongoose.Types.ObjectId, …)` to `(userId: string,
-workspaceId: string, …)` — the `ObjectId` casts break on SQL UUIDs (see FIX-2 step 4).
-
-Server-side caps to enforce, regardless of what the client sends:
-
-| Cap | Source | Behaviour |
-|---|---|---|
-| Body size | `SystemConfig.history.maxRequestBodyKB` (default 10 KB) | Truncate, set `bodyTruncated` |
-| Per-user total | `SystemConfig.history.maxTotalPerUserMB` (default 20 MB) | GC oldest first (batched — PERF-4) |
-| Recompute `size` | Always | Never trust the client's `size` field |
-
-Client, in `UrlBar.tsx` after a successful send:
-
-```ts
-if (settings.saveHistory && activeWorkspace?._id) {
-  api.post(`/workspaces/${activeWorkspace._id}/history`, { requestSnapshot, responseSnapshot })
-     .catch(() => { /* history is best-effort; never block the user */ });
-}
-```
-
-* **Done when:** API tests prove (a) a viewer can write their own history, (b) a non-member gets 403,
-  (c) a client claiming `size: 0` on a 5 MB body still has the real size counted against its quota.
-
----
-
 ### SEC-0.4 — Delete the routes and everything that existed only for them
 
 #### Delete list

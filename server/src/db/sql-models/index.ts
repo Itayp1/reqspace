@@ -121,13 +121,15 @@ export class SqlHistory extends Model {
   declare id: string;
   declare userId: string;
   declare workspaceId: string;
-  declare method: string;
-  declare url: string;
-  declare statusCode: number | null;
-  declare duration: number | null;
-  declare requestData: string; // JSON
-  declare responseData: string; // JSON
-  declare createdAt: Date;
+  // Denormalized out of requestSnapshot/responseSnapshot so the GET list
+  // route's method/status filters can hit an index instead of scanning and
+  // parsing every row's JSON blob (PERF rule: no O(total rows) query).
+  declare method: string | null;
+  declare status: number | null;
+  declare requestSnapshot: string; // JSON — IHistory['requestSnapshot']
+  declare responseSnapshot: string; // JSON — IHistory['responseSnapshot']
+  declare testResults: string; // JSON — IHistory['testResults']
+  declare executedAt: Date;
 }
 
 // ─────────────────────────────────────────────────
@@ -275,13 +277,13 @@ export function initSqlModels() {
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
     userId: { type: DataTypes.STRING(36), allowNull: false },
     workspaceId: { type: DataTypes.STRING(36), allowNull: false },
-    method: { type: DataTypes.STRING(10) },
-    url: { type: DataTypes.TEXT },
-    statusCode: { type: DataTypes.INTEGER, allowNull: true },
-    duration: { type: DataTypes.INTEGER, allowNull: true },
-    requestData: { type: DataTypes.TEXT, defaultValue: '{}' },
-    responseData: { type: DataTypes.TEXT, defaultValue: '{}' },
-  }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false, indexes: [{ fields: ['userId', 'workspaceId'] }, { fields: ['createdAt'] }] });
+    method: { type: DataTypes.STRING(10), allowNull: true },
+    status: { type: DataTypes.INTEGER, allowNull: true },
+    requestSnapshot: { type: DataTypes.TEXT, defaultValue: '{}' },
+    responseSnapshot: { type: DataTypes.TEXT, defaultValue: '{}' },
+    testResults: { type: DataTypes.TEXT, defaultValue: '[]' },
+    executedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  }, { sequelize: sq, tableName: 'history', timestamps: false, indexes: [{ fields: ['userId', 'workspaceId', 'executedAt'] }] });
 
   SqlAuditLog.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
