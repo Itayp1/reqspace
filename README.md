@@ -223,57 +223,46 @@ Integration coverage does not remove the need for a small number of targeted tes
 
 Ordered by *what unblocks what*, not by ambition. The rule applied here: **fix what is silently broken, then make the advertised features true, then scale.** Findings referenced as `CR#n` come from [`CODE_REVIEW.md`](CODE_REVIEW.md) (2026-09-23; all items below re-verified against the source on 2026-09-24).
 
-The **`### ✅ Completed`** block below lists what has already been delivered (do **not** redo these). Everything after it, under the stage headings, is the **remaining** work — each open task is a `[ ]` checkbox and carries **Where** (the exact code to open) and **Do** (the change to make), so it can be picked up without re-reading the review. Partially-done tasks keep a **Done:** line and describe only what is left.
+Every one of the 27 review findings is listed below, plus the cleanup items. Completed items are checked (`[x]`) with a **Done** note; partially-done items stay `[ ]` with a **Done** line covering what already landed and a **Do** line for what remains. Each open task carries **Where** (the exact code to open) and **Do** (the change to make).
 
-### ✅ Completed (review-remediation, merged — do not redo)
+### 🔴 Stage 0 — Broken in place (small effort, high impact)
 
-**Stage 0 — broken in place (all done):**
-- [x] `CR#9` — realtime `:updated`/`:deleted` broadcasts fire (`resolvedWorkspaceId` assigned in `checkPermissionByItem`, incl. the superadmin path).
-- [x] Redis-unsafe `socketUtils` `size>1` guard removed (adapter-aware `io.to(room).emit`).
-- [x] `CR#15a` — `authType: 'sso'` accepted by the User model (Mongo + SQL).
-- [x] `CR#16` — `clearAuthCookie` clears the cookie with the same `secure`/`sameSite`/`path` flags it was set with.
-- [x] `CR#10` — member-invite no longer builds a regex from raw input (shared `escapeRegex` + exact-match lookup).
-- [x] `CR#17` — port unified on **3005** across server/.env/Dockerfile/k8s.
+Not new features. Things the code already claims to do and does not. Do these first — several of them silently invalidate testing of the stages below.
 
-**Stage 1 — multi-DB (core done):**
-- [x] `CR#1` (core) — `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check, `utils/ids.ts`), `routes/workspaces.ts`, `routes/collections.ts` go through the repositories; login → workspace → collection → folder → request verified on **both SQLite and MongoDB**.
-- [x] `CR#18` — `sync({alter})` only outside production; dead `/admin/db-config` DB-gate carve-out removed.
+* [x] **Realtime sync is dead for collections / folders / requests** — `CR#9`
+  * ✅ **Done:** `checkPermissionByItem` assigns `(req as any).resolvedWorkspaceId` (including on the superadmin path) so the `:updated`/`:deleted` broadcasts fire. Covered by a two-client test (`tests/socket-realtime.spec.ts`).
 
-**Stage 2 — security:**
-- [x] `CR#2` — identity header (`X-Auth-User`) honoured only from a trusted proxy source (`HEADER_AUTH_TRUSTED_IPS`, loopback by default).
-- [x] `CR#6` — production refuses a per-pod JWT secret and refuses to seed `admin/admin`; Mongo `tlsInsecure` is opt-in (`MONGO_TLS_INSECURE`).
-- [x] `CR#8` (baseline) — `helmet`, `trust proxy`, `5mb` body cap (`MAX_BODY_SIZE`), correct client-error statuses (413).
-- [x] `CR#4` (partial) — OAuth `redirect_uri` allowlisted server-side; token-endpoint response no longer leaked.
-- [x] `CR#7` (main routes) — writable fields allowlisted on collection/folder/request/workspace PUT and `PUT /api/auth/settings`.
-- [x] `CR#12` — comment deletion requires the author or an editor/owner.
-- [x] `CR#11` — history routes require workspace membership; `historyUsedBytes` decremented by bytes actually freed.
-- [x] `CR#14` — workspace import no longer overwrites global `SystemConfig`.
-- [x] `CR#15b` — min password length 8, current password required on non-forced change, bcrypt cost 12 everywhere.
-- [x] `CR#24` — self-registration defaults to closed; raw `dbError` masked in `/api/health` in production.
-- [x] `CR#25` (parser) — SSRF blocks numeric/hex/octal IPv4, NAT64, IPv4-mapped and trailing-dot hosts; `proxy.ts` rejects non-http(s).
+* [x] **The `size > 1` guard will break Redis mode before it ships**
+  * ✅ **Done:** the local-node-only guard was removed from `server/src/socketUtils.ts`; `io.to(room).emit` is adapter-aware and safe under a Redis adapter.
 
-**Stage 3 — scale (started):**
-- [x] FK + compound indexes on the Sequelize models (workspaceId/collectionId/folderId + order/parent compounds, history, audit).
+* [x] **First-time Google sign-in fails validation** — `CR#15a`
+  * ✅ **Done:** `'sso'` added to the `AuthType` union and the Mongoose `authType` enum in `server/src/models/User.ts`.
 
-**Stage 4 — tests & CI:**
-- [x] `CR#26` (scaffolding) — `test.yml` (build + jest + auth-crossing smoke) with `docker-publish` gated on it; `scripts/smoke-core.sh`; `ssrf.ts` unit tests; two-client `socket-realtime` spec; `api-authorization` spec; `global-setup` enables registration; obsolete socket-sync suppression assertion replaced; `globals.ts-jest` migrated to `transform`.
-- [x] Stopped committing `server/dist`; Dockerfile uses `npm ci`, build-tool-free runtime image, non-root `USER`.
+* [x] **`clearCookie('token')` may not log users out** — `CR#16`
+  * ✅ **Done:** `clearAuthCookie` clears the cookie with the same `secure`/`sameSite`/`path` options used to set it; used by logout and by expired-session paths.
 
----
+* [x] **Unescaped regex in workspace member invite (ReDoS)** — `CR#10`
+  * ✅ **Done:** invite now looks up by exact email via `UserRepository`; the shared `escapeRegex` util (`server/src/utils/escapeRegex.ts`) is used where a regex is still needed (`users.ts` search).
 
-### 🟠 Stage 1 — Make the README true (remaining)
+* [x] **Port mismatch across the stack** — `CR#17`
+  * ✅ **Done:** unified on **3005** across the server default, `server/.env.example`, `Dockerfile`, and `k8s/` (Electron already used 3005).
+
+### 🟠 Stage 1 — Make the README true
 
 The Features list at the top of this file promises things the server does not deliver.
 
 * [ ] **Multi-database support — finish the remaining routes** — `CR#1` (core done)
-  * **Done:** `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check), `routes/workspaces.ts` and `routes/collections.ts` now go through the repositories; the authenticated core path (login → workspace → collection → folder → request) is verified on both SQLite and MongoDB.
-  * **Remaining — Where:** `routes/{environments,history,admin,capture,importExport,share}.ts` still call Mongoose models directly and will fail under `DB_TYPE≠mongodb`. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) model/repository schemas reconciled.
-  * **Do:** route those files through the repositories (extending `EnvironmentRepository`/`HistoryRepository` to cover the full shape), and fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
+  * ✅ **Done:** `middleware/auth.ts`, `middleware/rbac.ts` (dialect-agnostic id check in `utils/ids.ts`), `routes/workspaces.ts` and `routes/collections.ts` now go through the repositories. The authenticated core path (login → `/me` → workspace → collection → folder → request → comment → delete → logout) is verified on **both SQLite and MongoDB**.
+  * **Remaining — Where:** `routes/{environments,history,admin,capture,importExport,share}.ts` still call Mongoose models directly and will fail under `DB_TYPE≠mongodb`. This also needs the `Environment` (single collection + `isGlobal`) vs SQL (`environments` + `global_environments` split) and `History` (`requestSnapshot`/`responseSnapshot` vs `requestData`/`responseData`) schemas reconciled.
+  * **Do:** route those files through the repositories (extending `EnvironmentRepository`/`HistoryRepository` to the full shape) and fix `mongoose.Types.ObjectId(workspaceId)` in the proxy/history path, which throws on SQL UUIDs.
 
 * [ ] **Import / Export / Runner are server-side stubs** — `CR#13`
   * **Where:** `server/src/routes/importExport.ts` (`GET /collections/:id/export` returns `{ item: [] }`), `server/src/routes/runner.ts` (near-empty)
   * **Why it matters:** real import happens client-side in `ImportModal`, so some flows skip server-side permission checks entirely.
   * **Do:** implement ReqSpace v2.1 export/import server-side with RBAC, or remove the entry points from the UI. Do not keep shipping buttons that resolve to nothing.
+
+* [x] **`sync({ alter: true })` runs on every boot** — `CR#18`
+  * ✅ **Done:** `server/src/db/connect.ts` only auto-`alter`s outside production (`sync({})` in production, non-destructive); the dead `/admin/db-config` carve-out was removed from the DB-down gate. (Full migrations via `umzug`/Sequelize-CLI are still a future improvement.)
 
 ### 🟡 Stage 2 — Security hardening (gate for SaaS launch)
 
@@ -281,19 +270,37 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 **Authentication & access control**
 
+* [x] **Header auth allows impersonation** — `CR#2`
+  * ✅ **Done:** `X-Auth-User` is honoured only when the request source is trusted (`HEADER_AUTH_TRUSTED_IPS`, loopback by default) in `server/src/middleware/auth.ts`.
+
 * [ ] **Share-proxy is an open proxy for anonymous users** — `CR#3`
   * **Where:** `server/src/routes/shareProxy.ts`, `server/src/routes/share.ts`
   * **Why:** `POST /api/share/:shortId/proxy` requires no login, so a link holder can make the server issue arbitrary HTTP requests. `GET /api/share/:shortId` returns every request **including headers, tokens and scripts**.
   * **Do:** restrict the public proxy to URLs present in the shared collection (or remove it); strip auth / cookies / variables from the public payload; block `localProxy` on the public path; widen `shortId` beyond 48 bits and rate-limit it.
 
 * [ ] **OAuth: add `state`/CSRF** — `CR#4` (redirect-URI allowlist + no token leak done)
+  * ✅ **Done:** `redirect_uri` is allowlisted server-side (`GOOGLE_ALLOWED_REDIRECT_URIS`) and the token-endpoint response is no longer echoed on error.
   * **Where:** `POST /api/auth/google` in `server/src/routes/auth.ts` (+ the client callback page)
-  * **Done:** `redirect_uri` is now allowlisted server-side and the token-endpoint response is no longer echoed on error.
   * **Do:** issue a random `state` in a cookie and verify it on callback (needs a matching client change).
 
-* [ ] **Mass assignment — remaining routes** — `CR#7` (collection/folder/request/workspace/settings done)
-  * **Done:** the `PUT` handlers for collections/folders/requests/workspaces and `PUT /api/auth/settings` now allowlist writable fields and no longer leak `err.message`.
-  * **Where / Do:** `POST /api/history/:id/save` still creates a request in a client-supplied `collectionId` with no membership check, and `POST /api/import/wsdl` still has no `requireWorkspaceRole`. Add the guards.
+* [x] **Default admin credentials, shared JWT secret, insecure TLS** — `CR#6`
+  * ✅ **Done:** production refuses to bootstrap `admin`/`admin`; `jwtSecret.ts` refuses a per-pod ephemeral secret in production (require `JWT_SECRET`, opt out with `ALLOW_EPHEMERAL_JWT_SECRET`); Mongo `tlsInsecure` is opt-in via `MONGO_TLS_INSECURE`. (Populating a real value in `k8s/secret.yaml` remains a deploy-time action.)
+
+* [ ] **Mass assignment and cross-workspace writes** — `CR#7` (main routes done)
+  * ✅ **Done:** `PUT` on collections/folders/requests/workspaces and `PUT /api/auth/settings` now allowlist writable fields (no `workspaceId`/`collectionId` reassignment) and no longer leak `err.message`.
+  * **Do:** `POST /api/history/:id/save` still creates a request in a client-supplied `collectionId` with no membership check, and `POST /api/import/wsdl` still has no `requireWorkspaceRole` — add the guards.
+
+* [x] **History endpoints have no workspace RBAC** — `CR#11`
+  * ✅ **Done:** `GET`/`DELETE /workspaces/:workspaceId/history` now require `requireWorkspaceRole('viewer')`, and the workspace-scoped clear decrements `historyUsedBytes` by the bytes actually freed instead of zeroing the user's whole counter. (The `Types.ObjectId(workspaceId)` SQL issue folds into the `CR#1` follow-up for `history.ts`.)
+
+* [x] **Any viewer can delete anyone's comment** — `CR#12`
+  * ✅ **Done:** `DELETE /requests/:id/comments/:commentId` now requires the comment author or an editor/owner (or superadmin).
+
+* [x] **Workspace import overwrites global system config** — `CR#14`
+  * ✅ **Done:** `POST /api/admin/import/:workspaceId` ignores `dump.config`, so a workspace import can no longer rewrite system-wide SMTP/OAuth/proxy settings.
+
+* [x] **Password policy is weak and inconsistent** — `CR#15b`
+  * ✅ **Done:** minimum length raised to 8, current password required on a non-forced change, and bcrypt cost 12 everywhere (registration, change-password, admin bootstrap).
 
 **Sandboxing & input validation**
 
@@ -306,17 +313,20 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * **Where:** `zod` and `ajv` in `server/package.json`; zero imports anywhere in `server/src`
   * **Do:** add request schemas route by route, starting with the mass-assignment routes above, then proxy / auth / admin bodies. While there, replace `req.user?: any` and the scattered `as any` casts with real types.
 
-* [ ] **HTTP hardening — proxy limits & shared rate-limit store** — `CR#8` (helmet/trust-proxy/body-limit done)
-  * **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`), and proper client-error statuses (413) are in place.
+* [ ] **No baseline HTTP hardening** — `CR#8` (helmet/trust-proxy/body-limit done)
+  * ✅ **Done:** `helmet`, `app.set('trust proxy')`, a `5mb` body cap (`MAX_BODY_SIZE`) and correct client-error statuses (413) are in place in `server/src/index.ts`.
   * **Do:** cap the proxy response size and client-supplied timeout, add a CSP, rate-limit `POST /api/proxy`, and move the in-memory rate limiter to a shared store (alongside the Redis work) so it holds across replicas.
 
-* [ ] **SSRF: finish capture + redirect coverage** — `CR#25` (parser + proxy protocol check done)
-  * **Done:** `ssrf.ts` now blocks NAT64, IPv4-mapped, integer/hex/octal literals and trailing-dot hosts (offline unit tests added); `proxy.ts` asserts `http:`/`https:` before dispatching.
-  * **Where / Do:** `server/src/routes/capture.ts` still forwards via the global `fetch` with only a pre-flight `assertSsrfSafe` (TOCTOU / DNS-rebind) — switch it to `createSafeLookup`; add an integration test that a redirect to a private host is refused.
+* [ ] **SSRF: gaps in coverage** — `CR#25` (parser + proxy protocol check done)
+  * ✅ **Done:** `ssrf.ts` now blocks NAT64 (`64:ff9b:`), IPv4-mapped forms, integer/hex/octal literals (`0x7f000001`) and trailing-dot hosts (offline unit tests in `server/src/tests/ssrf.test.ts`); `proxy.ts` asserts `http:`/`https:` before dispatching.
+  * **Do:** make `server/src/routes/capture.ts` forward via `createSafeLookup` instead of the global `fetch` (currently only a pre-flight `assertSsrfSafe`, which is TOCTOU / DNS-rebind vulnerable); add a test that a redirect to a private host is refused.
 
 * [ ] **Secrets persisted to `localStorage`** — `CR#21`
   * **Where:** `client/src/store/requestStore.ts` (persists all tabs including `auth.bearer.token`, basic passwords, bodies), `client/src/store/cookieStore.ts` (also ships a dummy `sess_default_123`), `client/src/store/settingsStore.ts` (local proxy password)
   * **Do:** strip credential fields from the persisted slice; keep them in memory or in the OS keychain for the Electron build. This is a prerequisite for the sandbox work to mean anything.
+
+* [x] **Information disclosure and open registration** — `CR#24`
+  * ✅ **Done:** `allowSelfRegistration` now defaults to **false**, and `GET /api/health` masks the raw `dbError` in production.
 
 * [ ] **Client certificates stored in plaintext** — *P3*
   * **Where:** client-certificate records in the DB hold private keys as clear text
@@ -328,7 +338,7 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * **Configurable:** Driven by an environment variable (e.g., `REDIS_URL=redis://localhost:6379`). If absent, the server gracefully falls back to single-node (in-memory) mode.
   * **Server Startup:** The server will automatically detect the variable and attach the adapter during boot.
   * **Admin UI Indicator:** The Admin Dashboard will feature a clear visual indicator showing whether "Redis Concurrency Mode" is currently Active or Inactive.
-  * ⚠️ **Prerequisite:** both realtime defects in Stage 0. Horizontally scaling a broadcast path that currently emits nothing yields a feature that cannot be validated.
+  * ⚠️ **Prerequisite:** both realtime defects in Stage 0 (now fixed).
   * **Also needs:** sticky sessions on the Ingress (k8s currently runs `replicas: 2` + HPA **without** them), and the shared rate-limit store from `CR#8`.
 
 * [ ] **Granular delta updates instead of full refetch** — `CR#22`
@@ -336,18 +346,19 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
   * **Why:** every structural event — and every window focus — triggers `fetchCollectionsData` for the entire workspace tree. At 400k workspaces this dominates load far more than the adapter does. The socket URL is also derived via `api.defaults.baseURL?.replace('/api', '')`, which breaks on a versioned base URL such as `http://host/api/v1`.
   * **Do:** apply the received document to the store directly; derive the socket URL from an explicit config value.
 
+* [x] **Foreign-key indexes are documented but not enforced**
+  * ✅ **Done:** `indexes` added to the Sequelize models under `server/src/db/sql-models/` for `workspaceId`, `collectionId`, `folderId` plus compound indexes on `order`/`parentFolderId` (and history `userId+workspaceId`, audit `targetId`).
+
 * [ ] **Lazy loading and cursor pagination** — from the *Scalability* section; not started. Endpoints still return whole trees.
 
 * [ ] **RBAC and config caching** — from the *Scalability* section; not started. Membership and system config are re-read from the DB on every proxy call.
 
 ### ⚪ Stage 4 — Quality, tests and cleanup
 
-* [ ] **Test coverage gaps** — `CR#26` · **see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them) for the full analysis and per-test instructions**
-  * **Why this is not a routine backlog item:** the ~300-scenario suite reported green on all three Stage 0/1 defects above. It was not bad luck — the suite's structure created the blind spot. Both socket specs (`socket-sync.spec.ts:62`, `socket-security.spec.ts:119`) assert on `collection:created`, the one event family whose workspace id arrives in the URL path and therefore cannot hit the `resolvedWorkspaceId` bug; nothing in `tests/` or `client/e2e/` references `:updated` or `:deleted` at all. Meanwhile `test-all-dbs.ps1:65` runs only `auth.e2e.test.ts` per backend — register, login, wrong-password — three **unauthenticated** routes that use `UserRepository` and so pass on SQL, while the SQL defect sits in `middleware/auth.ts:109` on the authenticated path the loop never calls.
-  * **Target architecture:** see [*Testing Strategy*](#-testing-strategy-target-architecture) above — UI-driven integration as the backbone, a thin API layer for what the UI structurally cannot reach, and the database as a matrix axis.
-  * **Done:** a `test.yml` workflow builds client+server, starts a sqlite server and runs jest + a core smoke that crosses the auth boundary (the first authenticated request); `docker-publish` now `needs` it. Added `ssrf.ts` unit tests, a two-client `socket-realtime` spec (`collection:updated`/`:deleted`), an `api-authorization` spec (viewer → 403 via the API), enabled registration in `global-setup`, replaced the obsolete socket-sync suppression assertion, and migrated the deprecated `globals.ts-jest` config to `transform`.
-  * **Remaining:**
-    1. Route every spec through `baseURL` (currently hardcoded `http://localhost:3005`) and add one Playwright project per backend — the DB matrix (smoke on all four; full suite nightly).
+* [ ] **Test coverage gaps** — `CR#26` (CI + smoke + first-round specs done) · see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them)
+  * ✅ **Done:** `.github/workflows/test.yml` (build + jest + auth-crossing smoke on sqlite) with `docker-publish` gated on it; `scripts/smoke-core.sh` (crosses the first authenticated request); `ssrf.ts` unit tests; a two-client `socket-realtime` spec (`collection:updated`/`:deleted`); an `api-authorization` spec (viewer → 403 via the API, non-member → 403 read); `global-setup` enables registration; the obsolete socket-sync suppression assertion was replaced; the deprecated `globals.ts-jest` config was migrated to `transform`.
+  * **Do (remaining):**
+    1. Route every spec through `baseURL` (currently hardcoded `http://localhost:3005`) and add one Playwright project per backend — the DB matrix (smoke on all four, full suite nightly).
     2. Cover the remaining `emitToWorkspace` call sites with two-client tests (folders, requests, environments, reorder — collections are covered).
     3. Add API-authz tests for the remaining bypass surfaces (`POST /api/admin/import`, WSDL import) and a logout-cookie-clearing test.
 
@@ -357,9 +368,12 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 * [ ] **UI consistency** — `CR#27`
   * **Do:** `/admin` is wrapped in `AuthGuard` twice; `App.tsx` uses inline `style={{}}` where Tailwind is the convention; 401 and 403 are not handled distinctly. Unify.
 
-* [ ] **Dead code and naming** — *P3* (`server/dist` untracking + Dockerfile hygiene done)
-  * **Done:** `server/dist` is no longer committed (gitignored); the Dockerfile now uses `npm ci`, a build-tool-free runtime image, and a non-root `USER` (`CR#17`).
-  * **Do:** `runner.ts` is nearly empty (folds into `CR#13`); `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent across the project — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`.
+* [x] **Dockerfile and k8s hygiene** — `CR#17`
+  * ✅ **Done:** the Dockerfile uses `npm ci`, a multi-stage build-tool-free runtime image, and a non-root `USER`. (k8s sticky sessions for socket.io are tracked under the Redis task above.)
+
+* [ ] **Dead code and naming** — *P3* (`server/dist` untracking done)
+  * ✅ **Done:** `server/dist` is no longer committed (gitignored).
+  * **Do:** `runner.ts` is nearly empty (folds into `CR#13`); `ensureDefaultAdmin` in `User.ts` duplicates the bootstrap in `index.ts`; `share.ts` has `??` placeholders where emoji were intended; check whether `multer`, `http-proxy-middleware`, `archiver` and `postman-collection` are still used and drop them if not. Naming is inconsistent — the repo folder is `postman`, the product is Reqspace, the Electron `appId` is `com.reqspaceclone.app`, and the default DB name is `postman_clone`.
 
 * [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
   * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.
