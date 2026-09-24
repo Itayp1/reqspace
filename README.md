@@ -89,6 +89,75 @@ DB_TYPE=sqlite
 DB_URI=mongodb://localhost:27017/reqspace
 ```
 
+## 🔐 Secrets Inventory
+
+Every credential the project needs, where it lives, and how to set it. **Names and locations only — no values are recorded here, and none should ever be added.** This repository is public; a value committed to it is disclosed the moment it is pushed, and rewriting history does not un-disclose it.
+
+### Server environment
+
+Set in `server/.env` locally (gitignored) and as a Kubernetes Secret in a cluster.
+
+| Variable | Purpose | Notes |
+|---|---|---|
+| `JWT_SECRET` | Signs and verifies session JWTs | See the warning below — this one has a real failure mode today |
+| `ADMIN_EMAIL` | Bootstrap superadmin identity | Defaults to `admin` |
+| `ADMIN_PASSWORD` | Bootstrap superadmin password | Defaults to `admin`. The account is fully usable as superadmin between server start and first login |
+| `DB_USER` / `DB_PASSWORD` | SQL credentials | `postgres`, `mysql`, `mssql` |
+| `DB_CONNECTION_STRING` | SQL connection string | **Embeds the password** — treat the whole string as a secret |
+| `MONGODB_URI` / `MONGO_URI` | Mongo connection string | Same: credentials are inline |
+
+> ⚠️ **`JWT_SECRET` has a live defect.** `utils/jwtSecret.ts` rejects known placeholder values and falls back to generating a random secret **written to a local file** (`server/.jwt-secret.local`). On a single machine that is fine. Across replicas it is not: each pod generates its own, so a token signed by one pod is rejected by every other and sessions break at random. `k8s/secret.yaml` currently ships exactly such a placeholder — `JWT_SECRET` is the base64 of `change_me_in_production`, which is one of the values `jwtSecret.ts` refuses. Any multi-replica deployment needs one real shared value. Tracked as `CR#6`.
+
+### Runtime configuration stored in the database
+
+These are **not** environment variables. They live in the `SystemConfig` document (`_id: 'global'`) and are entered through the Admin Dashboard at runtime.
+
+| Field | Purpose |
+|---|---|
+| `auth.googleOAuth.clientId` | Google OAuth application id |
+| `auth.googleOAuth.clientSecret` | Google OAuth application secret |
+| `auth.smtp.user` | SMTP account |
+| `auth.smtp.pass` | SMTP password |
+| `proxy.username` | Upstream proxy credentials |
+| `proxy.password` | Upstream proxy credentials |
+
+`GET /api/admin/config` masks these on read. Two paths do **not**: `GET /api/admin/export/:workspaceId` embeds the config, and `POST /api/admin/import/:workspaceId` will overwrite all of them from an uploaded file — see `CR#14`.
+
+### Per-user secrets stored in the database
+
+| Field | Purpose | Status |
+|---|---|---|
+| `User.clientCertificates[].passphrase` and key material | Client TLS certificates for mutual-auth requests | **Stored in plaintext.** Encrypt at rest or keep the material out of the DB — tracked in Stage 2 |
+| `User.passwordHash` | bcrypt hash | Cost is inconsistent — 12 at registration, 10 at change-password and admin bootstrap (`CR#15`) |
+
+Note that the client also persists credentials into browser `localStorage` — bearer tokens, basic-auth passwords and the local proxy password (`CR#21`). Those are secrets in the blast radius of any XSS, and today user scripts run unsandboxed on the same thread (`CR#5`).
+
+### CI / CD
+
+GitHub Actions repository secrets, used by `.github/workflows/docker-publish.yml`:
+
+| Secret | Purpose |
+|---|---|
+| `DOCKERHUB_USERNAME` | Docker Hub login |
+| `DOCKERHUB_TOKEN` | Docker Hub access token — use a scoped token, not an account password |
+
+### Test-only
+
+Optional. Read by `test-all-dbs.ps1`; when unset, that backend is skipped.
+
+`TEST_DB_POSTGRES_URL` · `TEST_DB_MYSQL_URL` · `TEST_DB_MONGODB_URL`
+
+### Where secret material is allowed to live
+
+| Path | Tracked in git | Contains |
+|---|---|---|
+| `server/.env` | ❌ gitignored | Real values |
+| `server/.jwt-secret.local` | ❌ gitignored | Auto-generated JWT secret |
+| `server/.env.example` | ✅ tracked | Placeholders and documentation only |
+| `k8s/secret.yaml` | ✅ tracked | ⚠️ A placeholder `JWT_SECRET`. Real cluster values must come from a sealed secret or an external secrets manager — never from this file |
+
+Before adding any new credential: put the name and a placeholder in `server/.env.example`, add a row to this table, and confirm the file holding the real value is gitignored.
+
 ## 🔑 Google OAuth Setup
 
 You can enable Google Authentication without touching the code!
@@ -377,6 +446,14 @@ Ordered by risk-to-effort. The principles are stated under *Security & Architect
 
 * [ ] **Feature parity with upstream ReqSpace** — see [`reqspace_features_roadmap.md`](reqspace_features_roadmap.md) (100 items)
   * **Do:** that document is stale — a meaningful share is already built (code generation, collection runner UI, load testing, cURL import, context menus, global search, cookie manager, script editor, documentation modal, shared links). Audit it and mark what landed before using it to plan.
+
+## 📋 UI/UX Todo List (Upcoming Features)
+
+Based on our recent review, we are prioritizing the following advanced UI features to improve developer experience:
+
+- [ ] **Multi-Tab Support**: Allow opening and working on multiple requests simultaneously in different tabs.
+- [ ] **Split Pane**: Enable viewing two tabs side-by-side (e.g., comparing requests or environments).
+- [ ] **Scope Resolution Visualizer**: Add a visual indicator to show exactly which scope (Global, Environment, Collection, etc.) a variable's value is being resolved from.
 
 ## 📝 License
 
