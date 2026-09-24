@@ -1,4 +1,7 @@
 
+# Cloud Agent environment: local MongoDB data dir (see .cursor/start.sh)
+.data/
+
 # Playwright
 node_modules/
 /test-results/
