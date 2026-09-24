@@ -12,8 +12,8 @@ Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment de
 - **🔐 Authentication:** Built-in JWT-based local authentication and **Google OAuth** integration. 
 - **👥 Role-Based Access Control (RBAC):** Admin dashboard to manage users, permissions, and system configurations directly from the UI.
 - **📜 History & Audit Logs:** Never lose a request. Everything is saved in your personal history, and system-wide changes are securely audited.
-- **📦 Multi-Database Support:** Run it on your preferred database! Out-of-the-box support for **SQLite, PostgreSQL, MySQL, and MongoDB**.
-- **🐳 Docker Ready:** Fully containerized with a lightweight multi-stage Docker build for easy deployment.
+- **📦 Multi-Database Connector:** The server can boot on **MongoDB (default), SQLite, PostgreSQL, MySQL, or MSSQL**. The authenticated core (login, workspaces, collections, folders, requests) is verified on SQLite and MongoDB. Environments, history, sharing, capture, and import/export still talk to Mongoose directly and fail when `DB_TYPE` is not `mongodb`.
+- **🐳 Docker Ready:** Multi-stage image. It does not bundle a database; pass `DB_TYPE=sqlite` for a single-container run, or point it at MongoDB.
 
 ## 🛠️ Tech Stack
 
@@ -23,13 +23,15 @@ Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment de
 
 ## 🐳 Quick Start (Docker)
 
-The fastest way to get Reqspace running is via Docker. The image is automatically built and published.
+Images are published to `itayp/reqspace` on pushes to `master` and `main`. The `latest` tag moves only when `main` is pushed; a `master` build is tagged with the short commit SHA.
+
+The image does not include MongoDB. With no `DB_TYPE` it tries `mongodb://localhost:27017/reqspace-web` inside the container and will not come up. SQLite needs no extra service:
 
 ```bash
-# Run the application on port 3005
-docker run -p 3005:3005 -d itayp/reqspace:latest
+docker run -p 3005:3005 -e DB_TYPE=sqlite -d itayp/reqspace:latest
 ```
-Access the application at http://localhost:3005.
+
+Access the application at http://localhost:3005. SQLite data lives in the container unless you mount a volume (the file defaults to `data.sqlite` in the server working directory, or the OS user-data dir when `NODE_ENV=production`, which the image sets).
 
 ## 💻 Local Development
 
@@ -37,7 +39,7 @@ If you want to contribute or run the project locally:
 
 ### Prerequisites
 - Node.js (v20+ or v22+ recommended)
-- A supported database (or just use the default SQLite!)
+- MongoDB, unless you set `DB_TYPE` to `sqlite` or another supported engine
 
 ### Installation
 
@@ -59,35 +61,52 @@ If you want to contribute or run the project locally:
    ```
 
 3. **Configure Environment Variables:**
-   Copy the example environment file in the server directory:
+   From the repo root (step 2 leaves you in `client/`):
    ```bash
-   cd server
+   cd ../server
    cp .env.example .env
    ```
-   *By default, Reqspace uses a local SQLite database requiring zero configuration!*
+   `.env.example` sets `MONGO_URI` and does not set `DB_TYPE`, so the server uses **MongoDB**. For a file database with nothing else running, add `DB_TYPE=sqlite` to `server/.env`.
 
 4. **Run the Application (Development Mode):**
    ```bash
-   # In one terminal window (Start Server)
+   # Terminal 1 — API on http://localhost:3005
    cd server
    npm run dev
 
-   # In another terminal window (Start Client)
+   # Terminal 2 — Vite UI (default http://localhost:5173), proxying /api and /ws to port 3005
    cd client
    npm run dev
    ```
+   Open the Vite URL. Port 3005 serves the built client only after `npm run build` in `client/` (that is what Docker and production do).
 
 ## ⚙️ Configuration & Databases
 
-Reqspace uses an intelligent database connector. You can easily switch your database by editing the DB_TYPE variable in your server/.env file:
+`getDbConfig()` reads `DB_TYPE` first, then `db-config.json`, and otherwise uses **mongodb**. There is no `DB_URI` variable.
 
 ```env
-# Choose between: sqlite, postgres, mysql, mongodb
-DB_TYPE=sqlite
+# mongodb | sqlite | postgres | mysql | mssql
+DB_TYPE=mongodb
 
-# If using postgres/mysql/mongodb, provide the URI:
-DB_URI=mongodb://localhost:27017/reqspace
+# MongoDB (either name works). Default if both are unset:
+# mongodb://localhost:27017/reqspace-web
+MONGO_URI=mongodb://localhost:27017/reqspace-web
+# MONGODB_URI=
+
+# SQLite file. Dev default is ./data.sqlite (cwd of the server process).
+# DB_TYPE=sqlite
+# DB_STORAGE_PATH=./data.sqlite
+
+# Postgres / MySQL / MSSQL — connection string, or discrete fields.
+# DB_CONNECTION_STRING=postgres://user:pass@localhost:5432/postman_clone
+# DB_HOST=localhost
+# DB_PORT=5432
+# DB_NAME=postman_clone
+# DB_USER=root
+# DB_PASSWORD=
 ```
+
+Default ports when `DB_PORT` is omitted: MySQL `3306`, PostgreSQL `5432`, MSSQL `1433`. The SQL database name falls back to `postman_clone`.
 
 ## 🔑 Google OAuth Setup
 
@@ -102,42 +121,39 @@ You can enable Google Authentication without touching the code!
 Contributions, issues, and feature requests are welcome! 
 Feel free to check [issues page](https://github.com/Itayp1/reqspace/issues).
 
-## 🔒 Security & Architecture Decisions (Sept 2026)
+## 🔒 Security & Architecture (as of the code, Sept 2026)
 
-Based on a recent security and architecture review, the following principles and fixes are actively being applied to the project:
+What the server actually does today, versus what is still only a plan. Open items are tracked in [Active Tasks](#-active-tasks--roadmap).
 
-1. **Client-Side Scripts Sandbox:** Pre-request and test scripts will be executed in a secure Sandbox (Web Worker or Sandboxed Iframe) to prevent XSS and secure local storage secrets.
-2. **Strict Header Authentication:** Header-based authentication (`X-Auth-User`) is disabled by default and will only be allowed if explicitly enabled in the Admin Dashboard (assumed to be behind a trusted reverse proxy).
-3. **Strict Input Validation:** We are rolling out strict `Zod` validation schemas across all API endpoints to prevent Mass Assignment and ensure data integrity.
-4. **Client-Side Proxy Execution:** The proxy architecture is being redesigned so that the central Reqspace server does not execute proxy requests directly. Proxying will be handled by external proxies or directly from the Client station.
-5. **SSRF Allowances:** The proxy natively allows internal network requests (SSRF) as it is a core feature of API testing tools for local network development.
-6. **Cross-Database Compatibility:** The system is strictly designed to support **both SQL and MongoDB**. Any direct Mongoose usages outside of Repositories are being migrated to abstracted Repositories to ensure seamless SQL support.
+1. **Scripts are not sandboxed.** Pre-request and test scripts still run with `new Function` on the main thread (`client/src/utils/scripts.ts`). `client/src/sandbox/worker.ts` is not wired up. Moving them into a Worker or a sandboxed iframe is unfinished.
+2. **Header authentication is off until an admin opts in, and then only from trusted IPs.** `auth.mode` defaults to `login`. Turning on **SSO Header (Reverse Proxy)** in Admin Settings is required, and `X-Auth-User` (or the configured header name) is accepted only when the request IP is in `HEADER_AUTH_TRUSTED_IPS` (loopback by default).
+3. **Request bodies are not validated with Zod.** `zod` is installed and unused. Field allowlists exist on the main collection/folder/request/workspace updates; they are not a schema layer.
+4. **The API server still sends proxied HTTP requests.** A redesign that would stop the central server from issuing those calls has not landed. `POST /api/proxy` runs on the server.
+5. **The proxy blocks internal and private targets.** `server/src/utils/ssrf.ts` rejects loopback, RFC1918, link-local, NAT64, IPv4-mapped forms, and non-dotted IP literals. It does not leave SSRF open for local-network testing. An admin message in that module says a system setting can allow it; that allow-switch is not a reason to treat private URLs as permitted by default.
+6. **SQL and MongoDB share a repository layer only on the core path.** Environments, history, share, capture, import/export, and parts of admin still use Mongoose models or `mongoose.Types.ObjectId`, which reject SQL UUIDs.
 
 ## 🚀 Scalability & Performance (High-Scale Architecture)
 
-To support enterprise-grade scale (e.g., **400k+ Workspaces, 2M+ Collections, 20M+ Requests**), the architecture incorporates the following principles:
+The numbers below (400k+ workspaces, 2M+ collections, 20M+ requests, 10k+ sockets) are a target, not a measured capacity. Of the five items, only indexing is implemented.
 
-1. **Database Indexing:** Strict enforcement of indexes on foreign keys (`workspaceId`, `collectionId`, `folderId`) and compound indexes for heavily queried fields (like `order` and `parentFolderId`). Without these, queries on a 20M row `requests` table would result in catastrophic full-table scans. 
-   * **Cross-SQL Indexing Strategy:** Since Reqspace supports multiple SQL databases (PostgreSQL, MySQL, SQLite, MSSQL), the most efficient way to implement these indexes is to define them directly within the Sequelize model definitions (using the `indexes` array in `Model.init` options). Sequelize abstracts the underlying dialect, automatically generating the correct `CREATE INDEX` syntax for the chosen database type upon schema sync.
-2. **Lazy Loading & Pagination:** The API and Client UI must avoid fetching entire workspace trees simultaneously. Endpoints will use cursor-based pagination, and the Client will lazy-load nested resources (Folders/Requests) only when expanded.
-3. **Optimized Realtime Sync:** The WebSocket (`SocketSync`) architecture will move from "refetch everything on change" to **granular delta updates**. Clients will only receive the specific document that changed (e.g., `request:updated`) instead of querying the DB for the whole tree again.
-4. **RBAC & Configuration Caching:** Frequently accessed data, such as workspace membership (roles) and system configurations, will be offloaded to an in-memory caching layer (or Redis) to reduce load on the primary relational/document database during heavy proxy traffic.
-5. **High-Concurrency WebSockets (10,000+ Active Users):** To support 10k+ simultaneous live connections without CPU/Memory exhaustion on a single instance, the Socket.io implementation requires **Horizontal Scaling**. This means deploying multiple server replicas behind a Load Balancer (with Sticky Sessions) and using a **Redis Adapter**. The Redis Adapter ensures that a realtime event generated on Server Node A is seamlessly broadcasted to the relevant users connected to Server Node B.
+1. **Database Indexing (in place):** Sequelize models under `server/src/db/sql-models/` declare indexes on `workspaceId`, `collectionId`, and `folderId`, plus compound indexes on `order` / `parentFolderId`. Sequelize emits the dialect-specific `CREATE INDEX` on sync for PostgreSQL, MySQL, SQLite, and MSSQL.
+2. **Lazy loading and pagination (not started):** List endpoints still return whole trees. Cursor pagination and expand-to-load are not implemented.
+3. **Realtime sync (full refetch):** `SocketSync` refetches the workspace tree on structural events and on window focus. Granular `request:updated`-style store patches are not implemented. The socket URL is `api.defaults.baseURL` with `/api` stripped, which breaks if that base URL is versioned (`/api/v1`).
+4. **RBAC and config caching (not started):** Membership and system config are read from the database on the request path. There is no Redis or in-memory cache.
+5. **Horizontal WebSockets (not started):** There is no Redis adapter. `k8s/deployment.yaml` sets `replicas: 2` and an HPA with no sticky sessions, so a second replica cannot share Socket.io rooms. Single-node `io.to(room).emit` is what runs today.
 
 ## 🧪 Testing Strategy (target architecture)
 
-> The direction below is a decision, not a suggestion: **UI-driven integration tests are the backbone of this suite, and the whole backbone runs against every supported database.** What exists today does neither — see [`TESTING.md`](TESTING.md#test-coverage-gaps--and-how-to-close-them) for how the current suite reported green on live defects.
+> Target, not the current suite: **UI-driven integration tests as the backbone, run against every supported database.** That matrix is not built. CI (`.github/workflows/test.yml`) builds client and server, runs Jest, and runs `scripts/smoke-core.sh` against SQLite only. [`TESTING.md`](TESTING.md) still describes the pre-fix defects (dead broadcasts, SQL login, no CI) and is out of date relative to this file.
 
 ### Why UI-first integration is the right default here
 
 Drive a real browser against a real server against a real database, and assert on what the user sees. If a collection rename shows up in a second user's tree, then the route, the RBAC middleware, the repository, the DB dialect, the socket broadcast and the client store all worked. One assertion covers the entire stack, and it stays true when the internals are refactored.
 
-This is not a theoretical preference. Of the three defects that shipped past the current suite, a UI-level integration test would have caught **two immediately**:
+Two defects that used to ship green are fixed, and a UI test would have seen both:
 
-* the dead `:updated` / `:deleted` broadcasts — a second browser's tree visibly fails to refresh
-* the SQL login defect — under `DB_TYPE=sqlite`, the UI dies on the first authenticated call after login
-
-Both are invisible to the tests that exist, and neither needs a clever assertion — only a test that performs the ordinary action and looks at the screen.
+* `:updated` / `:deleted` broadcasts — fixed; `tests/socket-realtime.spec.ts` covers collection update and delete with two clients. Folder, request, environment, and reorder emits are still untested.
+* SQL login — the core authenticated path is verified on SQLite and MongoDB. The old failure was the first call after login, which a public register/login test never hits.
 
 ### Rule 1 — two browser contexts, always, for anything realtime
 
@@ -203,20 +219,20 @@ The full suite × four backends is too slow to sit in front of every push. Split
 | Full integration | Everything in `tests/` | One backend (sqlite — no external service) | Every push |
 | Full matrix | Everything in `tests/` | All 4 backends | Nightly, and before release |
 
-The smoke tier is what the current `test-all-dbs.ps1` was reaching for and missed: it stops at login, which is a **public** route, so it never touches the dialect-specific code in `middleware/auth.ts` where the SQL defect lives. **The first authenticated request is the single most valuable assertion in the entire matrix** — it is where Mongoose-only code paths fail on SQL, and where `isValidObjectId` rejects a UUID. It must be in the smoke tier, and every backend must run it.
+`scripts/smoke-core.sh` already crosses the first authenticated request, but only on SQLite in CI. `test-all-dbs.ps1` still stops at `auth.e2e.test.ts` (register and login), rewrites `server/.env`, and depends on pm2. **The first authenticated request is the assertion the matrix has to keep** — Mongoose-only routes and `mongoose.Types.ObjectId` still reject SQL UUIDs. Every backend must run it.
 
 ### Rule 5 — an integration test that passes before the fix is a bug
 
-These tests exist to catch specific, known-reachable failures. Write the test, run it against unpatched code, watch it fail, then fix. A realtime test that goes green on today's `master` is asserting on the wrong thing — which is exactly how the existing socket specs came to cover only `collection:created`.
+These tests exist to catch specific, known-reachable failures. Write the test, run it against unpatched code, watch it fail, then fix. The old socket specs stayed green while `:updated` and `:deleted` were dead because they only listened for `collection:created`. That bug is fixed; a new realtime test that passes before the change it claims to lock in is still asserting on the wrong thing.
 
-Corollary: never commit a passing placeholder. `socket-sync.spec.ts:3-29` records 18 tests that asserted `expect(true).toBe(true)` and reported real-time collaboration as verified. Use `test.fixme` for anything unwritten, so the runner reports it as outstanding.
+Corollary: never commit a passing placeholder. `tests/socket-sync.spec.ts` used to contain 18 tests that asserted `expect(true).toBe(true)`. Those assertions are gone; the file keeps one real peer-broadcast test and a comment listing the scenarios that are still unwritten. Use `test.fixme` for anything unwritten, so the runner reports it as outstanding.
 
 ### What still needs non-integration tests
 
 Integration coverage does not remove the need for a small number of targeted tests where the failure is unreachable from a browser:
 
 * **`ssrf.ts` parsing** — unit tests for NAT64, hex literals, trailing-dot hosts, IPv4-mapped forms. No UI path reaches these.
-* **Multi-node broadcast** — the `size > 1` guard in `socketUtils.ts` reads only the local adapter room, so it is correct on one instance and wrong on two. Requires two server processes against one Redis, and cannot be observed on a single-node run at all.
+* **Multi-node broadcast** — the old `size > 1` guard was removed from `socketUtils.ts`. A Redis adapter is still not wired up. Proving a broadcast crosses processes needs two server processes against one Redis, which a single-node run cannot show.
 * **SSO account creation** — needs a stub for Google's token endpoint.
 
 ## 📋 Active Tasks & Roadmap
