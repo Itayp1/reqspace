@@ -146,7 +146,10 @@ export function BodyEditor() {
         {body.mode === 'graphql' && (
           <div className="h-full flex flex-col pt-2">
             <div className="flex-1 flex flex-col min-h-0 border-b border-gray-200 dark:border-gray-700">
-              <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-gray-800/50">Query</div>
+              <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-gray-800/50 flex items-center justify-between">
+                <span>Query</span>
+                <button type="button" className="normal-case tracking-normal text-orange-500" onClick={() => updateActiveRequest({ body: { ...body, graphql: { query: '{ __schema { queryType { name } types { name kind } } }', variables: body.graphql?.variables || '{}' } } })}>Insert introspection</button>
+              </div>
               <Editor
                 height="100%"
                 theme="vs-dark"

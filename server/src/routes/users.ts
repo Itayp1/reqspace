@@ -1,25 +1,14 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { User } from '../models/User';
-import { escapeRegex } from '../utils/escapeRegex';
+import { UserRepository } from '../repositories/UserRepository';
 
 const router = Router();
 
 router.get('/search', authenticate, async (req: AuthRequest, res: Response) => {
   const q = req.query.q as string;
-  if (!q || q.length < 2) {
-    return res.json([]);
-  }
-  // Anchored prefix match on escaped input — the previous version passed the
-  // raw query straight into `new RegExp()`, which is both a ReDoS vector
-  // (a crafted pattern with catastrophic backtracking) and let a substring
-  // match anywhere scrape the whole user directory a little at a time.
-  const regex = new RegExp('^' + escapeRegex(q), 'i');
-  const users = await User.find({
-    $or: [{ name: regex }, { email: regex }]
-  }).select('_id name email avatar').limit(10);
-
-  res.json(users);
+  if (!q || q.length < 2) return res.json([]);
+  const users = await UserRepository.searchPrefix(q, 10);
+  res.json(users.map((u) => ({ _id: u._id, name: u.name, email: u.email, avatar: u.avatar })));
 });
 
 export default router;

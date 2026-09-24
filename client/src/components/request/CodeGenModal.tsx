@@ -6,7 +6,7 @@ interface CodeGenModalProps {
   onClose: () => void;
 }
 
-type Language = 'curl' | 'fetch' | 'axios' | 'python-requests' | 'python-httpx' | 'go' | 'csharp';
+type Language = 'curl' | 'fetch' | 'axios' | 'python-requests' | 'python-httpx' | 'go' | 'csharp' | 'java' | 'ruby' | 'php' | 'swift' | 'dart';
 
 import { resolveAllVariables } from '../../utils/variables';
 
@@ -18,6 +18,11 @@ const LANGUAGES: { id: Language; label: string }[] = [
   { id: 'python-httpx', label: 'Python (httpx)' },
   { id: 'go', label: 'Go' },
   { id: 'csharp', label: 'C# (HttpClient)' },
+  { id: 'java', label: 'Java' },
+  { id: 'ruby', label: 'Ruby' },
+  { id: 'php', label: 'PHP' },
+  { id: 'swift', label: 'Swift' },
+  { id: 'dart', label: 'Dart' },
 ];
 
 function generateCode(language: Language, req: ReturnType<typeof useRequestStore.getState>['activeRequest']): string {
@@ -122,6 +127,16 @@ var body = await response.Content.ReadAsStringAsync();
 Console.WriteLine(body);`;
     }
 
+    case 'java':
+      return `var client = java.net.http.HttpClient.newHttpClient();\nvar request = java.net.http.HttpRequest.newBuilder()\n    .uri(java.net.URI.create("${url}"))\n    .method("${method}", ${hasBody ? `java.net.http.HttpRequest.BodyPublishers.ofString(${JSON.stringify(bodyStr)})` : 'java.net.http.HttpRequest.BodyPublishers.noBody()'})\n    .build();\nvar response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());\nSystem.out.println(response.body());`;
+    case 'ruby':
+      return `require 'net/http'\nuri = URI('${url}')\nhttp = Net::HTTP.new(uri.host, uri.port)\nrequest = Net::HTTP::${method[0] + method.slice(1).toLowerCase()}.new(uri)\n${enabledHeaders.map(h => `request['${h.key}'] = '${h.value}'`).join('\n')}\n${hasBody ? `request.body = ${JSON.stringify(bodyStr)}\n` : ''}response = http.request(request)\nputs response.body`;
+    case 'php':
+      return `<?php\n$ch = curl_init('${url}');\ncurl_setopt($ch, CURLOPT_CUSTOMREQUEST, '${method}');\ncurl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\n${hasBody ? `curl_setopt($ch, CURLOPT_POSTFIELDS, ${JSON.stringify(bodyStr)});\n` : ''}echo curl_exec($ch);`;
+    case 'swift':
+      return `var request = URLRequest(url: URL(string: "${url}")!)\nrequest.httpMethod = "${method}"\n${hasBody ? `request.httpBody = Data(${JSON.stringify(bodyStr)}.utf8)\n` : ''}let (data, _) = try await URLSession.shared.data(for: request)\nprint(String(data: data, encoding: .utf8)!)`;
+    case 'dart':
+      return `import 'package:http/http.dart' as http;\n\nfinal response = await http.${method.toLowerCase()}(Uri.parse('${url}')${hasBody ? `, body: ${JSON.stringify(bodyStr)}` : ''});\nprint(response.body);`;
     default:
       return '';
   }

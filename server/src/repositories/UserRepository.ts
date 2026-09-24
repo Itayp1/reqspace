@@ -152,6 +152,69 @@ export const UserRepository = {
     return !!u;
   },
 
+  async searchPaged(opts: { search?: string; status?: string; page: number; limit: number }): Promise<{ users: IUserRecord[]; total: number }> {
+    const page = Math.max(1, opts.page || 1);
+    const limit = Math.min(200, Math.max(1, opts.limit || 50));
+    const skip = (page - 1) * limit;
+    if (isMongo()) {
+      const query: Record<string, unknown> = {};
+      if (opts.status) query.status = opts.status;
+      if (opts.search) {
+        const { escapeRegex } = await import('../utils/escapeRegex');
+        const regex = new RegExp(escapeRegex(opts.search), 'i');
+        query.$or = [{ name: regex }, { email: regex }];
+      }
+      const [rows, total] = await Promise.all([
+        User.find(query).select('-passwordHash').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        User.countDocuments(query),
+      ]);
+      return { users: rows.map(mongoToRecord), total };
+    }
+    const { Op } = await import('sequelize');
+    const where: any = {};
+    if (opts.status) where.status = opts.status;
+    if (opts.search) {
+      const like = `%${opts.search.replace(/[%_]/g, '')}%`;
+      where[Op.or] = [{ name: { [Op.like]: like } }, { email: { [Op.like]: like } }];
+    }
+    const { rows, count } = await SqlUser.findAndCountAll({
+      where, order: [['createdAt', 'DESC']], limit, offset: skip,
+    });
+    return { users: rows.map(sqlToRecord), total: count };
+  },
+
+  async searchPrefix(q: string, limit = 10): Promise<IUserRecord[]> {
+    if (isMongo()) {
+      const { escapeRegex } = await import('../utils/escapeRegex');
+      const regex = new RegExp('^' + escapeRegex(q), 'i');
+      const rows = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id name email avatar').limit(limit).lean();
+      return rows.map(mongoToRecord);
+    }
+    const { Op } = await import('sequelize');
+    const like = `${q.replace(/[%_]/g, '')}%`;
+    const rows = await SqlUser.findAll({
+      where: { [Op.or]: [{ name: { [Op.like]: like } }, { email: { [Op.like]: like } }] },
+      limit,
+    });
+    return rows.map(sqlToRecord);
+  },
+
+  async adjustHistoryBytes(userId: string, delta: number): Promise<void> {
+    const user = await this.findById(userId);
+    if (!user) return;
+    const next = Math.max(0, (user.historyUsedBytes || 0) + delta);
+    await this.setHistoryBytes(userId, next);
+  },
+
+  async setHistoryBytes(userId: string, bytes: number): Promise<void> {
+    const value = Math.max(0, Math.floor(bytes));
+    if (isMongo()) {
+      await User.findByIdAndUpdate(userId, { historyUsedBytes: value });
+      return;
+    }
+    await SqlUser.update({ historyUsedBytes: value }, { where: { id: userId } });
+  },
+
   // Returns the raw Mongoose document (for routes that still need .save())
   async findRawMongoById(id: string): Promise<IUser | null> {
     if (!isMongo()) return null;

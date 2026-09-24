@@ -19,90 +19,50 @@ function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string })
   const [showFix, setShowFix] = useState(false);
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#0f172a',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '2rem',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      color: '#f1f5f9',
-    }}>
-      <div style={{
-        background: '#1e293b',
-        border: '1px solid #ef4444',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        maxWidth: '560px',
-        width: '100%',
-        boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{ fontSize: '2.5rem', textAlign: 'center', marginBottom: '1rem' }}>🚨</div>
-        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, textAlign: 'center', marginBottom: '0.5rem', color: '#f87171' }}>
-          Database Connection Error
-        </h2>
-        <p style={{ textAlign: 'center', color: '#94a3b8', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-900 p-8 text-slate-100">
+      <div className="w-full max-w-xl rounded-2xl border border-red-500 bg-slate-800 p-10 shadow-2xl">
+        <div className="mb-4 text-center text-4xl">🚨</div>
+        <h2 className="mb-2 text-center text-xl font-bold text-red-400">Database Connection Error</h2>
+        <p className="mb-6 text-center text-sm text-slate-400">
           The server could not connect to the database. The application is unavailable until this is fixed.
         </p>
-
-        <div style={{
-          background: '#0f172a',
-          border: '1px solid #334155',
-          borderRadius: '8px',
-          padding: '1rem',
-          marginBottom: '1.5rem',
-        }}>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.5rem' }}>
-            <span style={{ color: '#64748b', fontSize: '0.8rem', fontWeight: 600, minWidth: '80px' }}>DB TYPE</span>
-            <code style={{ color: '#fbbf24', fontSize: '0.85rem' }}>{dbType || 'unknown'}</code>
+        <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900 p-4 text-sm">
+          <div className="mb-2 flex gap-4">
+            <span className="w-20 shrink-0 text-xs font-semibold text-slate-500">DB TYPE</span>
+            <code className="text-amber-300">{dbType || 'unknown'}</code>
           </div>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <span style={{ color: '#64748b', fontSize: '0.8rem', fontWeight: 600, minWidth: '80px' }}>ERROR</span>
-            <code style={{ color: '#f87171', fontSize: '0.8rem', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{dbError}</code>
+          <div className="flex gap-4">
+            <span className="w-20 shrink-0 text-xs font-semibold text-slate-500">ERROR</span>
+            <code className="whitespace-pre-wrap break-all text-red-400">{dbError}</code>
           </div>
         </div>
-
         <button
+          type="button"
           onClick={() => setShowFix(!showFix)}
-          style={{
-            width: '100%', padding: '10px', background: '#3b82f6', color: 'white',
-            border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '0.9rem',
-            cursor: 'pointer', marginBottom: '0.75rem',
-          }}
+          className="mb-3 w-full cursor-pointer rounded-lg bg-blue-500 px-3 py-2.5 text-sm font-bold text-white"
         >
           {showFix ? '▲ Hide Fix Instructions' : '▼ How to fix this'}
         </button>
-
         {showFix && (
-          <div style={{
-            background: '#0f172a', border: '1px solid #334155', borderRadius: '8px',
-            padding: '1rem', fontSize: '0.8rem', color: '#cbd5e1', lineHeight: '1.7',
-          }}>
-            <p style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: '0.5rem' }}>Common fixes:</p>
-            <ul style={{ paddingLeft: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 text-xs leading-relaxed text-slate-300">
+            <p className="mb-2 font-bold text-slate-200">Common fixes:</p>
+            <ul className="flex list-disc flex-col gap-1 pl-5">
               <li><strong>SQLite:</strong> Check that the file path is writable and the folder exists</li>
               <li><strong>MongoDB:</strong> Make sure MongoDB is running on the configured host/port</li>
               <li><strong>MySQL/PostgreSQL:</strong> Verify host, port, credentials, and that the DB exists</li>
               <li><strong>SQL Server:</strong> Verify server name, credentials and firewall rules</li>
             </ul>
-            <p style={{ marginTop: '0.75rem', color: '#64748b' }}>
-              Super admins can update the DB config at{' '}
-              <code style={{ color: '#60a5fa' }}>/admin → 🗄️ Database</code>
+            <p className="mt-3 text-slate-500">
+              Super admins can update the DB config at <code className="text-blue-400">/admin</code>
             </p>
           </div>
         )}
-
         <button
+          type="button"
           onClick={() => window.location.reload()}
-          style={{
-            width: '100%', padding: '10px', background: 'transparent', color: '#94a3b8',
-            border: '1px solid #334155', borderRadius: '8px', fontWeight: 600,
-            fontSize: '0.85rem', cursor: 'pointer', marginTop: '0.5rem',
-          }}
+          className="mt-2 w-full cursor-pointer rounded-lg border border-slate-700 bg-transparent px-3 py-2.5 text-sm font-semibold text-slate-400"
         >
-          🔄 Retry Connection
+          Retry Connection
         </button>
       </div>
     </div>
@@ -119,8 +79,16 @@ function AuthGuard({ children, requireSuperAdmin = false }: { children: React.Re
       useAuthStore.getState().setUser(null);
       navigate('/login');
     };
+    const handleForbidden = (event: Event) => {
+      const message = (event as CustomEvent).detail || 'Forbidden';
+      window.alert(message);
+    };
     window.addEventListener('unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+    window.addEventListener('forbidden', handleForbidden);
+    return () => {
+      window.removeEventListener('unauthorized', handleUnauthorized);
+      window.removeEventListener('forbidden', handleForbidden);
+    };
   }, [navigate]);
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -190,19 +158,8 @@ function App() {
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: '1rem', background: '#0f172a', color: '#94a3b8',
-        fontFamily: '-apple-system, sans-serif',
-      }}>
-        <div style={{
-          width: 40, height: 40,
-          border: '3px solid #1e293b',
-          borderTopColor: '#3b82f6',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-900 text-slate-400">
+        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-slate-800 border-t-blue-500" />
         <span>Loading...</span>
       </div>
     );
@@ -227,7 +184,7 @@ function App() {
             
             <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
               <Route index element={<AppScreen />} />
-              <Route path="admin" element={<AuthGuard requireSuperAdmin><AdminPage /></AuthGuard>} />
+              <Route path="admin" element={<AdminPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

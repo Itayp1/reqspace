@@ -1,4 +1,5 @@
-import { isPrivateOrReservedHost } from '../utils/ssrf';
+import dns from 'dns';
+import { createSafeLookup, isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
 
 // These cases all use literal hosts (IP literals or numeric forms), so no DNS
 // lookup is performed — the tests are deterministic and offline. They cover the
@@ -38,5 +39,22 @@ describe('ssrf: isPrivateOrReservedHost', () => {
 
   it.each(allowed)('allows %s (%s)', async (_label, host) => {
     expect(await isPrivateOrReservedHost(host)).toBe(false);
+  });
+});
+
+describe('ssrf: redirect hop is checked at connect time', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('refuses a redirect target that resolves to a private address', (done) => {
+    const lookup = jest.spyOn(dns, 'lookup') as unknown as jest.SpyInstance;
+    lookup.mockImplementation((hostname: string, options: unknown, callback?: unknown) => {
+      const cb = typeof options === 'function' ? options : callback;
+      const address = hostname === 'evil.example' ? '127.0.0.1' : '8.8.8.8';
+      (cb as Function)(null, address, 4);
+    });
+    createSafeLookup(false)('evil.example', {}, (err) => {
+      expect(err).toBeInstanceOf(SsrfBlockedError);
+      done();
+    });
   });
 });

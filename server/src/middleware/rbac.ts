@@ -3,6 +3,7 @@ import { AuthRequest } from './auth';
 import { UserRole } from '../models/User';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { isValidId } from '../utils/ids';
+import { cacheDel, cacheGet, cacheSet, MEMBERSHIP_TTL, membershipCacheKey } from '../utils/cache';
 
 const ROLE_RANK: Record<UserRole, number> = {
   viewer: 1,
@@ -11,7 +12,24 @@ const ROLE_RANK: Record<UserRole, number> = {
 };
 
 /** Get user's role in a workspace */
+export function invalidateMembership(workspaceId?: string): void {
+  cacheDel(workspaceId ? `role:` : 'role:');
+  if (workspaceId) cacheDel(`role:`);
+}
+
 export async function getUserWorkspaceRole(
+  userId: string,
+  workspaceId: string
+): Promise<UserRole | null> {
+  const key = membershipCacheKey(userId, workspaceId);
+  const cached = cacheGet<UserRole | null>(key);
+  if (cached !== undefined) return cached;
+  const role = await loadUserWorkspaceRole(userId, workspaceId);
+  cacheSet(key, role, MEMBERSHIP_TTL);
+  return role;
+}
+
+async function loadUserWorkspaceRole(
   userId: string,
   workspaceId: string
 ): Promise<UserRole | null> {

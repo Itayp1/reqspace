@@ -1,17 +1,17 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest, requireSuperAdmin } from '../middleware/auth';
-import { User } from '../models/User';
-import { Workspace } from '../models/Workspace';
 import { logAudit, AuditLogRepository } from '../repositories/AuditLogRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
-import { Collection } from '../models/Collection';
-import { Folder } from '../models/Folder';
-import { Request as ApiRequest } from '../models/Request';
-import { Environment } from '../models/Environment';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { FolderRepository } from '../repositories/FolderRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { UserRepository } from '../repositories/UserRepository';
+import { getRedisStatus } from '../redis';
 import bcrypt from 'bcryptjs';
-import mongoose from 'mongoose';
+import { validateBody } from '../validation/validate';
+import { adminConfigSchema } from '../validation/schemas';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -19,25 +19,9 @@ router.use(authenticate, requireSuperAdmin);
 // ── GET /api/admin/users ────────────────────────────────────────────────────
 router.get('/users', async (req: AuthRequest, res: Response) => {
   const { search, status, page = '1', limit = '50' } = req.query as Record<string, string>;
-  const query: Record<string, unknown> = {};
-
-  if (search) {
-    query.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-    ];
-  }
-  if (status) query.status = status;
-
-  const users = await User.find(query)
-    .select('-passwordHash')
-    .sort({ createdAt: -1 })
-    .skip((+page - 1) * +limit)
-    .limit(+limit)
-    .lean();
-
-  const total = await User.countDocuments(query);
-  return res.json({ users, total, page: +page, limit: +limit });
+  const result = await UserRepository.searchPaged({ search, status, page: +page, limit: +limit });
+  const users = result.users.map(({ passwordHash: _pw, ...rest }) => rest);
+  return res.json({ users, total: result.total, page: +page, limit: +limit });
 });
 
 // ── PUT /api/admin/users/:id ────────────────────────────────────────────────
@@ -49,8 +33,7 @@ router.put('/users/:id', async (req: AuthRequest, res: Response) => {
   if (status) update.status = status;
   if (password) update.passwordHash = await bcrypt.hash(password, 12);
 
-  const user = await User.findByIdAndUpdate(req.params.id, update, { new: true })
-    .select('-passwordHash');
+  const user = await UserRepository.update(req.params.id, update as any);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
   await logAudit(req.user!._id as any, 'admin.user.update', {
@@ -69,19 +52,19 @@ router.post('/users', async (req: AuthRequest, res: Response) => {
     return res.status(400).json({ message: 'Name, email, and password are required' });
   }
 
-  const existing = await User.findOne({ email: email.toLowerCase() });
+  const existing = await UserRepository.findByEmail(email);
   if (existing) {
     return res.status(409).json({ message: 'Email already registered' });
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await User.create({
+  const user = await UserRepository.create({
     name,
     email: email.toLowerCase(),
     passwordHash,
     authType: 'password',
     isSuperAdmin: !!isSuperAdmin,
-    mustChangePassword: true, // Force password change on first login
+    mustChangePassword: true,
   });
 
   const { createPersonalWorkspace } = require('../middleware/auth');
@@ -96,11 +79,7 @@ router.post('/users', async (req: AuthRequest, res: Response) => {
 
 // ── POST /api/admin/users/:id/promote – Set SuperAdmin ──────────────────────
 router.post('/users/:id/promote', async (req: AuthRequest, res: Response) => {
-  const user = await User.findByIdAndUpdate(
-    req.params.id,
-    { isSuperAdmin: true },
-    { new: true }
-  ).select('-passwordHash');
+  const user = await UserRepository.update(req.params.id, { isSuperAdmin: true });
   if (!user) return res.status(404).json({ message: 'User not found' });
 
   await logAudit(req.user!._id as any, 'user.promote', {
@@ -114,11 +93,7 @@ router.post('/users/:id/revoke', async (req: AuthRequest, res: Response) => {
   if (String(req.params.id) === String(req.user!._id)) {
     return res.status(400).json({ message: 'Cannot revoke your own SuperAdmin privileges' });
   }
-  const user = await User.findByIdAndUpdate(
-    req.params.id,
-    { isSuperAdmin: false },
-    { new: true }
-  ).select('-passwordHash');
+  const user = await UserRepository.update(req.params.id, { isSuperAdmin: false });
   if (!user) return res.status(404).json({ message: 'User not found' });
 
   await logAudit(req.user!._id as any, 'user.revoke', {
@@ -132,11 +107,7 @@ router.post('/users/:id/suspend', async (req: AuthRequest, res: Response) => {
   if (String(req.params.id) === String(req.user!._id)) {
     return res.status(400).json({ message: 'Cannot suspend yourself' });
   }
-  const user = await User.findByIdAndUpdate(
-    req.params.id,
-    { status: 'suspended' },
-    { new: true }
-  ).select('-passwordHash');
+  const user = await UserRepository.update(req.params.id, { status: 'suspended' });
   if (!user) return res.status(404).json({ message: 'User not found' });
 
   await logAudit(req.user!._id as any, 'user.suspend', {
@@ -150,7 +121,8 @@ router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   if (String(req.params.id) === String(req.user!._id)) {
     return res.status(400).json({ message: 'Cannot delete yourself' });
   }
-  const user = await User.findByIdAndDelete(req.params.id);
+  const user = await UserRepository.findById(req.params.id);
+  if (user) await UserRepository.delete(req.params.id);
   if (!user) return res.status(404).json({ message: 'User not found' });
 
   await logAudit(req.user!._id as any, 'user.delete', {
@@ -161,23 +133,23 @@ router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
 
 // ── GET /api/admin/workspaces ───────────────────────────────────────────────
 router.get('/workspaces', async (_req: AuthRequest, res: Response) => {
-  const workspaces = await Workspace.find()
-    .populate('ownerId', 'name email')
-    .lean();
-  return res.json(workspaces);
+  const workspaces = await WorkspaceRepository.list();
+  const populated = await Promise.all(workspaces.map(async (w) => {
+    const owner = await UserRepository.findById(w.ownerId);
+    return { ...w, ownerId: owner ? { _id: owner._id, name: owner.name, email: owner.email } : w.ownerId };
+  }));
+  return res.json(populated);
 });
 
 // ── GET /api/admin/audit-logs ───────────────────────────────────────────────
 router.get('/audit-logs', async (req: AuthRequest, res: Response) => {
   const { action, userId, from, to, page = '1', limit = '100' } = req.query as Record<string, string>;
-  const query: Record<string, unknown> = {};
-  if (action) query.action = { $regex: action, $options: 'i' };
-  if (userId) query.userId = new mongoose.Types.ObjectId(userId);
-  if (from || to) {
-    query.createdAt = {};
-    if (from) (query.createdAt as Record<string, unknown>).$gte = new Date(from);
-    if (to) (query.createdAt as Record<string, unknown>).$lte = new Date(to);
-  }
+  const query = {
+    actionContains: action || undefined,
+    userId: userId || undefined,
+    createdFrom: from ? new Date(from) : undefined,
+    createdTo: to ? new Date(to) : undefined,
+  };
 
   const skip = (+page - 1) * +limit;
   const logs = await AuditLogRepository.list(query, +limit, skip);
@@ -212,13 +184,17 @@ function maskConfigSecrets(config: any) {
   return masked;
 }
 
+router.get('/runtime', async (_req: AuthRequest, res: Response) => {
+  return res.json({ redis: getRedisStatus() });
+});
+
 router.get('/config', async (_req: AuthRequest, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   return res.json(maskConfigSecrets(config));
 });
 
 // ── PUT /api/admin/config ───────────────────────────────────────────────────
-router.put('/config', async (req: AuthRequest, res: Response) => {
+router.put('/config', validateBody(adminConfigSchema), async (req: AuthRequest, res: Response) => {
   const update = JSON.parse(JSON.stringify(req.body));
   // The client only ever sees the masked placeholder for secret fields (see
   // GET /config above); if it comes back unchanged, drop it from the update
@@ -271,10 +247,10 @@ router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
     const workspace = await WorkspaceRepository.findById(workspaceId);
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
 
-    const collections = await Collection.find({ workspaceId }).lean();
-    const folders = await Folder.find({ workspaceId }).lean();
-    const requests = await ApiRequest.find({ workspaceId }).lean();
-    const environments = await Environment.find({ workspaceId }).lean();
+    const collections = await CollectionRepository.findByWorkspace(workspaceId);
+    const folders = await FolderRepository.findByCollectionIds(collections.map((c) => c._id));
+    const requests = await RequestRepository.findByCollectionIds(collections.map((c) => c._id));
+    const environments = await EnvironmentRepository.listForWorkspace(workspaceId);
         const config = await SystemConfigRepository.getConfig();
 
     const dump = {
@@ -305,10 +281,42 @@ router.post('/import/:workspaceId', async (req: AuthRequest, res: Response) => {
     
     // In a real scenario we should validate and insert. 
     // Since this is a dump, we can insert collections, folders, requests, environments, globals.
-    if (dump.collections) await Collection.insertMany(dump.collections.map((c: any) => ({ ...c, workspaceId, _id: undefined })));
-    if (dump.folders) await Folder.insertMany(dump.folders.map((f: any) => ({ ...f, workspaceId, _id: undefined })));
-    if (dump.requests) await ApiRequest.insertMany(dump.requests.map((r: any) => ({ ...r, workspaceId, _id: undefined })));
-    if (dump.environments) await Environment.insertMany(dump.environments.map((e: any) => ({ ...e, workspaceId, _id: undefined })));
+    const collectionMap = new Map<string, string>();
+    const folderMap = new Map<string, string>();
+    for (const c of dump.collections || []) {
+      const created = await CollectionRepository.create({
+        workspaceId, name: c.name, description: c.description, variables: c.variables,
+        preRequestScript: c.preRequestScript, testScript: c.testScript,
+        order: c.order, createdBy: String(req.user!._id),
+      });
+      collectionMap.set(String(c._id || c.id), created._id);
+    }
+    for (const f of dump.folders || []) {
+      const collectionId = collectionMap.get(String(f.collectionId));
+      if (!collectionId) continue;
+      const created = await FolderRepository.create({
+        collectionId, name: f.name, description: f.description,
+        parentFolderId: f.parentFolderId ? folderMap.get(String(f.parentFolderId)) || null : null,
+        preRequestScript: f.preRequestScript, testScript: f.testScript, order: f.order,
+      });
+      folderMap.set(String(f._id || f.id), created._id);
+    }
+    for (const r of dump.requests || []) {
+      const collectionId = collectionMap.get(String(r.collectionId));
+      if (!collectionId) continue;
+      await RequestRepository.create({
+        ...r, collectionId,
+        folderId: r.folderId ? folderMap.get(String(r.folderId)) || null : null,
+        createdBy: String(req.user!._id),
+        _id: undefined, id: undefined,
+      });
+    }
+    for (const e of dump.environments || []) {
+      await EnvironmentRepository.create({
+        workspaceId, name: e.name || 'Imported', variables: e.variables,
+        createdBy: String(req.user!._id), order: e.order, isGlobal: !!e.isGlobal,
+      });
+    }
 
     // Deliberately ignore dump.config: importing a *workspace* must never
     // rewrite system-wide settings (SMTP creds, OAuth secrets, proxy) — that

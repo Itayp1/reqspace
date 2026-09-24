@@ -19,6 +19,7 @@ server/dist/
 client/dist/
 # Local MongoDB data dir used by the dev/CI harness.
 .data/
+data/
 
 .env
 .jwt-secret.local

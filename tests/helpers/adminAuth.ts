@@ -1,6 +1,6 @@
 import { APIRequestContext, expect } from '@playwright/test';
 
-export const BASE = 'http://localhost:3005';
+export const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005';
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin';
 /** What server/reset-admin-for-tests.js resets the password to (the server's
  * own first-boot default), before the forced change-password flow runs. */

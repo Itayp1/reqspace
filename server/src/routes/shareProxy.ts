@@ -1,128 +1,103 @@
 import { Router, Request, Response } from 'express';
-import { SharedLink } from '../models/SharedLink';
-import { SystemConfig } from '../models/SystemConfig';
+import { SharedLinkRepository } from '../repositories/SharedLinkRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { createSafeLookup } from '../utils/ssrf';
+import { rateLimit } from '../middleware/rateLimit';
+import { clampTimeout, readCappedBody } from '../utils/proxyLimits';
 
 const router = Router();
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+const shareProxyLimiter = rateLimit({ windowMs: 60_000, max: 20, message: 'Too many shared proxy requests' });
 
-router.post('/:shortId/proxy', async (req: Request, res: Response) => {
-  const link = await SharedLink.findOne({ shortId: req.params.shortId });
+function sameTarget(savedUrl: string, requested: string): boolean {
+  try {
+    const a = new URL(savedUrl);
+    const b = new URL(requested);
+    return a.protocol === b.protocol && a.host === b.host && a.pathname === b.pathname;
+  } catch {
+    return savedUrl === requested;
+  }
+}
+
+router.post('/:shortId/proxy', shareProxyLimiter, async (req: Request, res: Response) => {
+  const link = await SharedLinkRepository.findByShortId(String(req.params.shortId));
   if (!link || link.expiresAt < new Date()) {
     return res.status(404).json({ message: 'Link not found or expired' });
   }
 
-  const { method, url, headers = {}, body, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
-
+  const { method, url, body, followRedirects = true, timeout, verifySsl = true, localProxy } = req.body;
+  if (localProxy) return res.status(400).json({ message: 'localProxy is not allowed on a public share' });
   if (!url) return res.status(400).json({ message: 'url is required' });
-  if (!ALLOWED_METHODS.includes(method?.toUpperCase())) {
-    return res.status(400).json({ message: 'Invalid HTTP method' });
+  const verb = String(method || '').toUpperCase();
+  if (!ALLOWED_METHODS.includes(verb)) return res.status(400).json({ message: 'Invalid HTTP method' });
+
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ message: 'Invalid URL' }); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return res.status(400).json({ message: 'Only http and https URLs are allowed' });
+  }
+
+  const saved = await RequestRepository.findByCollection(link.collectionId);
+  const match = saved.find((r) => r.method.toUpperCase() === verb && sameTarget(r.url, url));
+  if (!match) {
+    return res.status(403).json({ message: 'URL is not part of the shared collection' });
+  }
+
+  const safeHeaders: Record<string, string> = {};
+  for (const h of match.headers || []) {
+    if (!h?.key || h.enabled === false) continue;
+    const key = String(h.key).toLowerCase();
+    if (key === 'authorization' || key === 'cookie' || key === 'proxy-authorization') continue;
+    safeHeaders[h.key] = String(h.value ?? '');
   }
 
   const startTime = Date.now();
-
+  const timeoutMs = clampTimeout(timeout);
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    const fetchOptions: any = {
-      method: method.toUpperCase(),
-      headers: new Headers(headers as any),
-      signal: controller.signal,
-      redirect: followRedirects ? 'follow' : 'manual',
-    };
-
-    const systemConfig = await SystemConfig.findById('global');
-    const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
-
-    let activeProxy = null;
-    if (localProxy?.url) {
-      activeProxy = localProxy;
-    } else if (systemConfig?.proxy?.enabled && systemConfig.proxy.url) {
-      activeProxy = systemConfig.proxy;
-    }
-
-    if (activeProxy?.url) {
-      let proxyUrlStr = activeProxy.url;
-      if (!proxyUrlStr.startsWith('http')) proxyUrlStr = 'http://' + proxyUrlStr;
-      
-      const proxyUrl = new URL(proxyUrlStr);
-      if (activeProxy.username) {
-        proxyUrl.username = activeProxy.username;
-        proxyUrl.password = activeProxy.password || '';
-      }
-      const { ProxyAgent } = await import('undici');
-      fetchOptions.dispatcher = new ProxyAgent(proxyUrl.toString());
-    }
-
-    if (!['GET', 'HEAD'].includes(method.toUpperCase()) && body !== undefined) {
-      if (body._isFormData) {
-        const formData = new FormData();
-        for (const item of body.items) {
-          if (item.type === 'file') {
-            const buffer = Buffer.from(item.content, 'base64');
-            const blob = new Blob([buffer]);
-            formData.append(item.key, blob, item.filename);
-          } else {
-            formData.append(item.key, item.value);
-          }
-        }
-        fetchOptions.body = formData;
-      } else {
-        fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
-      }
-    }
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const systemConfig = await SystemConfigRepository.getConfig();
+    const allowPrivateTargets = false;
+    void systemConfig;
 
     const { fetch: undiciFetch, Agent } = await import('undici');
-
-    // Only the direct-connect path (no upstream proxy configured) needs the
-    // SSRF-guarded lookup — a request that goes through an admin-configured
-    // upstream proxy is resolved on that proxy's own network, not ours.
-    if (!fetchOptions.dispatcher) {
-      fetchOptions.dispatcher = new Agent({
+    const fetchOptions: any = {
+      method: verb,
+      headers: safeHeaders,
+      signal: controller.signal,
+      redirect: followRedirects ? 'follow' : 'manual',
+      dispatcher: new Agent({
         connect: { rejectUnauthorized: verifySsl !== false, lookup: createSafeLookup(allowPrivateTargets) },
-      });
+      }),
+    };
+    if (!['GET', 'HEAD'].includes(verb) && body !== undefined && typeof body === 'string') {
+      fetchOptions.body = body;
     }
 
     const response = await undiciFetch(url, fetchOptions);
     clearTimeout(timeoutId);
-
-    const responseTime = Date.now() - startTime;
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    
+    const buffer = await readCappedBody(response.body as any);
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => { responseHeaders[key] = value; });
-
     const contentType = (responseHeaders['content-type'] || '').toLowerCase();
-    const isBinary = contentType.includes('image/') || contentType.includes('application/pdf') || contentType.includes('audio/') || contentType.includes('video/') || contentType.includes('application/octet-stream');
-    
-    const responseBody = isBinary ? buffer.toString('base64') : buffer.toString('utf8');
-    const isBase64 = isBinary;
-
+    const isBinary = /image\/|application\/pdf|audio\/|video\/|octet-stream/.test(contentType);
     return res.json({
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,
-      body: responseBody,
-      isBase64,
-      responseTime,
+      body: isBinary ? buffer.toString('base64') : buffer.toString('utf8'),
+      isBase64: isBinary,
+      responseTime: Date.now() - startTime,
       size: buffer.length,
     });
   } catch (err: unknown) {
     const elapsed = Date.now() - startTime;
-    if (err instanceof Error && err.name === 'AbortError') {
-      return res.status(408).json({ message: 'Request timed out', responseTime: elapsed });
+    const status = (err as any)?.status || ((err as Error)?.name === 'AbortError' ? 408 : 502);
+    if ((err as Error)?.name === 'SsrfBlockedError' || (err as any)?.cause?.name === 'SsrfBlockedError') {
+      return res.status(400).json({ message: 'Blocked by SSRF policy', responseTime: elapsed });
     }
-    const cause = err instanceof Error ? (err as any).cause : undefined;
-    if ((err instanceof Error && err.name === 'SsrfBlockedError') || cause?.name === 'SsrfBlockedError') {
-      return res.status(400).json({ message: (cause ?? err as Error).message, responseTime: elapsed });
-    }
-    return res.status(502).json({
-      message: 'Proxy error',
-      error: err instanceof Error ? err.message : String(err),
-      responseTime: elapsed,
-    });
+    return res.status(status).json({ message: status === 413 ? 'Response too large' : 'Proxy error', responseTime: elapsed });
   }
 });
 

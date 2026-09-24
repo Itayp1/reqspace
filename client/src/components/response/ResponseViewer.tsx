@@ -5,6 +5,17 @@ import type { CookieItem } from '../../store/cookieStore';
 import Editor from '@monaco-editor/react';
 import { Download, Loader2, Search, Cookie, Copy, Check, WrapText, ChevronDown } from 'lucide-react';
 import { CookieManagerModal } from '../common/CookieManagerModal';
+import Handlebars from 'handlebars';
+
+function renderVisualizer(template: string, data?: unknown) {
+  try {
+    const html = Handlebars.compile(template)(data || {});
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;padding:10px;margin:0}</style></head><body>${html}</body></html>`;
+  } catch (e: any) {
+    const message = String(e?.message || e).replace(/[<>]/g, '');
+    return `<!DOCTYPE html><html><body><div style="color:red">Visualizer Error: ${message}</div></body></html>`;
+  }
+}
 
 type TabType = 'body' | 'cookies' | 'headers' | 'test_results' | 'visualizer';
 type BodyMode = 'pretty' | 'raw' | 'preview' | 'visualize';
@@ -536,29 +547,8 @@ export const ResponseViewer: React.FC = () => {
             <iframe
               className="w-full h-full border-none"
               title="visualizer"
-              srcDoc={`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                  <meta charset="utf-8">
-                  <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.min.js"></script>
-                  <style>body { font-family: sans-serif; padding: 10px; margin: 0; }</style>
-                </head>
-                <body>
-                  <div id="root"></div>
-                  <script>
-                    try {
-                      var templateStr = ${JSON.stringify(activeResponse.visualizerData.template)};
-                      var data = ${JSON.stringify(activeResponse.visualizerData.data || {})};
-                      var template = Handlebars.compile(templateStr);
-                      document.getElementById('root').innerHTML = template(data);
-                    } catch (e) {
-                      document.getElementById('root').innerHTML = '<div style="color:red; font-family:monospace;">Visualizer Error: ' + e.message + '</div>';
-                    }
-                  </script>
-                </body>
-                </html>
-              `}
+              sandbox=""
+              srcDoc={renderVisualizer(activeResponse.visualizerData.template, activeResponse.visualizerData.data)}
             />
           </div>
         )}

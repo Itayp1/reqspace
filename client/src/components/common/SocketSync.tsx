@@ -4,8 +4,6 @@ import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
 import { useEnvironmentStore } from '../../store/environmentStore';
-import api from '../../api/axios'; // for baseurl
-
 export function SocketSync() {
   const activeWorkspace = useAuthStore(state => state.activeWorkspace);
   const socketRef = useRef<Socket | null>(null);
@@ -13,7 +11,7 @@ export function SocketSync() {
   useEffect(() => {
     if (!activeWorkspace) return;
 
-    const socketUrl = api.defaults.baseURL?.replace('/api', '') || window.location.origin;
+    const socketUrl = (import.meta as any).env?.VITE_SOCKET_URL || window.location.origin;
     // withCredentials is required so the auth cookie reaches the server — it
     // authenticates the socket and authorizes which workspace rooms it may join.
     const socket = io(socketUrl, { path: '/ws', withCredentials: true });
@@ -25,21 +23,30 @@ export function SocketSync() {
       useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
     });
 
-    const handleUpdate = () => {
-      // For simplicity, just fetch the whole tree when anything changes structurally.
-      // This ensures we always have the correct folders, requests, orders, etc.
-      useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
+    const store = () => useCollectionStore.getState();
+    const apply = (event: string, payload: any) => {
+      const s = store();
+      if (event === 'collection:created') s.setCollections([...s.collections.filter((c) => c._id !== payload._id), payload]);
+      if (event === 'collection:updated') s.setCollections(s.collections.map((c) => c._id === payload._id ? { ...c, ...payload } : c));
+      if (event === 'collection:deleted') s.setCollections(s.collections.filter((c) => c._id !== payload && c._id !== payload?._id));
+      if (event === 'folder:created') s.setFolders([...s.folders.filter((f) => f._id !== payload._id), payload]);
+      if (event === 'folder:updated') s.setFolders(s.folders.map((f) => f._id === payload._id ? { ...f, ...payload } : f));
+      if (event === 'folder:deleted') s.setFolders(s.folders.filter((f) => f._id !== payload && f._id !== payload?._id));
+      if (event === 'request:created') s.setRequests([...s.requests.filter((r) => r._id !== payload._id), payload]);
+      if (event === 'request:updated') s.setRequests(s.requests.map((r) => r._id === payload._id ? { ...r, ...payload } : r));
+      if (event === 'request:deleted') s.setRequests(s.requests.filter((r) => r._id !== payload && r._id !== payload?._id));
+      if (event === 'workspace:reordered') s.fetchCollectionsData(activeWorkspace._id);
     };
 
-    socket.on('collection:created', handleUpdate);
-    socket.on('collection:updated', handleUpdate);
-    socket.on('collection:deleted', handleUpdate);
-    socket.on('folder:created', handleUpdate);
-    socket.on('folder:updated', handleUpdate);
-    socket.on('folder:deleted', handleUpdate);
-    socket.on('request:created', handleUpdate);
-    socket.on('request:deleted', handleUpdate);
-    socket.on('workspace:reordered', handleUpdate);
+    socket.on('collection:created', (p) => apply('collection:created', p));
+    socket.on('collection:updated', (p) => apply('collection:updated', p));
+    socket.on('collection:deleted', (p) => apply('collection:deleted', p));
+    socket.on('folder:created', (p) => apply('folder:created', p));
+    socket.on('folder:updated', (p) => apply('folder:updated', p));
+    socket.on('folder:deleted', (p) => apply('folder:deleted', p));
+    socket.on('request:created', (p) => apply('request:created', p));
+    socket.on('request:deleted', (p) => apply('request:deleted', p));
+    socket.on('workspace:reordered', () => apply('workspace:reordered', null));
 
     const handleEnvUpdate = () => {
       useEnvironmentStore.getState().fetchEnvironments(activeWorkspace._id);
@@ -69,8 +76,7 @@ export function SocketSync() {
     
     // For request update, we handle live conflict checking
     socket.on('request:updated', (updatedRequest: any) => {
-      // First update the collection store to reflect the new name/method in the sidebar
-      handleUpdate();
+      apply('request:updated', updatedRequest);
 
       // Check if it affects open tabs
       const requestStore = useRequestStore.getState();

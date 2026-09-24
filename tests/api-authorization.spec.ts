@@ -1,6 +1,6 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 
-const BASE = 'http://localhost:3005';
+const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005';
 
 /**
  * The permission specs verify the UI *hides* actions a role may not perform —
@@ -58,6 +58,35 @@ test.describe('API authorization (reachable only by bypassing the UI)', () => {
       headers: { cookie: viewer.cookie },
     });
     expect(delRes.status()).toBe(403);
+  });
+
+  test('logout clears the auth cookie', async ({ request }) => {
+    const user = await register(request, 'bye');
+    const res = await request.post(`${BASE}/api/auth/logout`, { headers: { cookie: user.cookie } });
+    expect(res.ok()).toBeTruthy();
+    const setCookie = res.headers()['set-cookie'] || '';
+    expect(setCookie.toLowerCase()).toContain('token=');
+    expect(setCookie.toLowerCase()).toMatch(/expires=|max-age=0/);
+  });
+
+  test('wsdl import without workspace membership is forbidden', async ({ request }) => {
+    const owner = await register(request, 'wsdl');
+    const outsider = await register(request, 'wsdlo');
+    const res = await request.post(`${BASE}/api/import/wsdl`, {
+      headers: { cookie: outsider.cookie },
+      data: { url: 'https://example.com/service?wsdl', workspaceId: owner.workspaceId },
+    });
+    expect(res.status()).toBe(403);
+  });
+
+  test('a non-member cannot import a workspace dump', async ({ request }) => {
+    const owner = await register(request, 'imp');
+    const outsider = await register(request, 'impo');
+    const res = await request.post(`${BASE}/api/admin/import/${owner.workspaceId}`, {
+      headers: { cookie: outsider.cookie },
+      data: { collections: [] },
+    });
+    expect([401, 403]).toContain(res.status());
   });
 
   test('a non-member cannot read another workspace\'s collections', async ({ request }) => {

@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Folder } from '../models/Folder';
 import { SqlFolder } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { sliceCursor } from '../utils/cursor';
 
 export interface IFolderRecord {
   _id: string; id: string;
@@ -28,6 +29,18 @@ export const FolderRepository = {
   async findById(id: string): Promise<IFolderRecord | null> {
     if (isMongo()) { const f = await Folder.findById(id).lean(); return f ? mongoToRecord(f) : null; }
     const f = await SqlFolder.findByPk(id); return f ? sqlToRecord(f) : null;
+  },
+
+  async findByCollectionIds(collectionIds: string[]): Promise<IFolderRecord[]> {
+    if (collectionIds.length === 0) return [];
+    if (isMongo()) return (await Folder.find({ collectionId: { $in: collectionIds } }).lean()).map(mongoToRecord);
+    const { Op } = await import('sequelize');
+    return (await SqlFolder.findAll({ where: { collectionId: { [Op.in]: collectionIds } } })).map(sqlToRecord);
+  },
+
+  async findPage(collectionId: string, opts: { limit: number; cursor?: string }): Promise<{ items: IFolderRecord[]; nextCursor: string | null }> {
+    const all = await this.findByCollection(collectionId);
+    return sliceCursor(all, opts.limit, opts.cursor);
   },
 
   async findByCollection(collectionId: string): Promise<IFolderRecord[]> {

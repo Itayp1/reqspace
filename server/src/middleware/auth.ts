@@ -7,8 +7,25 @@ import { resolveJwtSecret } from '../utils/jwtSecret';
 
 const JWT_SECRET = resolveJwtSecret();
 
+export interface AuthUser {
+  _id: string;
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string | null;
+  authType: string;
+  isSuperAdmin: boolean;
+  status: string;
+  avatar?: string | null;
+  settings: Record<string, any>;
+  clientCertificates: Array<Record<string, any>>;
+  historyUsedBytes: number;
+  mustChangePassword?: boolean;
+  lastLoginAt?: Date | null;
+}
+
 export interface AuthRequest extends Request {
-  user?: any;
+  user?: AuthUser;
   // Route params are always single strings for our routes. The installed
   // express types widen these to `string | string[]`; narrow them here so the
   // (strictly-typed) repositories can be called with `req.params.x` directly.

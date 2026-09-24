@@ -4,7 +4,7 @@ import { test, expect, APIRequestContext } from '@playwright/test';
 // without going through the browser or the UI.
 import { io as ioClient } from '../client/node_modules/socket.io-client';
 
-const BASE = 'http://localhost:3005';
+const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3005';
 
 /**
  * Regression coverage for the workspace-room auth hole in server/src/index.ts:

@@ -14,19 +14,19 @@
 // POST /share/collection/:id all previously had no membership check at all).
 
 import { test, expect } from '@playwright/test';
-import { loginAsSuperAdmin } from './helpers/adminAuth';
+import { loginAsSuperAdmin, BASE } from './helpers/adminAuth';
 
 test.describe('Header-based auto-login (system config auth.mode = "both")', () => {
   test.beforeAll(async ({ request }) => {
     const admin = await loginAsSuperAdmin(request);
-    await request.put('http://localhost:3005/api/admin/config', {
+    await request.put(`${BASE}/api/admin/config`, {
       data: { auth: { mode: 'both', headerName: 'uid' } },
       headers: { cookie: admin.cookie },
     });
   });
 
   test('logs in automatically when the configured header is present', async ({ request }) => {
-    const res = await request.get('http://localhost:3005/api/auth/me', {
+    const res = await request.get(`${BASE}/api/auth/me`, {
       headers: { uid: 'test-header-user' },
     });
     expect(res.status()).toBe(200);

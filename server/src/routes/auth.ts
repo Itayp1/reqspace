@@ -1,4 +1,6 @@
-import mongoose from 'mongoose';
+import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
+import { encryptSecret, publicCertificate } from '../utils/certCrypto';
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
@@ -6,6 +8,9 @@ import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
+import { validateBody } from '../validation/validate';
+import { certificateSchema, changePasswordSchema, loginSchema, registerSchema, settingsSchema } from '../validation/schemas';
+import { generateTotpSecret, otpauthUrl, verifyTotp } from '../features/totp';
 
 const router = Router();
 
@@ -15,7 +20,7 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: 'To
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'Too many accounts created from this address — please try again later.' });
 
 // ── POST /api/auth/register ─────────────────────────────────────────────────
-router.post('/register', registerLimiter, async (req: Request, res: Response) => {
+router.post('/register', registerLimiter, validateBody(registerSchema), async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
 
   if (!config?.auth.allowSelfRegistration) {
@@ -74,7 +79,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
 });
 
 // ── POST /api/auth/login ────────────────────────────────────────────────────
-router.post('/login', loginLimiter, async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, validateBody(loginSchema), async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   const mode = config?.auth.mode ?? 'login';
 
@@ -99,6 +104,12 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
     return res.status(401).json({ message: 'Invalid credentials' });
+  }
+
+  if (user.settings?.totpEnabled) {
+    if (!verifyTotp(String(user.settings.totpSecret || ''), String(req.body.otp || ''))) {
+      return res.status(401).json({ message: 'Authentication code required', totpRequired: true });
+    }
   }
 
   await UserRepository.update(user._id as any, { lastLoginAt: new Date() } as any);
@@ -137,7 +148,7 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
     settings: user.settings,
-    clientCertificates: user.clientCertificates,
+    clientCertificates: (user.clientCertificates || []).map(publicCertificate),
     authType: user.authType,
   });
 });
@@ -157,7 +168,7 @@ router.get('/config', async (_req: Request, res: Response) => {
 });
 
 // ── POST /api/auth/change-password ──────────────────────────────────────────
-router.post('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/change-password', authenticate, validateBody(changePasswordSchema), async (req: AuthRequest, res: Response) => {
   const { newPassword, currentPassword } = req.body;
   if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
     return res.status(400).json({ message: 'Password must be at least 8 characters' });
@@ -180,9 +191,27 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
 });
 
 // ── POST /api/auth/google ───────────────────────────────────────────────────
+router.get('/google/start', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(32).toString('hex');
+  res.cookie('oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 10 * 60 * 1000,
+  });
+  return res.json({ state });
+});
+
 router.post('/google', loginLimiter, async (req: Request, res: Response) => {
-  const { code, redirectUri } = req.body;
+  const { code, redirectUri, state } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
+  const cookieState = req.cookies?.oauth_state;
+  const stateOk = typeof state === 'string' && typeof cookieState === 'string'
+    && state.length === cookieState.length
+    && crypto.timingSafeEqual(Buffer.from(state), Buffer.from(cookieState));
+  res.clearCookie('oauth_state', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/' });
+  if (!stateOk) return res.status(400).json({ message: 'Invalid OAuth state' });
 
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth.googleOAuth;
@@ -274,7 +303,7 @@ const ALLOWED_SETTINGS_KEYS = [
   'saveHistory', 'shortcuts',
 ];
 
-router.put('/settings', authenticate, async (req: AuthRequest, res: Response) => {
+router.put('/settings', authenticate, validateBody(settingsSchema), async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   try {
     // Allowlist writable settings keys — don't merge arbitrary req.body (CR#7).
@@ -291,23 +320,23 @@ router.put('/settings', authenticate, async (req: AuthRequest, res: Response) =>
 });
 
 // ── POST /api/auth/certificates ──────────────────────────────────────
-router.post('/certificates', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/certificates', authenticate, validateBody(certificateSchema), async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   const { hostname, cert, key, passphrase } = req.body;
   if (!hostname || !cert || !key) return res.status(400).json({ message: 'hostname, cert, and key are required' });
   
   try {
     const newCert = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: uuidv4(),
       hostname,
       cert,
-      key,
-      passphrase,
-      createdAt: new Date()
+      key: encryptSecret(key),
+      passphrase: passphrase ? encryptSecret(passphrase) : '',
+      createdAt: new Date(),
     };
     const updatedCerts = [...(user.clientCertificates || []), newCert];
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.status(201).json(updatedUser!.clientCertificates);
+    return res.status(201).json((updatedUser!.clientCertificates || []).map(publicCertificate));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
@@ -319,10 +348,38 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
   try {
     const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.json(updatedUser!.clientCertificates);
+    return res.json((updatedUser!.clientCertificates || []).map(publicCertificate));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
+});
+
+router.post('/totp/setup', authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  const secret = generateTotpSecret();
+  await UserRepository.update(user._id, { settings: { ...user.settings, totpPending: secret } } as any);
+  return res.json({ secret, url: otpauthUrl(user.email, secret) });
+});
+
+router.post('/totp/enable', authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  const pending = String(user.settings?.totpPending || '');
+  if (!verifyTotp(pending, String(req.body?.code || ''))) {
+    return res.status(400).json({ message: 'Invalid authentication code' });
+  }
+  const { totpPending: _pending, ...rest } = user.settings || {};
+  await UserRepository.update(user._id, { settings: { ...rest, totpSecret: pending, totpEnabled: true } } as any);
+  return res.json({ enabled: true });
+});
+
+router.post('/totp/disable', authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  if (user.settings?.totpEnabled && !verifyTotp(String(user.settings.totpSecret || ''), String(req.body?.code || ''))) {
+    return res.status(400).json({ message: 'Invalid authentication code' });
+  }
+  const settings = { ...user.settings, totpEnabled: false, totpSecret: '' };
+  await UserRepository.update(user._id, { settings } as any);
+  return res.json({ enabled: false });
 });
 
 export default router;

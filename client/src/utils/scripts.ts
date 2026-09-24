@@ -1,313 +1,87 @@
-import _ from 'lodash';
-import moment from 'moment';
-import CryptoJS from 'crypto-js';
-import * as chai from 'chai';
 import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 import { useConsoleStore } from '../store/consoleStore';
-import api from '../api/axios';
+import { executeInSandbox } from '../sandbox/execute';
 
-export function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
-  if (!script || !script.trim()) return;
-  let nextRequest: string | null | undefined = undefined;
-  
-  try {
-    const reqSpace = {
-      setNextRequest: (requestNameOrId: string | null) => {
-        nextRequest = requestNameOrId;
-      }
-    };
-    
-    const pm = {
-      environment: {
-        get: (key: string) => {
-          const { environments, activeEnvironmentId } = useEnvironmentStore.getState();
-          const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-          return activeEnv?.variables.find(v => v.key === key)?.currentValue;
-        },
-        set: (key: string, value: string) => {
-          const { environments, activeEnvironmentId, setEnvironments } = useEnvironmentStore.getState();
-          const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-          if (activeEnv) {
-            const existing = activeEnv.variables.find(v => v.key === key);
-            let newVars;
-            if (existing) {
-              newVars = activeEnv.variables.map(v => v.key === key ? { ...v, currentValue: value } : v);
-            } else {
-              newVars = [...activeEnv.variables, { key, initialValue: value, currentValue: value, isSecret: false, enabled: true }];
-            }
-            setEnvironments(environments.map(e => e._id === activeEnv._id ? { ...e, variables: newVars } : e));
-          }
-        }
-      },
-      globals: {
-        get: (key: string) => {
-          const { globalEnvironment } = useEnvironmentStore.getState();
-          return globalEnvironment?.variables.find(v => v.key === key)?.currentValue;
-        },
-        set: (key: string, value: string) => {
-          const { globalEnvironment, setGlobalEnvironment } = useEnvironmentStore.getState();
-          if (globalEnvironment) {
-            const existing = globalEnvironment.variables.find(v => v.key === key);
-            let newVars;
-            if (existing) {
-              newVars = globalEnvironment.variables.map(v => v.key === key ? { ...v, currentValue: value } : v);
-            } else {
-              newVars = [...globalEnvironment.variables, { key, initialValue: value, currentValue: value, isSecret: false, enabled: true }];
-            }
-            setGlobalEnvironment({ ...globalEnvironment, variables: newVars });
-          }
-        }
-      },
-      collectionVariables: {
-        get: (key: string) => {
-          if (!collectionId) return undefined;
-          const { collections } = useCollectionStore.getState();
-          const col = collections.find(c => c._id === collectionId);
-          return col?.variables?.find(v => v.key === key)?.value;
-        },
-        set: (key: string, value: string) => {
-          if (!collectionId) return;
-          const { collections, setCollections } = useCollectionStore.getState();
-          const col = collections.find(c => c._id === collectionId);
-          if (col) {
-            const vars = col.variables || [];
-            const existing = vars.find(v => v.key === key);
-            let newVars;
-            if (existing) {
-              newVars = vars.map(v => v.key === key ? { ...v, value } : v);
-            } else {
-              newVars = [...vars, { key, value, enabled: true }];
-            }
-            setCollections(collections.map(c => c._id === collectionId ? { ...c, variables: newVars } : c));
-          }
-        }
-      },
-      iterationData: {
-        get: (key: string) => iterationData?.[key],
-      },
-      variables: {
-        get: (key: string) => {
-          if (localVariables.has(key)) return localVariables.get(key);
-          if (iterationData && key in iterationData) return iterationData[key];
-          
-          const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore.getState();
-          const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-          const envVal = activeEnv?.variables.find(v => v.key === key)?.currentValue;
-          if (envVal !== undefined) return envVal;
-
-          if (collectionId) {
-            const { collections } = useCollectionStore.getState();
-            const col = collections.find(c => c._id === collectionId);
-            const colVal = col?.variables?.find(v => v.key === key)?.value;
-            if (colVal !== undefined) return colVal;
-          }
-
-          const globVal = globalEnvironment?.variables.find(v => v.key === key)?.currentValue;
-          if (globVal !== undefined) return globVal;
-
-          return undefined;
-        },
-        set: (key: string, value: string) => {
-          localVariables.set(key, value);
-        }
-      }
-    };
-    const consoleMock = {
-      log: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'log', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      },
-      error: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'error', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      },
-      warn: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'warn', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      },
-      info: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'log', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      }
-    };
-    
-    const fn = new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script);
-    fn(pm, reqSpace, _, moment, CryptoJS, consoleMock);
-  } catch (e) {
-    console.error('Pre-request script error', e);
+function snapshotContext(collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
+  const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore.getState();
+  const activeEnv = environments.find((e) => e._id === activeEnvironmentId);
+  const environment: Record<string, string> = {};
+  for (const v of activeEnv?.variables || []) if (v.enabled !== false) environment[v.key] = v.currentValue;
+  const globals: Record<string, string> = {};
+  for (const v of globalEnvironment?.variables || []) if (v.enabled !== false) globals[v.key] = v.currentValue;
+  const collectionVariables: Record<string, string> = {};
+  if (collectionId) {
+    const col = useCollectionStore.getState().collections.find((c) => c._id === collectionId);
+    for (const v of col?.variables || []) collectionVariables[v.key] = v.value;
   }
-  return { nextRequest };
+  const locals = Object.fromEntries(localVariables.entries());
+  return { environment, globals, collectionVariables, iterationData: iterationData || {}, locals };
 }
 
-export function runTestScript(
+function applyMutations(mutations: Array<{ scope: string; key: string; value: string }>, collectionId?: string, localVariables?: Map<string, string>) {
+  for (const m of mutations) {
+    if (m.scope === 'environment') {
+      const { environments, activeEnvironmentId, setEnvironments } = useEnvironmentStore.getState();
+      const activeEnv = environments.find((e) => e._id === activeEnvironmentId);
+      if (!activeEnv) continue;
+      const existing = activeEnv.variables.find((v) => v.key === m.key);
+      const variables = existing
+        ? activeEnv.variables.map((v) => v.key === m.key ? { ...v, currentValue: m.value } : v)
+        : [...activeEnv.variables, { key: m.key, initialValue: m.value, currentValue: m.value, isSecret: false, enabled: true }];
+      setEnvironments(environments.map((e) => e._id === activeEnv._id ? { ...e, variables } : e));
+    }
+    if (m.scope === 'globals') {
+      const { globalEnvironment, setGlobalEnvironment } = useEnvironmentStore.getState();
+      if (!globalEnvironment) continue;
+      const existing = globalEnvironment.variables.find((v) => v.key === m.key);
+      const variables = existing
+        ? globalEnvironment.variables.map((v) => v.key === m.key ? { ...v, currentValue: m.value } : v)
+        : [...globalEnvironment.variables, { key: m.key, initialValue: m.value, currentValue: m.value, isSecret: false, enabled: true }];
+      setGlobalEnvironment({ ...globalEnvironment, variables });
+    }
+    if (m.scope === 'local' && localVariables) localVariables.set(m.key, m.value);
+    if (m.scope === 'collection' && collectionId) {
+      const { collections, setCollections } = useCollectionStore.getState();
+      setCollections(collections.map((c) => {
+        if (c._id !== collectionId) return c;
+        const vars = c.variables || [];
+        const existing = vars.find((v: any) => v.key === m.key);
+        const variables = existing ? vars.map((v: any) => v.key === m.key ? { ...v, value: m.value } : v) : [...vars, { key: m.key, value: m.value, enabled: true }];
+        return { ...c, variables };
+      }));
+    }
+  }
+}
+
+function logOutcome(logs: Array<{ level: string; args: any[] }>) {
+  for (const entry of logs) {
+    const message = entry.args.map((a) => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    useConsoleStore.getState().addLog({ type: entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warn' : 'log', message });
+  }
+}
+
+export async function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
+  if (!script || !script.trim()) return { nextRequest: undefined as string | null | undefined };
+  const outcome = await executeInSandbox(script, snapshotContext(collectionId, iterationData, localVariables));
+  applyMutations(outcome.mutations, collectionId, localVariables);
+  logOutcome(outcome.logs);
+  return { nextRequest: outcome.nextRequest };
+}
+
+export async function runTestScript(
   script: string | undefined,
   response: { status: number; statusText: string; headers: Record<string, string>; body: string; time: number },
   collectionId?: string,
   iterationData?: Record<string, any>,
-  localVariables = new Map<string, string>()
+  localVariables = new Map<string, string>(),
 ) {
   if (!script || !script.trim()) return undefined;
-  const testResults: Array<{ name: string; passed: boolean; error?: string }> = [];
-
-  let visualizerData: { template: string; data?: any } | undefined;
-  let nextRequest: string | null | undefined = undefined;
-
-  try {
-    let parsedJson: any = null;
-    try {
-      parsedJson = JSON.parse(response.body);
-    } catch {
-      // ignore
-    }
-
-    const reqSpace = {
-      setNextRequest: (requestNameOrId: string | null) => {
-        nextRequest = requestNameOrId;
-      }
-    };
-
-    const pm = {
-      visualizer: {
-        set: (template: string, data?: any) => {
-          visualizerData = { template, data };
-        }
-      },
-      sendRequest: (urlOrConfig: any, cb: (err: any, res: any) => void) => {
-        const url = typeof urlOrConfig === 'string' ? urlOrConfig : urlOrConfig.url;
-        const method = urlOrConfig.method || 'GET';
-        api.post('/proxy', { method, url, headers: urlOrConfig.header || {} })
-          .then(res => cb(null, { ...res.data, json: () => res.data.body }))
-          .catch(err => cb(err, null));
-      },
-      response: {
-        code: response.status,
-        status: response.statusText,
-        responseTime: response.time,
-        headers: response.headers,
-        json: () => parsedJson !== null ? parsedJson : JSON.parse(response.body),
-        text: () => response.body,
-      },
-      test: (name: string, fn: () => void) => {
-        try {
-          fn();
-          testResults.push({ name, passed: true });
-        } catch (err: any) {
-          testResults.push({ name, passed: false, error: err.message || String(err) });
-        }
-      },
-      expect: chai.expect,
-      environment: {
-        get: (key: string) => {
-          const { environments, activeEnvironmentId } = useEnvironmentStore.getState();
-          const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-          return activeEnv?.variables.find(v => v.key === key)?.currentValue;
-        },
-        set: (key: string, value: string) => {
-          const { environments, activeEnvironmentId, setEnvironments } = useEnvironmentStore.getState();
-          const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-          if (activeEnv) {
-            const existing = activeEnv.variables.find(v => v.key === key);
-            let newVars;
-            if (existing) {
-              newVars = activeEnv.variables.map(v => v.key === key ? { ...v, currentValue: value } : v);
-            } else {
-              newVars = [...activeEnv.variables, { key, initialValue: value, currentValue: value, isSecret: false, enabled: true }];
-            }
-            setEnvironments(environments.map(e => e._id === activeEnv._id ? { ...e, variables: newVars } : e));
-          }
-        }
-      },
-      globals: {
-        get: (key: string) => {
-          const { globalEnvironment } = useEnvironmentStore.getState();
-          return globalEnvironment?.variables.find(v => v.key === key)?.currentValue;
-        },
-        set: (key: string, value: string) => {
-          const { globalEnvironment, setGlobalEnvironment } = useEnvironmentStore.getState();
-          if (globalEnvironment) {
-            const existing = globalEnvironment.variables.find(v => v.key === key);
-            let newVars;
-            if (existing) {
-              newVars = globalEnvironment.variables.map(v => v.key === key ? { ...v, currentValue: value } : v);
-            } else {
-              newVars = [...globalEnvironment.variables, { key, initialValue: value, currentValue: value, isSecret: false, enabled: true }];
-            }
-            setGlobalEnvironment({ ...globalEnvironment, variables: newVars });
-          }
-        }
-      },
-      collectionVariables: {
-        get: (key: string) => {
-          if (!collectionId) return undefined;
-          const { collections } = useCollectionStore.getState();
-          const col = collections.find(c => c._id === collectionId);
-          return col?.variables?.find(v => v.key === key)?.value;
-        },
-        set: (key: string, value: string) => {
-          if (!collectionId) return;
-          const { collections, setCollections } = useCollectionStore.getState();
-          const col = collections.find(c => c._id === collectionId);
-          if (col) {
-            const vars = col.variables || [];
-            const existing = vars.find(v => v.key === key);
-            let newVars;
-            if (existing) {
-              newVars = vars.map(v => v.key === key ? { ...v, value } : v);
-            } else {
-              newVars = [...vars, { key, value, enabled: true }];
-            }
-            setCollections(collections.map(c => c._id === collectionId ? { ...c, variables: newVars } : c));
-          }
-        }
-      },
-      iterationData: {
-        get: (key: string) => iterationData?.[key],
-      },
-      variables: {
-        get: (key: string) => {
-          if (localVariables.has(key)) return localVariables.get(key);
-          if (iterationData && key in iterationData) return iterationData[key];
-          
-          const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore.getState();
-          const activeEnv = environments.find(e => e._id === activeEnvironmentId);
-          const envVal = activeEnv?.variables.find(v => v.key === key)?.currentValue;
-          if (envVal !== undefined) return envVal;
-
-          if (collectionId) {
-            const { collections } = useCollectionStore.getState();
-            const col = collections.find(c => c._id === collectionId);
-            const colVal = col?.variables?.find(v => v.key === key)?.value;
-            if (colVal !== undefined) return colVal;
-          }
-
-          const globVal = globalEnvironment?.variables.find(v => v.key === key)?.currentValue;
-          if (globVal !== undefined) return globVal;
-
-          return undefined;
-        },
-        set: (key: string, value: string) => {
-          localVariables.set(key, value);
-        }
-      }
-    };
-
-    const consoleMock = {
-      log: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'log', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      },
-      error: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'error', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      },
-      warn: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'warn', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      },
-      info: (...args: any[]) => {
-        useConsoleStore.getState().addLog({ type: 'log', message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
-      }
-    };
-
-    const runFn = new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script);
-    runFn(pm, reqSpace, _, moment, CryptoJS, consoleMock);
-  } catch (err: any) {
-    testResults.push({ name: 'Script Execution', passed: false, error: err.message || String(err) });
-  }
-
-  return { testResults, visualizerData, nextRequest };
+  const outcome = await executeInSandbox(script, {
+    ...snapshotContext(collectionId, iterationData, localVariables),
+    response,
+  });
+  applyMutations(outcome.mutations, collectionId, localVariables);
+  logOutcome(outcome.logs);
+  return { testResults: outcome.testResults, visualizerData: outcome.visualizerData, nextRequest: outcome.nextRequest };
 }

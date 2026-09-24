@@ -2,6 +2,7 @@ import { isMongo } from '../db/connect';
 import { Request } from '../models/Request';
 import { SqlRequest } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { sliceCursor } from '../utils/cursor';
 
 export interface IRequestRecord {
   _id: string; id: string;
@@ -68,6 +69,31 @@ export const RequestRepository = {
   async findById(id: string): Promise<IRequestRecord | null> {
     if (isMongo()) { const r = await Request.findById(id).lean(); return r ? mongoToRecord(r) : null; }
     const r = await SqlRequest.findByPk(id); return r ? sqlToRecord(r) : null;
+  },
+
+  async findByCollectionIds(collectionIds: string[]): Promise<IRequestRecord[]> {
+    if (collectionIds.length === 0) return [];
+    if (isMongo()) return (await Request.find({ collectionId: { $in: collectionIds } }).lean()).map(mongoToRecord);
+    const { Op } = await import('sequelize');
+    return (await SqlRequest.findAll({ where: { collectionId: { [Op.in]: collectionIds } } })).map(sqlToRecord);
+  },
+
+  async findPage(collectionId: string, opts: { limit: number; cursor?: string; summary?: boolean }): Promise<{ items: IRequestRecord[]; nextCursor: string | null }> {
+    const all = await this.findByCollection(collectionId);
+    const page = sliceCursor(all, opts.limit, opts.cursor);
+    if (!opts.summary) return page;
+    return {
+      nextCursor: page.nextCursor,
+      items: page.items.map((r) => ({
+        ...r,
+        body: { mode: 'none' },
+        auth: { type: r.auth?.type || 'none' },
+        headers: [],
+        preRequestScript: '',
+        testScript: '',
+        comments: [],
+      })),
+    };
   },
 
   async findByCollection(collectionId: string): Promise<IRequestRecord[]> {

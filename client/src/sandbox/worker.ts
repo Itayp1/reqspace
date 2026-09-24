@@ -1,33 +1,58 @@
 import { assert, expect } from 'chai';
-import _ from 'lodash';
+import cloneDeep from 'lodash/cloneDeep';
+import get from 'lodash/get';
+import set from 'lodash/set';
+import merge from 'lodash/merge';
+import uniq from 'lodash/uniq';
+const _ = { cloneDeep, get, set, merge, uniq };
 import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
 
 // Setup environment for the script
+const pendingRequests = new Map<string, (err: any, res: any) => void>();
+
 self.onmessage = async (e) => {
+  if (e.data?.type === 'sendRequestResult') {
+    const callback = pendingRequests.get(e.data.requestId);
+    pendingRequests.delete(e.data.requestId);
+    callback?.(e.data.error ? new Error(e.data.error) : null, e.data.response || null);
+    return;
+  }
   const { code, context, executionId } = e.data;
   
   let testResults: Array<{ name: string; passed: boolean; error?: string }> = [];
 
   const pm = {
+    visualizer: {
+      set: (template: string, data?: any) => postMessage({ type: 'visualizer', template, data, executionId }),
+    },
     environment: {
       get: (key: string) => context.environment?.[key],
       set: (key: string, value: any) => {
-        postMessage({ type: 'mutation', scope: 'environment', action: 'set', key, value });
+        context.environment = { ...(context.environment || {}), [key]: value };
+        postMessage({ type: 'mutation', scope: 'environment', action: 'set', key, value, executionId });
       }
     },
     globals: {
       get: (key: string) => context.globals?.[key],
       set: (key: string, value: any) => {
-        postMessage({ type: 'mutation', scope: 'globals', action: 'set', key, value });
+        context.globals = { ...(context.globals || {}), [key]: value };
+        postMessage({ type: 'mutation', scope: 'globals', action: 'set', key, value, executionId });
       }
     },
     variables: {
       get: (key: string) => context.variables?.[key]
     },
     request: context.request,
-    response: context.response,
+    response: context.response ? {
+      code: context.response.status,
+      status: context.response.statusText,
+      responseTime: context.response.time,
+      headers: context.response.headers,
+      text: () => context.response.body,
+      json: () => JSON.parse(context.response.body),
+    } : undefined,
     test: (name: string, fn: () => void) => {
       try {
         fn();
@@ -38,17 +63,9 @@ self.onmessage = async (e) => {
     },
     expect: expect,
     sendRequest: (req: any, callback: (err: any, res: any) => void) => {
-       // Since it's a web worker, we could use fetch directly here if we want
-       // but typically we'd proxy it back to the main thread to use the proxy server.
-       // For simplicity in this v1, we will just use fetch in the worker directly if it's external,
-       // but wait, CORS! We must route through main thread -> proxy!
-       
-       // Because of async nature, we'd need to pause script execution or use Promises.
-       // ReqSpace's pm.sendRequest is callback-based. 
-       postMessage({ type: 'sendRequest', req, executionId });
-       // We can't synchronously block a callback in a web worker easily without SharedArrayBuffer.
-       // We'll leave a stub for now.
-       callback(new Error('pm.sendRequest is currently experimental/stubbed in Web Worker'), null);
+       const requestId = `${executionId}-${Math.random().toString(36).slice(2)}`;
+       pendingRequests.set(requestId, callback);
+       postMessage({ type: 'sendRequest', req, executionId, requestId });
     }
   };
 
@@ -56,9 +73,9 @@ self.onmessage = async (e) => {
   const sandboxScope = {
     pm,
     console: {
-      log: (...args: any[]) => postMessage({ type: 'log', level: 'info', args }),
-      warn: (...args: any[]) => postMessage({ type: 'log', level: 'warn', args }),
-      error: (...args: any[]) => postMessage({ type: 'log', level: 'error', args }),
+      log: (...args: any[]) => postMessage({ type: 'log', level: 'info', args, executionId }),
+      warn: (...args: any[]) => postMessage({ type: 'log', level: 'warn', args, executionId }),
+      error: (...args: any[]) => postMessage({ type: 'log', level: 'error', args, executionId }),
     },
     require: (moduleName: string) => {
       if (moduleName === 'lodash') return _;
@@ -87,8 +104,16 @@ self.onmessage = async (e) => {
     
     // Run the code
     fn(...values);
-    
-    postMessage({ type: 'done', testResults, executionId });
+
+    const finish = () => {
+      const waiting = [...pendingRequests.keys()].some((id) => id.startsWith(`${executionId}-`));
+      if (waiting) {
+        setTimeout(finish, 40);
+        return;
+      }
+      postMessage({ type: 'done', testResults, executionId });
+    };
+    finish();
   } catch (err: any) {
     postMessage({ type: 'error', error: err.message, executionId });
   }

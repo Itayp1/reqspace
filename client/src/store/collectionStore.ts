@@ -48,6 +48,7 @@ interface CollectionStore {
 
   // Fetch
   fetchCollectionsData: (workspaceId: string) => Promise<void>;
+  ensureCollectionLoaded: (collectionId: string) => Promise<void>;
 
   // Collection CRUD
   createCollection: (workspaceId: string, name: string) => Promise<Collection>;
@@ -71,6 +72,18 @@ interface CollectionStore {
   reorderItems: (type: 'collection' | 'folder' | 'request', items: { id: string; order: number }[]) => Promise<void>;
 }
 
+async function loadChildren(collectionId: string): Promise<{ folders: Folder[]; requests: ApiRequest[] }> {
+  const [fRes, rRes] = await Promise.all([
+    api.get(`/collections/${collectionId}/folders`, { params: { limit: 200 } }),
+    api.get(`/collections/${collectionId}/requests`, { params: { limit: 200, summary: '1' } }),
+  ]);
+  const folders = Array.isArray(fRes.data) ? fRes.data : fRes.data.items;
+  const requests = Array.isArray(rRes.data) ? rRes.data : rRes.data.items;
+  return { folders, requests };
+}
+
+const loadedIds = new Set<string>();
+
 export const useCollectionStore = create<CollectionStore>((set, get) => ({
   collections: [],
   folders: [],
@@ -80,6 +93,16 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   setCollections: (collections) => set({ collections }),
   setFolders: (folders) => set({ folders }),
   setRequests: (requests) => set({ requests }),
+
+  ensureCollectionLoaded: async (collectionId: string) => {
+    if (loadedIds.has(collectionId)) return;
+    loadedIds.add(collectionId);
+    const loaded = await loadChildren(collectionId);
+    set((state) => ({
+      folders: [...state.folders.filter((f) => f.collectionId !== collectionId), ...loaded.folders],
+      requests: [...state.requests.filter((r) => r.collectionId !== collectionId), ...loaded.requests],
+    }));
+  },
 
   toggleCollectionOpen: (id: string) => set((state) => {
     const next = new Set(state.openCollectionIds);
@@ -121,18 +144,14 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       // Update local db
       await db.collections.bulkPut(serverCols.map((c: any) => ({ ...c, workspaceId })));
 
+      const openIds = [...get().openCollectionIds];
       let allFolders: Folder[] = [];
       let allRequests: ApiRequest[] = [];
-
-      await Promise.all(serverCols.map(async (col: Collection) => {
-        const [fRes, rRes] = await Promise.all([
-          api.get(`/collections/${col._id}/folders`),
-          api.get(`/collections/${col._id}/requests`)
-        ]);
-        allFolders = allFolders.concat(fRes.data);
-        allRequests = allRequests.concat(rRes.data);
+      await Promise.all(openIds.map(async (id) => {
+        const loaded = await loadChildren(id);
+        allFolders = allFolders.concat(loaded.folders);
+        allRequests = allRequests.concat(loaded.requests);
       }));
-
       set({ folders: allFolders, requests: allRequests });
       
       // Update local db

@@ -10,8 +10,31 @@ const AUTH_TYPES: Array<{ value: RequestAuth['type']; label: string }> = [
   { value: 'basic', label: 'Basic Auth' },
   { value: 'apikey', label: 'API Key' },
   { value: 'oauth2', label: 'OAuth 2.0' },
+  { value: 'oauth1', label: 'OAuth 1.0' },
+  { value: 'digest', label: 'Digest Auth' },
+  { value: 'awsv4', label: 'AWS Signature' },
+  { value: 'hawk', label: 'Hawk' },
+  { value: 'edgegrid', label: 'Akamai EdgeGrid' },
   { value: 'ntlm', label: 'NTLM Authentication' },
 ];
+
+function AuthFields({ labels, values, onChange }: { labels: string[]; values: string[]; onChange: (index: number, value: string) => void }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {labels.map((label, index) => (
+        <div className="flex items-center gap-3" key={label}>
+          <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32 shrink-0">{label}</label>
+          <input
+            type={/secret|password|key/i.test(label) ? 'password' : 'text'}
+            className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
+            value={values[index] || ''}
+            onChange={(e) => onChange(index, e.target.value)}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function AuthEditor() {
   const { activeRequest, updateActiveRequest } = useRequestStore();
@@ -177,6 +200,42 @@ export function AuthEditor() {
             More OAuth 2.0 configuration (Client ID, Auth URL, etc.) can be managed via pre-request scripts or by fetching the token manually for now.
           </div>
         </div>
+      )}
+
+      {auth.type === 'digest' && (
+        <AuthFields
+          labels={['Username', 'Password']}
+          values={[auth.digest?.username || '', auth.digest?.password || '']}
+          onChange={(index, value) => update({ digest: { username: index === 0 ? value : auth.digest?.username || '', password: index === 1 ? value : auth.digest?.password || '' } })}
+        />
+      )}
+      {auth.type === 'oauth1' && (
+        <AuthFields
+          labels={['Consumer Key', 'Consumer Secret', 'Token', 'Token Secret']}
+          values={[auth.oauth1?.consumerKey || '', auth.oauth1?.consumerSecret || '', auth.oauth1?.token || '', auth.oauth1?.tokenSecret || '']}
+          onChange={(index, value) => update({ oauth1: { consumerKey: auth.oauth1?.consumerKey || '', consumerSecret: auth.oauth1?.consumerSecret || '', token: auth.oauth1?.token, tokenSecret: auth.oauth1?.tokenSecret, [['consumerKey', 'consumerSecret', 'token', 'tokenSecret'][index]]: value } as any })}
+        />
+      )}
+      {auth.type === 'awsv4' && (
+        <AuthFields
+          labels={['Access Key', 'Secret Key', 'Region', 'Service']}
+          values={[auth.awsv4?.accessKeyId || '', auth.awsv4?.secretAccessKey || '', auth.awsv4?.region || '', auth.awsv4?.service || '']}
+          onChange={(index, value) => update({ awsv4: { accessKeyId: auth.awsv4?.accessKeyId || '', secretAccessKey: auth.awsv4?.secretAccessKey || '', region: auth.awsv4?.region || 'us-east-1', service: auth.awsv4?.service || 'execute-api', [['accessKeyId', 'secretAccessKey', 'region', 'service'][index]]: value } as any })}
+        />
+      )}
+      {auth.type === 'hawk' && (
+        <AuthFields
+          labels={['Hawk Id', 'Key']}
+          values={[auth.hawk?.id || '', auth.hawk?.key || '']}
+          onChange={(index, value) => update({ hawk: { id: index === 0 ? value : auth.hawk?.id || '', key: index === 1 ? value : auth.hawk?.key || '' } })}
+        />
+      )}
+      {auth.type === 'edgegrid' && (
+        <AuthFields
+          labels={['Client Token', 'Client Secret', 'Access Token']}
+          values={[auth.edgegrid?.clientToken || '', auth.edgegrid?.clientSecret || '', auth.edgegrid?.accessToken || '']}
+          onChange={(index, value) => update({ edgegrid: { clientToken: auth.edgegrid?.clientToken || '', clientSecret: auth.edgegrid?.clientSecret || '', accessToken: auth.edgegrid?.accessToken || '', [['clientToken', 'clientSecret', 'accessToken'][index]]: value } as any })}
+        />
       )}
 
       {/* NTLM Auth */}

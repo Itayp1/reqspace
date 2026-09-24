@@ -19,11 +19,16 @@ export interface RequestBody {
 }
 
 export interface RequestAuth {
-  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'ntlm' | 'inherit';
+  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'oauth1' | 'digest' | 'awsv4' | 'hawk' | 'edgegrid' | 'ntlm' | 'inherit';
   bearer?: { token: string };
   basic?: { username: string; password: string };
   apikey?: { key: string; value: string; in: 'header' | 'query' };
   oauth2?: { token: string; clientId?: string; clientSecret?: string; authUrl?: string; accessTokenUrl?: string; scope?: string };
+  oauth1?: { consumerKey: string; consumerSecret: string; token?: string; tokenSecret?: string };
+  digest?: { username: string; password: string };
+  awsv4?: { accessKeyId: string; secretAccessKey: string; region: string; service: string };
+  hawk?: { id: string; key: string };
+  edgegrid?: { clientToken: string; clientSecret: string; accessToken: string };
   ntlm?: { username?: string; password?: string; domain?: string; workstation?: string };
 }
 
@@ -68,6 +73,7 @@ export interface ResponseData {
 
 interface RequestStore {
   tabs: ActiveRequest[];
+  closedTabs: ActiveRequest[];
   activeTabId: string | null;
   activeRequest: ActiveRequest | null;
   activeResponse: ResponseData | null;
@@ -81,6 +87,7 @@ interface RequestStore {
   markSaved: () => void;
   
   closeTab: (tabId: string) => void;
+  restoreClosedTab: () => void;
   selectTab: (tabId: string) => void;
   newTab: () => void;
   openEnvironmentTab: (envId: string, name: string) => void;
@@ -99,6 +106,7 @@ export const useRequestStore = create<RequestStore>()(
   persist(
     (set, get) => ({
       tabs: [],
+      closedTabs: [],
       activeTabId: null,
       activeRequest: null,
       activeResponse: null,
@@ -224,7 +232,8 @@ export const useRequestStore = create<RequestStore>()(
       }),
 
       closeTab: (tabId) => {
-        const { tabs, activeTabId } = get();
+        const { tabs, activeTabId, closedTabs } = get();
+        const closing = tabs.find(t => t.tabId === tabId);
         const nextTabs = tabs.filter(t => t.tabId !== tabId);
 
         if (activeTabId === tabId) {
@@ -235,10 +244,19 @@ export const useRequestStore = create<RequestStore>()(
             activeTabId: nextActive?.tabId || null,
             activeRequest: nextActive,
             activeResponse: null,
+            closedTabs: closing ? [closing, ...(closedTabs || [])].slice(0, 10) : closedTabs,
           });
         } else {
-          set({ tabs: nextTabs });
+          set({ tabs: nextTabs, closedTabs: closing ? [closing, ...(closedTabs || [])].slice(0, 10) : closedTabs });
         }
+      },
+
+      restoreClosedTab: () => {
+        const { closedTabs } = get();
+        const [next, ...rest] = closedTabs || [];
+        if (!next) return;
+        set({ closedTabs: rest });
+        get().setActiveRequest({ ...next, tabId: Math.random().toString(36).substring(2, 9) });
       },
 
       selectTab: (tabId) => {
@@ -325,7 +343,30 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
-      partialize: (state) => ({ tabs: state.tabs, activeTabId: state.activeTabId }),
+      partialize: (state) => ({
+        activeTabId: state.activeTabId,
+        tabs: state.tabs.map((tab) => ({
+          ...tab,
+          auth: tab.auth ? {
+            ...tab.auth,
+            bearer: tab.auth.bearer ? { ...tab.auth.bearer, token: '' } : tab.auth.bearer,
+            basic: tab.auth.basic ? { ...tab.auth.basic, password: '' } : tab.auth.basic,
+            apikey: tab.auth.apikey ? { ...tab.auth.apikey, value: '' } : tab.auth.apikey,
+            oauth2: tab.auth.oauth2 ? { ...tab.auth.oauth2, token: '', clientSecret: '' } : tab.auth.oauth2,
+            ntlm: tab.auth.ntlm ? { ...tab.auth.ntlm, password: '' } : tab.auth.ntlm,
+            oauth1: tab.auth.oauth1 ? { ...tab.auth.oauth1, consumerSecret: '', tokenSecret: '' } : tab.auth.oauth1,
+            digest: tab.auth.digest ? { ...tab.auth.digest, password: '' } : tab.auth.digest,
+            awsv4: tab.auth.awsv4 ? { ...tab.auth.awsv4, secretAccessKey: '' } : tab.auth.awsv4,
+            hawk: tab.auth.hawk ? { ...tab.auth.hawk, key: '' } : tab.auth.hawk,
+            edgegrid: tab.auth.edgegrid ? { ...tab.auth.edgegrid, clientSecret: '' } : tab.auth.edgegrid,
+          } : tab.auth,
+          headers: (tab.headers || []).map((h: any) => {
+            const key = String(h?.key || '').toLowerCase();
+            if (key === 'authorization' || key === 'cookie') return { ...h, value: '' };
+            return h;
+          }),
+        })),
+      }),
       onRehydrateStorage: () => (state) => {
         if (state && state.activeTabId && state.tabs) {
           state.activeRequest = state.tabs.find(t => t.tabId === state.activeTabId) || null;

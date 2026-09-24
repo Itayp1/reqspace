@@ -102,6 +102,7 @@ export class SqlEnvironment extends Model {
   declare workspaceId: string;
   declare name: string;
   declare variables: string; // JSON
+  declare order: number;
   declare createdBy: string;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -110,6 +111,7 @@ export class SqlEnvironment extends Model {
 export class SqlGlobalEnvironment extends Model {
   declare id: string;
   declare workspaceId: string;
+  declare name: string;
   declare variables: string; // JSON
   declare updatedAt: Date;
 }
@@ -161,6 +163,7 @@ export class SqlSystemConfig extends Model {
 export class SqlSharedLink extends Model {
   declare id: string;
   declare collectionId: string;
+  declare workspaceId: string;
   declare token: string;
   declare createdBy: string;
   declare expiresAt: Date | null;
@@ -262,12 +265,14 @@ export function initSqlModels() {
     workspaceId: { type: DataTypes.STRING(36), allowNull: false },
     name: { type: DataTypes.STRING(255), allowNull: false },
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+    order: { type: DataTypes.INTEGER, defaultValue: 0 },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
-  }, { sequelize: sq, tableName: 'environments', timestamps: true, indexes: [{ fields: ['workspaceId'] }] });
+  }, { sequelize: sq, tableName: 'environments', timestamps: true, indexes: [{ fields: ['workspaceId'] }, { fields: ['workspaceId', 'order'] }] });
 
   SqlGlobalEnvironment.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
     workspaceId: { type: DataTypes.STRING(36), allowNull: false, unique: true },
+    name: { type: DataTypes.STRING(255), allowNull: false, defaultValue: 'Globals' },
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
   }, { sequelize: sq, tableName: 'global_environments', timestamps: false, updatedAt: 'updatedAt', createdAt: false });
 
@@ -303,6 +308,7 @@ export function initSqlModels() {
   SqlSharedLink.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
     collectionId: { type: DataTypes.STRING(36), allowNull: false },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false, defaultValue: '' },
     token: { type: DataTypes.STRING(64), allowNull: false, unique: true },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
     expiresAt: { type: DataTypes.DATE, allowNull: true },

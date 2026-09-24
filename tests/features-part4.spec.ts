@@ -1,9 +1,10 @@
+import { BASE } from './helpers/adminAuth';
 import { test, expect } from '@playwright/test';
 
 test.describe('Features Part 4: UI, Scripts & Advanced', () => {
   test.beforeEach(async ({ page }) => {
     const testSuffix = Math.floor(Math.random() * 1000000);
-    await page.goto('http://localhost:3005/');
+    await page.goto(`${BASE}/`);
     try {
       await expect(page.locator('text=Login to Reqspace')).toBeVisible({ timeout: 3000 });
       await page.locator('text=Register').click();
