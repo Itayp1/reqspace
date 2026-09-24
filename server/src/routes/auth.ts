@@ -3,7 +3,9 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
-import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
+import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace, setOAuthStateCookie, clearOAuthStateCookie } from '../middleware/auth';
+import crypto from 'crypto';
+import { encryptSecret, isSealed } from '../utils/secretAtRest';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
 
@@ -137,7 +139,7 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
     settings: user.settings,
-    clientCertificates: user.clientCertificates,
+    clientCertificates: (user.clientCertificates || []).map(publicCertificate),
     authType: user.authType,
   });
 });
@@ -179,10 +181,24 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
   return res.json({ message: 'Password changed successfully' });
 });
 
+// ── GET /api/auth/google/state ──────────────────────────────────────────────
+// Issues the CSRF `state` the client must echo back on the callback (CR#4).
+router.get('/google/state', (_req: Request, res: Response) => {
+  const state = crypto.randomBytes(24).toString('hex');
+  setOAuthStateCookie(res, state);
+  return res.json({ state });
+});
+
 // ── POST /api/auth/google ───────────────────────────────────────────────────
 router.post('/google', loginLimiter, async (req: Request, res: Response) => {
-  const { code, redirectUri } = req.body;
+  const { code, redirectUri, state } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
+
+  const expectedState = req.cookies?.oauth_state;
+  clearOAuthStateCookie(res);
+  if (!state || !expectedState || state !== expectedState) {
+    return res.status(400).json({ message: 'Invalid OAuth state' });
+  }
 
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth.googleOAuth;
@@ -298,16 +314,16 @@ router.post('/certificates', authenticate, async (req: AuthRequest, res: Respons
   
   try {
     const newCert = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: new mongoose.Types.ObjectId().toString(),
       hostname,
-      cert,
-      key,
-      passphrase,
+      cert: encryptSecret(cert),
+      key: encryptSecret(key),
+      passphrase: passphrase ? encryptSecret(passphrase) : '',
       createdAt: new Date()
     };
-    const updatedCerts = [...(user.clientCertificates || []), newCert];
+    const updatedCerts = [...(user.clientCertificates || []).map(sealCertificate), newCert];
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.status(201).json(updatedUser!.clientCertificates);
+    return res.status(201).json((updatedUser!.clientCertificates || []).map(publicCertificate));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
@@ -319,10 +335,24 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
   try {
     const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.json(updatedUser!.clientCertificates);
+    return res.json((updatedUser!.clientCertificates || []).map(publicCertificate));
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
 });
+
+function sealCertificate(c: any) {
+  if (!c) return c;
+  return {
+    ...c,
+    cert: c.cert ? encryptSecret(c.cert) : c.cert,
+    key: c.key ? encryptSecret(c.key) : c.key,
+    passphrase: c.passphrase ? encryptSecret(c.passphrase) : c.passphrase,
+  };
+}
+
+function publicCertificate(c: any) {
+  return { _id: c._id, hostname: c.hostname, createdAt: c.createdAt, sealed: isSealed(c.key) || isSealed(c.cert) };
+}
 
 export default router;

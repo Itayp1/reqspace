@@ -95,6 +95,23 @@ interface RequestStore {
 
 const historyMap: Record<string, { undo: ActiveRequest[], redo: ActiveRequest[], lastPush: number }> = {};
 
+const SENSITIVE_HEADER = /authorization|cookie|api-key|x-api-key|token|secret|password/i;
+
+/** Credential fields stay in memory for the session and are not written to localStorage (CR#21). */
+function stripPersistedSecrets(req: ActiveRequest): ActiveRequest {
+  const auth: RequestAuth = { ...req.auth, type: req.auth?.type || 'none' };
+  if (auth.bearer) auth.bearer = { token: '' };
+  if (auth.basic) auth.basic = { username: auth.basic.username, password: '' };
+  if (auth.apikey) auth.apikey = { ...auth.apikey, value: '' };
+  if (auth.oauth2) auth.oauth2 = { ...auth.oauth2, token: '', clientSecret: '' };
+  if (auth.ntlm) auth.ntlm = { ...auth.ntlm, password: '' };
+  return {
+    ...req,
+    auth,
+    headers: (req.headers || []).map((h) => (SENSITIVE_HEADER.test(h.key || '') ? { ...h, value: '' } : h)),
+  };
+}
+
 export const useRequestStore = create<RequestStore>()(
   persist(
     (set, get) => ({
@@ -325,7 +342,10 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
-      partialize: (state) => ({ tabs: state.tabs, activeTabId: state.activeTabId }),
+      partialize: (state) => ({
+        tabs: state.tabs.map(stripPersistedSecrets),
+        activeTabId: state.activeTabId,
+      }),
       onRehydrateStorage: () => (state) => {
         if (state && state.activeTabId && state.tabs) {
           state.activeRequest = state.tabs.find(t => t.tabId === state.activeTabId) || null;

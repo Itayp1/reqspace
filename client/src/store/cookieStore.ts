@@ -24,29 +24,13 @@ interface CookieStore {
   getCookiesHeaderForUrl: (url: string) => string;
 }
 
-const STORAGE_KEY = 'reqspace_cookies_v1';
-
-const loadSavedCookies = (): CookieItem[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [
-      { id: '1', domain: 'localhost', name: 'session', value: 'sess_default_123', path: '/', httpOnly: false, secure: false }
-    ];
-  } catch {
-    return [];
-  }
-};
-
-const saveCookies = (cookies: CookieItem[]) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cookies));
-  } catch (e) {
-    console.error('Failed to save cookies:', e);
-  }
-};
+// Cookie values are credentials. They stay in memory for the tab and are not
+// written to localStorage (CR#21). Drop the old persisted jar, which also
+// shipped a dummy `sess_default_123` cookie.
+try { localStorage.removeItem('reqspace_cookies_v1'); } catch { /* private mode */ }
 
 export const useCookieStore = create<CookieStore>((set, get) => ({
-  cookies: loadSavedCookies(),
+  cookies: [],
   selectedDomain: 'localhost',
 
   setSelectedDomain: (domain) => set({ selectedDomain: domain }),
@@ -66,7 +50,6 @@ export const useCookieStore = create<CookieStore>((set, get) => ({
         secure: false,
       };
       const updated = [...cookies, newCookie];
-      saveCookies(updated);
       set({ cookies: updated, selectedDomain: d });
     } else {
       set({ selectedDomain: d });
@@ -75,7 +58,6 @@ export const useCookieStore = create<CookieStore>((set, get) => ({
 
   deleteDomain: (domain) => {
     const updated = get().cookies.filter(c => c.domain !== domain);
-    saveCookies(updated);
     const remainingDomains = Array.from(new Set(updated.map(c => c.domain)));
     set({
       cookies: updated,
@@ -89,19 +71,16 @@ export const useCookieStore = create<CookieStore>((set, get) => ({
       id: Date.now().toString() + Math.random().toString(36).substr(2, 4),
     };
     const updated = [...get().cookies, newCookie];
-    saveCookies(updated);
     set({ cookies: updated });
   },
 
   updateCookie: (id, updates) => {
     const updated = get().cookies.map(c => c.id === id ? { ...c, ...updates } : c);
-    saveCookies(updated);
     set({ cookies: updated });
   },
 
   deleteCookie: (id) => {
     const updated = get().cookies.filter(c => c.id !== id);
-    saveCookies(updated);
     set({ cookies: updated });
   },
 

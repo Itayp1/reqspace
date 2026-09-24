@@ -9,8 +9,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized
       window.dispatchEvent(new CustomEvent('unauthorized'));
+    } else if (error.response?.status === 403) {
+      window.dispatchEvent(new CustomEvent('forbidden', { detail: error.response?.data?.message || 'You do not have permission to do that.' }));
     }
     return Promise.reject(error);
   }

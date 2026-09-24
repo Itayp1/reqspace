@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getUserWorkspaceRole } from '../middleware/rbac';
 import { SystemConfig } from '../models/SystemConfig';
-import { assertSsrfSafe, SsrfBlockedError } from '../utils/ssrf';
+import { assertSsrfSafe, createSafeLookup, SsrfBlockedError } from '../utils/ssrf';
 
 const router = Router();
 
@@ -137,7 +137,13 @@ router.all('/:workspaceId/*', authenticate, async (req: AuthRequest, res: Respon
           fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
 
-        const response = await fetch(finalUrl, fetchOptions);
+        const { fetch: undiciFetch, Agent } = await import('undici');
+        const response = await undiciFetch(finalUrl, {
+          ...fetchOptions,
+          dispatcher: new Agent({
+            connect: { lookup: createSafeLookup(systemConfig?.proxy?.allowPrivateTargets ?? false) },
+          }),
+        } as any);
         const responseBody = await response.text();
         
         // Forward status and headers

@@ -11,14 +11,19 @@ export default function OAuthCallbackPage() {
 
   useEffect(() => {
     const code = searchParams.get('code');
+    const state = searchParams.get('state');
     if (!code) {
       setError('No authorization code provided.');
+      return;
+    }
+    if (!state) {
+      setError('Missing OAuth state.');
       return;
     }
 
     const redirectUri = window.location.origin + window.location.pathname; // Should be /auth/google/callback
 
-    api.post('/auth/google', { code, redirectUri })
+    api.post('/auth/google', { code, redirectUri, state })
       .then(res => {
         setUser(res.data.user);
         navigate('/');
