@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api/axios';
 import { Play } from 'lucide-react';
+import { sendRequest, TransportError } from '../transport';
 
 export default function SharedCollectionPage() {
   const { shortId } = useParams();
@@ -19,16 +20,23 @@ export default function SharedCollectionPage() {
   const executeRequest = async (req: any) => {
     setExecuting(req._id);
     try {
-      const response = await api.post('/share/' + shortId + '/proxy', {
+      // Anonymous visitors send this straight from their own browser now —
+      // the share proxy is gone (SEC-0.4) — so only the safe, credential-free
+      // fields the server includes in the public payload are ever available
+      // here (SEC-0.6).
+      const headers = (req.headers || []).reduce((acc: Record<string, string>, h: any) => {
+        if (h.enabled !== false && h.key) acc[h.key] = h.value;
+        return acc;
+      }, {});
+      const response = await sendRequest({
         method: req.method,
         url: req.url,
-        headers: req.headers,
-        body: req.body,
-        auth: req.auth
+        headers,
       });
-      setResults(prev => ({ ...prev, [req._id]: response.data }));
+      setResults(prev => ({ ...prev, [req._id]: response }));
     } catch (err: any) {
-      setResults(prev => ({ ...prev, [req._id]: err.response?.data || err.message }));
+      const message = err instanceof TransportError ? err.message : (err?.message || String(err));
+      setResults(prev => ({ ...prev, [req._id]: { message } }));
     }
     setExecuting(null);
   };

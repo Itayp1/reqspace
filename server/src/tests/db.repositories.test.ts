@@ -371,36 +371,39 @@ describe('HistoryRepository (SQL)', () => {
 
   it('creates history entries', async () => {
     await HistoryRepository.create({
-      userId, workspaceId: wsId, method: 'GET',
-      url: 'https://api.example.com', statusCode: 200, duration: 150,
-      requestData: { headers: [], method: 'GET', url: 'https://api.example.com' },
-      responseData: { statusCode: 200, body: '{"ok":true}', headers: [] },
+      userId, workspaceId: wsId,
+      requestSnapshot: { method: 'GET', url: 'https://api.example.com' },
+      responseSnapshot: { status: 200, statusText: 'OK', body: '{"ok":true}', bodyTruncated: false, responseTime: 150, size: 12 },
+      testResults: [],
+      executedAt: new Date(),
     });
     await HistoryRepository.create({
-      userId, workspaceId: wsId, method: 'POST',
-      url: 'https://api.example.com/create', statusCode: 201, duration: 300,
-      requestData: {}, responseData: {},
+      userId, workspaceId: wsId,
+      requestSnapshot: { method: 'POST', url: 'https://api.example.com/create' },
+      responseSnapshot: { status: 201, statusText: 'Created', body: '{}', bodyTruncated: false, responseTime: 300, size: 2 },
+      testResults: [],
+      executedAt: new Date(),
     });
-    const h = await HistoryRepository.findByUser(userId, wsId);
-    expect(h.length).toBe(2);
+    const { items } = await HistoryRepository.list({ userId, workspaceId: wsId }, 1, 50);
+    expect(items.length).toBe(2);
   });
 
-  it('responseData round-trips', async () => {
-    const h = await HistoryRepository.findByUser(userId, wsId);
-    const entry = h.find(e => e.method === 'GET');
-    expect(entry!.responseData.statusCode).toBe(200);
-    expect(entry!.responseData.body).toBe('{"ok":true}');
+  it('responseSnapshot round-trips', async () => {
+    const { items } = await HistoryRepository.list({ userId, workspaceId: wsId, method: 'GET' }, 1, 50);
+    const entry = items[0];
+    expect(entry.responseSnapshot.status).toBe(200);
+    expect(entry.responseSnapshot.body).toBe('{"ok":true}');
   });
 
   it('limits history results', async () => {
-    const h = await HistoryRepository.findByUser(userId, wsId, 1);
-    expect(h.length).toBe(1);
+    const { items } = await HistoryRepository.list({ userId, workspaceId: wsId }, 1, 1);
+    expect(items.length).toBe(1);
   });
 
   it('deletes history by user', async () => {
-    await HistoryRepository.deleteByUser(userId);
-    const h = await HistoryRepository.findByUser(userId, wsId);
-    expect(h.length).toBe(0);
+    await HistoryRepository.deleteMany(userId);
+    const { items } = await HistoryRepository.list({ userId, workspaceId: wsId }, 1, 50);
+    expect(items.length).toBe(0);
   });
 });
 

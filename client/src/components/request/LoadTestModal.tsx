@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { X, Play, StopCircle, Activity } from 'lucide-react';
 import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
-import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
+import { useSettingsStore } from '../../store/settingsStore';
+import { sendRequest } from '../../transport';
 import api from '../../api/axios';
 
 interface Props {
@@ -54,21 +55,35 @@ export function LoadTestModal({ onClose }: Props) {
         const start = Date.now();
         try {
           const settings = useSettingsStore.getState().settings;
-          await api.post(`/proxy`, {
+          const headers = activeRequest.headers.reduce((acc: any, h) => { if (h.enabled && h.key) acc[h.key] = h.value; return acc; }, {});
+          // activeRequest.body is the editor's { mode, raw, ... } descriptor, not
+          // a resolved payload — same simplification the old proxy call made.
+          const rawBody = activeRequest.body ? JSON.stringify(activeRequest.body) : undefined;
+          const res = await sendRequest({
             method: activeRequest.method,
             url: activeRequest.url,
-            headers: activeRequest.headers.reduce((acc: any, h) => { if (h.enabled && h.key) acc[h.key] = h.value; return acc; }, {}),
-            body: activeRequest.body,
-            workspaceId: activeWorkspace?._id,
+            headers,
+            body: rawBody,
             followRedirects: settings.followRedirects,
             verifySsl: settings.verifySsl,
             timeout: settings.timeout,
-            localProxy: getLocalProxyConfig(),
-          saveHistory: useSettingsStore.getState().settings.saveHistory,
-          }, { signal: abortControllerRef.current?.signal });
+            signal: abortControllerRef.current?.signal,
+          });
           success++;
+          if (settings.saveHistory && activeWorkspace?._id) {
+            api.post(`/workspaces/${activeWorkspace._id}/history`, {
+              requestSnapshot: { method: activeRequest.method, url: activeRequest.url, headers, body: rawBody },
+              responseBody: res.isBase64 ? '[Binary Data]' : res.body,
+              responseStatus: res.status,
+              responseStatusText: res.statusText,
+              responseHeaders: res.headers,
+              responseTime: res.responseTime,
+              responseSize: res.size,
+              testResults: [],
+            }).catch(() => { /* best-effort */ });
+          }
         } catch (e: any) {
-          if (e.name !== 'CanceledError') failed++;
+          if (e?.name !== 'AbortError') failed++;
         }
         const time = Date.now() - start;
         times.push(time);
