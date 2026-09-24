@@ -196,7 +196,7 @@ export function initSqlModels() {
     ownerId: { type: DataTypes.STRING(36), allowNull: false },
     members: { type: DataTypes.TEXT, defaultValue: '[]' },
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
-  }, { sequelize: sq, tableName: 'workspaces', timestamps: true });
+  }, { sequelize: sq, tableName: 'workspaces', timestamps: true, indexes: [{ fields: ['ownerId'] }] });
 
   SqlCollection.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
@@ -208,7 +208,12 @@ export function initSqlModels() {
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
     order: { type: DataTypes.INTEGER, defaultValue: 0 },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
-  }, { sequelize: sq, tableName: 'collections', timestamps: true });
+  }, {
+    sequelize: sq, tableName: 'collections', timestamps: true,
+    // Index the FK + the field used for ordered listing (Sequelize emits the
+    // dialect-correct CREATE INDEX for each backend on sync).
+    indexes: [{ fields: ['workspaceId'] }, { fields: ['workspaceId', 'order'] }],
+  });
 
   SqlFolder.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
@@ -219,7 +224,10 @@ export function initSqlModels() {
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
     order: { type: DataTypes.INTEGER, defaultValue: 0 },
-  }, { sequelize: sq, tableName: 'folders', timestamps: true });
+  }, {
+    sequelize: sq, tableName: 'folders', timestamps: true,
+    indexes: [{ fields: ['collectionId'] }, { fields: ['collectionId', 'parentFolderId'] }],
+  });
 
   SqlRequest.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
@@ -238,7 +246,16 @@ export function initSqlModels() {
     order: { type: DataTypes.INTEGER, defaultValue: 0 },
     comments: { type: DataTypes.TEXT, defaultValue: '[]' },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
-  }, { sequelize: sq, tableName: 'requests', timestamps: true });
+  }, {
+    sequelize: sq, tableName: 'requests', timestamps: true,
+    // A 20M-row requests table is unusable without these; the listing queries
+    // filter by collectionId (+ folderId) and sort by order.
+    indexes: [
+      { fields: ['collectionId'] },
+      { fields: ['folderId'] },
+      { fields: ['collectionId', 'folderId', 'order'] },
+    ],
+  });
 
   SqlEnvironment.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
@@ -246,7 +263,7 @@ export function initSqlModels() {
     name: { type: DataTypes.STRING(255), allowNull: false },
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
-  }, { sequelize: sq, tableName: 'environments', timestamps: true });
+  }, { sequelize: sq, tableName: 'environments', timestamps: true, indexes: [{ fields: ['workspaceId'] }] });
 
   SqlGlobalEnvironment.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
@@ -264,7 +281,7 @@ export function initSqlModels() {
     duration: { type: DataTypes.INTEGER, allowNull: true },
     requestData: { type: DataTypes.TEXT, defaultValue: '{}' },
     responseData: { type: DataTypes.TEXT, defaultValue: '{}' },
-  }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false });
+  }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false, indexes: [{ fields: ['userId', 'workspaceId'] }, { fields: ['createdAt'] }] });
 
   SqlAuditLog.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
@@ -274,7 +291,7 @@ export function initSqlModels() {
     targetId: { type: DataTypes.STRING(36), allowNull: true },
     ip: { type: DataTypes.STRING(45), allowNull: true },
     details: { type: DataTypes.TEXT, allowNull: true },
-  }, { sequelize: sq, tableName: 'audit_logs', timestamps: true, createdAt: 'createdAt', updatedAt: false });
+  }, { sequelize: sq, tableName: 'audit_logs', timestamps: true, createdAt: 'createdAt', updatedAt: false, indexes: [{ fields: ['userId'] }, { fields: ['targetId'] }] });
 
   SqlSystemConfig.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
