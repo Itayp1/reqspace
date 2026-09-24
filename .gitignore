@@ -14,6 +14,12 @@ client/test-results/
 server/data.sqlite
 server/reqspace-local.sqlite
 
+# Compiled TypeScript output — rebuilt from source, never committed.
+server/dist/
+client/dist/
+# Local MongoDB data dir used by the dev/CI harness.
+.data/
+
 .env
 .jwt-secret.local
 
