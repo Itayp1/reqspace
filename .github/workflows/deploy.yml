@@ -1,0 +1,55 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/itayp1/reqspace:latest
+            ghcr.io/itayp1/reqspace:${{ github.sha }}
+
+      # Tell deployments to expose the hostname on Cloudflare and pull the
+      # new image via Watchtower. Same contract every app repo uses.
+      - name: Notify deployments
+        continue-on-error: true
+        run: |
+          curl -fsS -X POST https://hooks.aidigitalservices.org/publish \
+            -H "Authorization: Bearer ${{ secrets.PUBLISHER_WEBHOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"subdomain":"reqspace","service_url":"http://traefik:80"}'
+
+      # Fallback: join the tailnet and poke Watchtower directly if the
+      # public hooks endpoint is down. Needs TS_OAUTH_CLIENT_ID/SECRET
+      # secrets to actually authenticate — harmless no-op without them.
+      - uses: tailscale/github-action@v3
+        continue-on-error: true
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: Trigger Watchtower update
+        continue-on-error: true
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer ${{ secrets.WATCHTOWER_TOKEN }}" "http://100.121.110.48:8080/v1/update"
