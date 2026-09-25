@@ -1,20 +1,19 @@
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { Collection } from '../models/Collection';
-import { Folder } from '../models/Folder';
-import { Request as ApiRequest } from '../models/Request';
-import { SystemConfig } from '../models/SystemConfig';
+import { CollectionRepository } from '../repositories/CollectionRepository';
+import { FolderRepository } from '../repositories/FolderRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
-// import mongoose from 'mongoose';
 
 const router = Router();
 router.use(authenticate);
 
 // Import/Export Routes placeholder
 router.get('/collections/:id/export', async (req: AuthRequest, res: Response) => {
-  const collection = await Collection.findById(req.params.id);
+  const collection = await CollectionRepository.findById(req.params.id);
   res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
 });
 
@@ -129,17 +128,16 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const systemConfig = await SystemConfig.findById('global');
+    const systemConfig = await SystemConfigRepository.getConfig();
     await assertSsrfSafe(url, systemConfig?.proxy?.allowPrivateTargets ?? false);
 
     const client = await soap.createClientAsync(url);
     const description = client.describe();
     
     // Create Collection
-    const collection = await Collection.create({
+    const collection = await CollectionRepository.create({
       name: `WSDL: ${url.split('/').pop() || 'Service'}`,
       workspaceId,
-      ownerId: req.user!._id,
       createdBy: req.user!._id
     });
 
@@ -147,14 +145,14 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
 
     for (const [serviceName, service] of Object.entries(description)) {
       // Create Folder for Service
-      const serviceFolder = await Folder.create({
+      const serviceFolder = await FolderRepository.create({
         name: serviceName,
-        collectionId: collection._id
+        collectionId: collection._id,
       });
 
       for (const [portName, port] of Object.entries(service as Record<string, any>)) {
         // Create Folder for Port
-        const portFolder = await Folder.create({
+        const portFolder = await FolderRepository.create({
           name: portName,
           collectionId: collection._id,
           parentFolderId: serviceFolder._id
@@ -175,7 +173,7 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
           }
           xmlBody += `    </${operationName}>\n  </soapenv:Body>\n</soapenv:Envelope>`;
 
-          await ApiRequest.create({
+          await RequestRepository.create({
             name: operationName,
             collectionId: collection._id,
             folderId: portFolder._id,
@@ -186,7 +184,14 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
               ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true, _id: uuidv4() }] : [])
             ],
             body: { mode: 'raw', raw: xmlBody, rawLanguage: 'xml' },
-            createdBy: req.user!._id
+            createdBy: req.user!._id,
+            params: [],
+            auth: { type: 'none' },
+            preRequestScript: '',
+            testScript: '',
+            order: 0,
+            comments: [],
+            description: ''
           });
         }
       }

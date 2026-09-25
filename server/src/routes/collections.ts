@@ -5,7 +5,7 @@ import { CollectionRepository } from '../repositories/CollectionRepository';
 import { FolderRepository } from '../repositories/FolderRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
 import { logAudit } from '../repositories/AuditLogRepository';
-import { UserRole } from '../models/User';
+export type UserRole = 'viewer' | 'editor' | 'owner';
 import { emitToWorkspace } from '../socketUtils';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
-import { UserRole } from '../models/User';
+export type UserRole = 'viewer' | 'editor' | 'owner';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { isValidId } from '../utils/ids';
 

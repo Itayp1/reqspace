@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { saveHistoryEntry } from './history';
-import mongoose from 'mongoose';
-import { SystemConfig } from '../models/SystemConfig';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
@@ -46,7 +45,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       redirect: followRedirects ? 'follow' : 'manual',
     };
 
-    const systemConfig = await SystemConfig.findById('global');
+    const systemConfig = await SystemConfigRepository.getConfig();
     const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
 
     let activeProxy = null;
@@ -150,8 +149,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     if (workspaceId && req.user && shouldSaveHistory && isUnderLimit) {
       saveHistoryEntry(
-        req.user._id as mongoose.Types.ObjectId,
-        new mongoose.Types.ObjectId(workspaceId),
+        req.user._id as string || req.user.id,
+        workspaceId,
         {
           requestSnapshot: { method, url, headers, body },
           responseBody: isBase64 ? `[Binary Data: ${contentType}]` : responseBody,

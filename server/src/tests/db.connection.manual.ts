@@ -156,20 +156,6 @@ async function run() {
       pass('Test data cleaned up');
     } catch (err) { fail('Cleanup', err); }
 
-  } else {
-    // MongoDB-specific
-    console.log('\n2. Testing MongoDB operations...');
-    const mongoose = await import('mongoose');
-    try {
-      const state = mongoose.default.connection.readyState;
-      if (state !== 1) throw new Error(`Connection state is ${state}, expected 1 (connected)`);
-      pass('MongoDB readyState = 1 (connected)');
-    } catch (err) { fail('MongoDB connection state', err); }
-
-    try {
-      const colNames = (await mongoose.default.connection.db!.listCollections().toArray()).map(c => c.name);
-      pass(`Collections accessible: [${colNames.slice(0,5).join(', ')}...]`);
-    } catch (err) { fail('MongoDB list collections', err); }
   }
 
   printSummary();

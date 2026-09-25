@@ -97,5 +97,25 @@ export const UserRepository = {
   async existsByEmail(email: string): Promise<boolean> {
     const u = await this.findByEmail(email);
     return !!u;
+  },
+
+  async search(query: string): Promise<Pick<IUserRecord, '_id' | 'name' | 'email' | 'avatar'>[]> {
+    const { Op } = require('sequelize');
+    const users = await SqlUser.findAll({
+      where: {
+        [Op.or]: [
+          { name: { [Op.like]: `${query}%` } },
+          { email: { [Op.like]: `${query}%` } }
+        ]
+      },
+      limit: 10,
+      attributes: ['id', 'name', 'email', 'avatar']
+    });
+    return users.map(u => ({
+      _id: u.id,
+      name: u.name,
+      email: u.email,
+      avatar: u.avatar
+    }));
   }
 };

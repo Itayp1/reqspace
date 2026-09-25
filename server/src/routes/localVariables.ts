@@ -1,5 +1,5 @@
 import express, { Response } from 'express';
-import LocalVariable from '../models/LocalVariable';
+import { SqlLocalVariable } from '../db/sql-models';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
@@ -7,14 +7,18 @@ const router = express.Router();
 // GET /api/local-variables/:workspaceId
 router.get('/:workspaceId', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const localVariable = await LocalVariable.findOne({
-      workspaceId: req.params.workspaceId,
-      userId: req.user?.id || req.user?._id,
+    const localVariable = await SqlLocalVariable.findOne({
+      where: {
+        workspaceId: req.params.workspaceId,
+        userId: req.user?.id || req.user?._id,
+      }
     });
     if (!localVariable) {
       return res.json({ variables: [] });
     }
-    res.json(localVariable);
+    const data = localVariable.toJSON();
+    data.variables = JSON.parse(data.variables);
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -24,23 +28,27 @@ router.get('/:workspaceId', authenticate, async (req: AuthRequest, res: Response
 router.put('/:workspaceId', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { variables } = req.body;
-    let localVariable = await LocalVariable.findOne({
-      workspaceId: req.params.workspaceId,
-      userId: req.user?.id || req.user?._id,
+    let localVariable = await SqlLocalVariable.findOne({
+      where: {
+        workspaceId: req.params.workspaceId,
+        userId: req.user?.id || req.user?._id,
+      }
     });
 
     if (localVariable) {
-      localVariable.variables = variables;
+      localVariable.variables = JSON.stringify(variables);
       await localVariable.save();
     } else {
-      localVariable = await LocalVariable.create({
+      localVariable = await SqlLocalVariable.create({
         workspaceId: req.params.workspaceId,
         userId: req.user?.id || req.user?._id,
-        variables,
+        variables: JSON.stringify(variables),
       });
     }
 
-    res.json(localVariable);
+    const data = localVariable.toJSON();
+    data.variables = JSON.parse(data.variables);
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

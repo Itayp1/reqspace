@@ -1,30 +1,11 @@
-import mongoose from 'mongoose';
+
 import path from 'path';
 import { Umzug, SequelizeStorage } from 'umzug';
 import { DbConfig } from './dbConfig';
 import { initSequelize } from './sequelize';
 import { initSqlModels } from './sql-models';
 
-let _dbType: string = 'mongodb';
-
-export function isMongo(): boolean {
-  return _dbType === 'mongodb';
-}
-
 export async function connectDb(config: DbConfig): Promise<void> {
-  _dbType = config.type;
-
-  if (config.type === 'mongodb') {
-    const uri = config.connectionString!;
-    // Only relax TLS verification when explicitly opted in (dev against a
-    // self-signed server). Defaulting to tlsInsecure disabled cert validation
-    // for every deployment, including Atlas (CR#6).
-    const opts: mongoose.ConnectOptions =
-      process.env.MONGO_TLS_INSECURE === 'true' ? ({ tlsInsecure: true } as mongoose.ConnectOptions) : {};
-    await mongoose.connect(uri, opts);
-    console.log('✅ MongoDB connected:', uri.replace(/\/\/.*@/, '//***@'));
-    return;
-  }
 
   // SQL path
   const sq = initSequelize(config);

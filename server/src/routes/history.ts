@@ -1,12 +1,9 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
-import { History } from '../models/History';
-import { User } from '../models/User';
-import { SystemConfig } from '../models/SystemConfig';
-import { Request as ApiRequest } from '../models/Request';
-import { Collection } from '../models/Collection';
-import mongoose from 'mongoose';
+import { SqlHistory } from '../db/sql-models';
+import { UserRepository } from '../repositories/UserRepository';
+import { RequestRepository } from '../repositories/RequestRepository';
 
 const router = Router();
 router.use(authenticate);
@@ -16,91 +13,111 @@ router.use(authenticate);
 // no membership check (CR#11).
 router.get('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   const { method, status, page = '1', limit = '50' } = req.query as Record<string, string>;
-  const query: Record<string, unknown> = {
-    userId: req.user!._id,
+  const where: any = {
+    userId: req.user!._id || req.user!.id,
     workspaceId: req.params.workspaceId,
   };
-  if (method) query['requestSnapshot.method'] = method.toUpperCase();
-  if (status) query['responseSnapshot.status'] = +status;
+  if (method) where.method = method.toUpperCase();
+  if (status) where.statusCode = +status;
 
-  const items = await History.find(query)
-    .sort({ executedAt: -1 })
-    .skip((+page - 1) * +limit)
-    .limit(+limit)
-    .lean();
-  const total = await History.countDocuments(query);
-  return res.json({ items, total });
+  const items = await SqlHistory.findAll({
+    where,
+    order: [['createdAt', 'DESC']],
+    offset: (+page - 1) * +limit,
+    limit: +limit,
+  });
+  const total = await SqlHistory.count({ where });
+  return res.json({ items: items.map(i => ({...i.toJSON(), requestSnapshot: JSON.parse(i.requestData), responseSnapshot: JSON.parse(i.responseData), _id: i.id})), total });
 });
 
 // ── GET /api/history/:id ────────────────────────────────────────────────────
 router.get('/history/:id', async (req: AuthRequest, res: Response) => {
-  const item = await History.findOne({
-    _id: req.params.id,
-    userId: req.user!._id,
-  }).lean();
+  const item = await SqlHistory.findOne({
+    where: {
+      id: req.params.id,
+      userId: req.user!._id || req.user!.id,
+    }
+  });
   if (!item) return res.status(404).json({ message: 'Not found' });
-  return res.json(item);
+  const parsed = item.toJSON();
+  return res.json({ ...parsed, _id: parsed.id, requestSnapshot: JSON.parse(parsed.requestData), responseSnapshot: JSON.parse(parsed.responseData) });
 });
 
 // ── DELETE /api/history/:id ─────────────────────────────────────────────────
 router.delete('/history/:id', async (req: AuthRequest, res: Response) => {
-  const item = await History.findOneAndDelete({
-    _id: req.params.id,
-    userId: req.user!._id,
+  const item = await SqlHistory.findOne({
+    where: {
+      id: req.params.id,
+      userId: req.user!._id || req.user!.id,
+    }
   });
   if (!item) return res.status(404).json({ message: 'Not found' });
 
-  const bodySize = Buffer.byteLength(item.responseSnapshot?.body ?? '', 'utf8');
-  await User.findByIdAndUpdate(req.user!._id, {
-    $inc: { historyUsedBytes: -bodySize },
-  });
+  await item.destroy();
+
+  const bodySize = Buffer.byteLength(JSON.parse(item.responseData)?.body ?? '', 'utf8');
+  const user = await UserRepository.findById(req.user!._id || req.user!.id);
+  if (user) {
+    await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, user.historyUsedBytes - bodySize) } as any);
+  }
   return res.json({ message: 'Deleted' });
 });
 
 // ── DELETE /api/history ─ Clear all history for user ──────────────────
 router.delete('/history', async (req: AuthRequest, res: Response) => {
-  await History.deleteMany({ userId: req.user!._id });
-  await User.findByIdAndUpdate(req.user!._id, { historyUsedBytes: 0 });
+  await SqlHistory.destroy({ where: { userId: req.user!._id || req.user!.id } });
+  const user = await UserRepository.findById(req.user!._id || req.user!.id);
+  if (user) {
+    await UserRepository.update(user.id, { historyUsedBytes: 0 } as any);
+  }
   return res.json({ message: 'All history cleared' });
 });
 
 // ── DELETE /api/workspaces/:workspaceId/history – Clear all ─────────────────
 router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
-  // Only clear this user's history in this workspace, and decrement the byte
-  // counter by what was actually removed — zeroing it wiped the accounting for
-  // the user's history in *other* workspaces too (CR#11).
-  const removed = await History.find({ userId: req.user!._id, workspaceId: req.params.workspaceId }).lean();
-  const freed = removed.reduce((sum, h: any) => sum + Buffer.byteLength(h.responseSnapshot?.body ?? '', 'utf8'), 0);
-  await History.deleteMany({ userId: req.user!._id, workspaceId: req.params.workspaceId });
-  await User.findByIdAndUpdate(req.user!._id, { $inc: { historyUsedBytes: -freed } });
+  const removed = await SqlHistory.findAll({ where: { userId: req.user!._id || req.user!.id, workspaceId: req.params.workspaceId } });
+  const freed = removed.reduce((sum, h: any) => sum + Buffer.byteLength(JSON.parse(h.responseData)?.body ?? '', 'utf8'), 0);
+  await SqlHistory.destroy({ where: { userId: req.user!._id || req.user!.id, workspaceId: req.params.workspaceId } });
+  const user = await UserRepository.findById(req.user!._id || req.user!.id);
+  if (user) {
+    await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, user.historyUsedBytes - freed) } as any);
+  }
   return res.json({ message: 'History cleared' });
 });
 
 // ── POST /api/history/:id/save – Save to Collection ─────────────────────────
 router.post('/history/:id/save', async (req: AuthRequest, res: Response) => {
-  const item = await History.findOne({
-    _id: req.params.id,
-    userId: req.user!._id,
-  }).lean();
+  const item = await SqlHistory.findOne({
+    where: {
+      id: req.params.id,
+      userId: req.user!._id || req.user!.id,
+    }
+  });
   if (!item) return res.status(404).json({ message: 'Not found' });
+  const parsedItem = { requestSnapshot: JSON.parse(item.requestData) };
 
   const { collectionId, folderId, name } = req.body;
   if (!collectionId) return res.status(400).json({ message: 'collectionId required' });
 
-  const count = await ApiRequest.countDocuments({ collectionId, folderId: folderId ?? null });
-  const request = await ApiRequest.create({
+  const count = await RequestRepository.countInCollection(collectionId, folderId ?? null);
+  const request = await RequestRepository.create({
     collectionId,
     folderId: folderId ?? null,
-    name: name || item.requestSnapshot.url,
-    method: item.requestSnapshot.method,
-    url: item.requestSnapshot.url,
-    headers: Object.entries(item.requestSnapshot.headers ?? {}).map(([key, value]) => ({
-      key, value, enabled: true,
+    name: name || parsedItem.requestSnapshot.url,
+    method: parsedItem.requestSnapshot.method,
+    url: parsedItem.requestSnapshot.url,
+    headers: Object.entries(parsedItem.requestSnapshot.headers ?? {}).map(([key, value]) => ({
+      key, value: String(value), enabled: true,
     })),
-    params: item.requestSnapshot.params ?? [],
-    body: { mode: 'raw', raw: item.requestSnapshot.body ?? '' },
+    params: parsedItem.requestSnapshot.params ?? [],
+    body: { mode: 'raw', raw: parsedItem.requestSnapshot.body ?? '' },
     order: count,
-    createdBy: req.user!._id,
+    createdBy: req.user!._id || req.user!.id,
+    auth: { type: 'none' },
+    preRequestScript: '',
+    testScript: '',
+    comments: [],
+    description: ''
   });
   return res.status(201).json(request);
 });
@@ -108,9 +125,10 @@ router.post('/history/:id/save', async (req: AuthRequest, res: Response) => {
 export default router;
 
 // ─── History GC Service ─────────────────────────────────────────────────────
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 export async function saveHistoryEntry(
-  userId: mongoose.Types.ObjectId,
-  workspaceId: mongoose.Types.ObjectId,
+  userId: string,
+  workspaceId: string,
   data: {
     requestSnapshot: Record<string, unknown>;
     responseBody: string;
@@ -122,10 +140,10 @@ export async function saveHistoryEntry(
     testResults: Array<{ name: string; passed: boolean; error?: string }>;
   }
 ) {
-  const user = await User.findById(userId);
+  const user = await UserRepository.findById(userId);
   if (!user?.settings?.saveHistory) return;
 
-  const config = await SystemConfig.findById('global');
+  const config = await SystemConfigRepository.getConfig();
   const maxBodyKB = (config?.history.maxRequestBodyKB ?? 10) * 1024;
   const maxTotalMB = (config?.history.maxTotalPerUserMB ?? 20) * 1024 * 1024;
 
@@ -141,18 +159,22 @@ export async function saveHistoryEntry(
   // GC: remove oldest entries if over limit
   let usedBytes = user.historyUsedBytes ?? 0;
   while (usedBytes + bodySize > maxTotalMB) {
-    const oldest = await History.findOne({ userId }).sort({ executedAt: 1 });
+    const oldest = await SqlHistory.findOne({ where: { userId }, order: [['createdAt', 'ASC']] });
     if (!oldest) break;
-    const oldSize = Buffer.byteLength(oldest.responseSnapshot?.body ?? '', 'utf8');
-    await History.findByIdAndDelete(oldest._id);
+    const oldSize = Buffer.byteLength(JSON.parse(oldest.responseData)?.body ?? '', 'utf8');
+    await oldest.destroy();
     usedBytes -= oldSize;
   }
 
-  await History.create({
+  await SqlHistory.create({
     userId,
     workspaceId,
-    requestSnapshot: data.requestSnapshot,
-    responseSnapshot: {
+    method: data.requestSnapshot.method as string || 'GET',
+    url: data.requestSnapshot.url as string || '',
+    statusCode: data.responseStatus,
+    duration: data.responseTime,
+    requestData: JSON.stringify(data.requestSnapshot),
+    responseData: JSON.stringify({
       status: data.responseStatus,
       statusText: data.responseStatusText,
       headers: data.responseHeaders,
@@ -160,12 +182,9 @@ export async function saveHistoryEntry(
       bodyTruncated,
       responseTime: data.responseTime,
       size: data.responseSize,
-    },
-    testResults: data.testResults,
-    executedAt: new Date(),
+      testResults: data.testResults,
+    })
   });
 
-  await User.findByIdAndUpdate(userId, {
-    historyUsedBytes: Math.max(0, usedBytes + bodySize),
-  });
+  await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, usedBytes + bodySize) } as any);
 }

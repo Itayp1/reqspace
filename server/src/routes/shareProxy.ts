@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
-import { SharedLink } from '../models/SharedLink';
-import { SystemConfig } from '../models/SystemConfig';
+import { SqlSharedLink } from '../db/sql-models';
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { createSafeLookup } from '../utils/ssrf';
 
 const router = Router();
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
 router.post('/:shortId/proxy', async (req: Request, res: Response) => {
-  const link = await SharedLink.findOne({ shortId: req.params.shortId });
-  if (!link || link.expiresAt < new Date()) {
+  const link = await SqlSharedLink.findOne({ where: { shortId: req.params.shortId } });
+  if (!link || link.expiresAt && link.expiresAt < new Date()) {
     return res.status(404).json({ message: 'Link not found or expired' });
   }
 
@@ -32,7 +32,7 @@ router.post('/:shortId/proxy', async (req: Request, res: Response) => {
       redirect: followRedirects ? 'follow' : 'manual',
     };
 
-    const systemConfig = await SystemConfig.findById('global');
+    const systemConfig = await SystemConfigRepository.getConfig();
     const allowPrivateTargets = systemConfig?.proxy?.allowPrivateTargets ?? false;
 
     let activeProxy = null;

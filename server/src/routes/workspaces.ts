@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
-import { UserRole } from '../models/User';
+export type UserRole = 'viewer' | 'editor' | 'owner';
 import { WorkspaceRepository, IWorkspaceMemberRecord } from '../repositories/WorkspaceRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { EnvironmentRepository } from '../repositories/EnvironmentRepository';

@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserRepository } from '../repositories/UserRepository';
@@ -298,7 +298,7 @@ router.post('/certificates', authenticate, async (req: AuthRequest, res: Respons
   
   try {
     const newCert = {
-      _id: new mongoose.Types.ObjectId(),
+      _id: require('uuid').v4(),
       hostname,
       cert,
       key,

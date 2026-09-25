@@ -170,6 +170,18 @@ export class SqlSharedLink extends Model {
 }
 
 // ─────────────────────────────────────────────────
+// LOCAL VARIABLES
+// ─────────────────────────────────────────────────
+export class SqlLocalVariable extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare userId: string;
+  declare variables: string; // JSON
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ─────────────────────────────────────────────────
 // INIT — define all models
 // ─────────────────────────────────────────────────
 export function initSqlModels() {
@@ -311,4 +323,11 @@ export function initSqlModels() {
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
     expiresAt: { type: DataTypes.DATE, allowNull: true },
   }, { sequelize: sq, tableName: 'shared_links', timestamps: true, updatedAt: false });
+
+  SqlLocalVariable.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    userId: { type: DataTypes.STRING(36), allowNull: false },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+  }, { sequelize: sq, tableName: 'local_variables', timestamps: true, indexes: [{ fields: ['workspaceId', 'userId'], unique: true }] });
 }

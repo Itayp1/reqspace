@@ -4,7 +4,7 @@ import net from 'net';
 /**
  * Blocks requests to internal/private network destinations from the proxy,
  * share-proxy, capture, and WSDL-import routes — all of which let a
- * logged-in (or, for capture/share-proxy, even anonymous) user make this
+ * logged-in (or, for share-proxy, even anonymous) user make this
  * server issue an arbitrary outbound HTTP request. Without this, a hosted
  * multi-tenant deployment is an open SSRF pivot into its own private network
  * (other internal services, cloud metadata endpoints like 169.254.169.254,
@@ -157,7 +157,7 @@ export class SsrfBlockedError extends Error {
   }
 }
 
-/** Simple pre-flight check for callers (capture route, WSDL import) that can't pin the resolved IP on the actual connection. */
+/** Simple pre-flight check for callers (WSDL import) that can't pin the resolved IP on the actual connection. */
 export async function assertSsrfSafe(targetUrl: string, allowPrivateTargets: boolean): Promise<void> {
   if (allowPrivateTargets) return;
   let parsed: URL;

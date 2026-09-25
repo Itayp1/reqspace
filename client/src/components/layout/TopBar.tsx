@@ -6,7 +6,7 @@ import { useSettingsStore } from '../../store/settingsStore';
 import api from '../../api/axios';
 import { useRequestStore } from '../../store/requestStore';
 import { CookieManagerModal } from '../common/CookieManagerModal';
-// import { CaptureTrafficModal } from './CaptureTrafficModal';
+
 import GlobalSettingsModal from '../common/GlobalSettingsModal';
 import GlobalSearchModal from '../common/GlobalSearchModal';
 

@@ -19,7 +19,7 @@ import collectionsRouter from './routes/collections';
 import environmentsRouter from './routes/environments';
 import historyRouter from './routes/history';
 import proxyRouter from './routes/proxy';
-// import captureRouter from './routes/capture';
+
 import adminRouter from './routes/admin';
 import usersRouter from './routes/users';
 import shareRouter from './routes/share';
@@ -169,7 +169,7 @@ app.use('/api', collectionsRouter);
 app.use('/api', environmentsRouter);
 app.use('/api', historyRouter);
 app.use('/api/proxy', proxyRouter);
-// app.use('/api/capture', captureRouter);
+
 app.use('/api/admin', adminRouter);
 app.use('/api/users', usersRouter);
 app.use('/api', importExportRouter);
