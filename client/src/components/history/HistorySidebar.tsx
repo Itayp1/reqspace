@@ -4,6 +4,7 @@ import { useRequestStore } from '../../store/requestStore';
 import { Trash2, Save, Search } from 'lucide-react';
 import api from '../../api/axios';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { customConfirm } from '../../utils/dialog';
 import { SaveRequestModal } from '../request/SaveRequestModal';
 import { useSettingsStore } from '../../store/settingsStore';
 
@@ -138,7 +139,7 @@ export default function HistorySidebar() {
               onChange={async (e) => {
                 const checked = e.target.checked;
                 if (!checked) {
-                  if (window.confirm("Disabling this will delete all your previously saved request history. Are you sure you want to proceed?")) {
+                  if (await customConfirm('Confirm Action', "Disabling this will delete all your previously saved request history. Are you sure you want to proceed?")) {
                     updateSettings({ saveHistory: false });
                     try {
                       await api.delete('/history');

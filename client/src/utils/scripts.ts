@@ -3,6 +3,7 @@ import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 import { useConsoleStore } from '../store/consoleStore';
 import api from '../api/axios';
+import { sendRequest } from '../transport';
 
 interface ScriptResult {
   nextRequest?: string;
@@ -96,9 +97,9 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
         }
         const url = typeof request === 'string' ? request : request.url;
         const method = request.method || 'GET';
-        api.post('/proxy', { method, url, headers: request.header || {} })
+        sendRequest({ method, url, headers: request.header || {} })
           .then((res: any) => {
-            worker.postMessage({ type: 'sendRequestResult', id, response: res.data });
+            worker.postMessage({ type: 'sendRequestResult', id, response: res });
           })
           .catch((err: any) => {
              worker.postMessage({ type: 'sendRequestResult', id, error: err.message });

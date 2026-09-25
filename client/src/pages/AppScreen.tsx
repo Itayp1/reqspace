@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { RequestTabBar } from '../components/request/RequestTabBar';
 import { RequestEditor } from '../components/request/RequestEditor';
+import { ConnectionEditor } from '../components/request/ConnectionEditor';
 import { ResponseViewer } from '../components/response/ResponseViewer';
 import { EnvironmentTabEditor } from '../components/environment/EnvironmentTabEditor';
 import LocalVariablesEditor from '../components/environment/LocalVariablesEditor';
@@ -9,6 +10,7 @@ import { useRequestStore } from '../store/requestStore';
 export default function AppScreen() {
   const { activeRequest, undo, redo } = useRequestStore();
   const isEnvTab = activeRequest?.tabType === 'environment';
+  const isConnTab = activeRequest?.tabType === 'connection';
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -43,10 +45,12 @@ export default function AppScreen() {
         <div className="flex-1 flex flex-col min-w-0">
           {isEnvTab ? (
             activeRequest?.environmentId === 'local-variables' ? <LocalVariablesEditor /> : <EnvironmentTabEditor />
+          ) : isConnTab ? (
+            <ConnectionEditor />
           ) : <RequestEditor />}
         </div>
       </div>
-      {!isEnvTab && (
+      {!isEnvTab && !isConnTab && (
         <>
           <div className="h-2 cursor-row-resize bg-surface border-y border-border flex items-center justify-center">
             <div className="w-8 h-1 bg-border rounded-full" />

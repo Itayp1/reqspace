@@ -7,6 +7,7 @@ import { useEnvironmentStore } from '../../store/environmentStore';
 import api from '../../api/axios';
 import { resolveAllVariables } from '../../utils/variables';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
+import { sendRequest } from '../../transport';
 
 interface CollectionRunnerModalProps {
   collectionId: string;
@@ -100,20 +101,19 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           // Wait, users might test APIs that accept form-data.
           // It's okay, if they do, we'll just skip the file part since no File objects are persisted.
 
-            const res = await api.post('/proxy', {
+            const res = await sendRequest({
               method: req.method || 'GET',
               url: resolvedUrl,
               headers: reqHeaders,
               body: requestBody,
-              workspaceId: undefined, // don't save history for runner
               followRedirects: true,
               verifySsl: true,
               timeout: 30000,
             });
           
           const duration = Date.now() - startTime;
-          const statusCode = res.data?.status || res.status;
-          const responseBody = typeof res.data?.body === 'string' ? res.data.body : JSON.stringify(res.data?.body || res.data, null, 2);
+          const statusCode = res.status;
+          const responseBody = res.body || '';
 
           let testPassed = statusCode >= 200 && statusCode < 400;
           const testScripts = [];
@@ -122,8 +122,8 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           if (testScripts.length > 0) {
             const scriptReturn = await runTestScript(testScripts.join('\n\n'), {
               status: statusCode,
-              statusText: res.data?.statusText || res.statusText,
-              headers: res.data?.headers || res.headers || {},
+              statusText: res.statusText,
+              headers: res.headers || {},
               body: responseBody,
               time: duration,
             }, collectionId, iterationData, localVariables);

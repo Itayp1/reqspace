@@ -4,7 +4,7 @@ test.describe('Request Operations', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('Login and create workspace', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto('/login');
     await page.getByTestId('login-email').fill('admin');
     await page.getByTestId('login-password').fill('admin');
     await page.getByTestId('login-submit').click();
@@ -19,7 +19,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Create a GET request, add headers and query params', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Click on New Request in empty state or via collection
     // Wait for the empty state
@@ -59,7 +59,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Create a POST request with JSON body, save and send', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Create a new request tab
     await page.getByTestId('new-tab-btn').click();

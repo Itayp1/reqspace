@@ -48,6 +48,7 @@ export class SqlCollection extends Model {
   declare variables: string; // JSON
   declare preRequestScript: string;
   declare testScript: string;
+  declare roles: string; // JSON
   declare order: number;
   declare createdBy: string;
   declare createdAt: Date;
@@ -65,6 +66,7 @@ export class SqlFolder extends Model {
   declare description: string;
   declare preRequestScript: string;
   declare testScript: string;
+  declare roles: string; // JSON
   declare order: number;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -220,6 +222,7 @@ export function initSqlModels() {
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
+    roles: { type: DataTypes.TEXT, defaultValue: '[]' },
     order: { type: DataTypes.INTEGER, defaultValue: 0 },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
   }, {
@@ -237,6 +240,7 @@ export function initSqlModels() {
     description: { type: DataTypes.TEXT, defaultValue: '' },
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
+    roles: { type: DataTypes.TEXT, defaultValue: '[]' },
     order: { type: DataTypes.INTEGER, defaultValue: 0 },
   }, {
     sequelize: sq, tableName: 'folders', timestamps: true,
@@ -331,3 +335,5 @@ export function initSqlModels() {
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
   }, { sequelize: sq, tableName: 'local_variables', timestamps: true, indexes: [{ fields: ['workspaceId', 'userId'], unique: true }] });
 }
+
+

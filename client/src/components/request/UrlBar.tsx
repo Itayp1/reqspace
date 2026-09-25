@@ -189,50 +189,6 @@ export function UrlBar() {
         reqHeaders[auth.apikey.key] = auth.apikey.value || '';
       } else if (auth?.type === 'oauth2' && auth.oauth2?.token) {
         reqHeaders['Authorization'] = `Bearer ${auth.oauth2.token}`;
-      } else if (auth?.type === 'ntlm') {
-        // NTLM is complex, for now we will pass it to proxy so the proxy can handle it if it supports it.
-        // We set a custom header that the proxy can interpret.
-        reqHeaders['x-reqspace-ntlm-username'] = auth.ntlm?.username || '';
-        reqHeaders['x-reqspace-ntlm-password'] = auth.ntlm?.password || '';
-        reqHeaders['x-reqspace-ntlm-domain'] = auth.ntlm?.domain || '';
-        reqHeaders['x-reqspace-ntlm-workstation'] = auth.ntlm?.workstation || '';
-      }
-
-      // Apply request settings
-      const settings = useSettingsStore.getState().settings;
-      if (settings.sendNoCacheHeader) {
-        reqHeaders['Cache-Control'] = 'no-cache';
-      }
-
-      // Build final URL (API key in query param)
-      let finalUrl = resolvedUrl;
-      if (auth?.type === 'apikey' && auth.apikey?.key && auth.apikey?.in === 'query') {
-        const sep = finalUrl.includes('?') ? '&' : '?';
-        finalUrl = `${finalUrl}${sep}${encodeURIComponent(auth.apikey.key)}=${encodeURIComponent(auth.apikey.value || '')}`;
-      }
-
-      // Build request body payload
-      let requestBody: any = undefined;
-      const bodyMode = activeRequest.body?.mode;
-
-      if (bodyMode === 'raw') {
-        let rawBody = activeRequest.body?.raw || '';
-        
-        // Strip comments if the body is marked as JSON
-        if (activeRequest.body?.rawLanguage === 'json') {
-          rawBody = stripJsonComments(rawBody);
-        }
-
-        requestBody = resolveAllVariables(rawBody, colId, undefined, localVariables);
-        
-        // Auto-detect Content-Type
-        if (!reqHeaders['Content-Type'] && !reqHeaders['content-type']) {
-          const lang = activeRequest.body?.rawLanguage;
-          if (lang === 'json') reqHeaders['Content-Type'] = 'application/json';
-          else if (lang === 'xml') reqHeaders['Content-Type'] = 'application/xml';
-          else if (lang === 'html') reqHeaders['Content-Type'] = 'text/html';
-          else reqHeaders['Content-Type'] = 'text/plain';
-        }
       } else if (bodyMode === 'graphql') {
         const query = resolveAllVariables(activeRequest.body?.graphql?.query || '', colId, undefined, localVariables);
         const varsStr = resolveAllVariables(activeRequest.body?.graphql?.variables || '{}', colId, undefined, localVariables);

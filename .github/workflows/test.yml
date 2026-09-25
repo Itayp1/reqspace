@@ -4,10 +4,41 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_call:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        db: [sqlite, postgres, mysql]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: ''
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: reqspace_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_DATABASE: reqspace_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
 
@@ -25,9 +56,10 @@ jobs:
           npm ci --prefix client
           npm run build --prefix client
 
-      - name: Start server (sqlite backend)
+      - name: Start server (${{ matrix.db }} backend)
         run: |
-          DB_TYPE=sqlite DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=development PORT=3005 \
+          DB_TYPE=${{ matrix.db }} DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=development PORT=3005 \
+            DB_HOST=127.0.0.1 DB_USER=root DB_PASSWORD="" DB_NAME=reqspace_test \
             node server/dist/index.js > /tmp/server.log 2>&1 &
           echo $! > /tmp/server.pid
           for i in $(seq 1 30); do
@@ -38,9 +70,27 @@ jobs:
 
       - name: Server tests (jest — unit + ssrf + live auth e2e)
         run: npm test --prefix server
+        env:
+          DB_TYPE: ${{ matrix.db }}
+          DB_HOST: 127.0.0.1
+          DB_USER: root
+          DB_PASSWORD: ""
+          DB_NAME: reqspace_test
 
-      - name: Core smoke (crosses the auth boundary, sqlite)
+      - name: Core smoke (crosses the auth boundary, ${{ matrix.db }})
         run: bash scripts/smoke-core.sh http://localhost:3005
+
+      - name: Install Playwright & dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E tests
+        run: npx playwright test --project=${{ matrix.db }}
+        env:
+          DB_TYPE: ${{ matrix.db }}
+          DB_HOST: 127.0.0.1
+          DB_USER: root
+          DB_PASSWORD: ""
+          DB_NAME: reqspace_test
 
       - name: Stop server
         if: always()

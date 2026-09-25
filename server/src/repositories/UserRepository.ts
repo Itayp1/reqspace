@@ -1,3 +1,4 @@
+import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
 import { SqlUser } from '../db/sql-models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
@@ -86,9 +87,25 @@ export const UserRepository = {
     await SqlUser.destroy({ where: { id } });
   },
 
-  async list(filter: Record<string, any> = {}): Promise<IUserRecord[]> {
-    const users = await SqlUser.findAll({ where: filter as any });
-    return users.map(sqlToRecord);
+  async list(filter: Record<string, any> = {}, options?: { limit?: number, cursor?: string }): Promise<{ items: IUserRecord[], nextCursor: string | null }> {
+    const limit = (options && options.limit && options.limit <= 200) ? options.limit : 200;
+    const cursorObj = decodeCursor(options?.cursor);
+    const cursorWhere = getCursorWhere(cursorObj, 'createdAt', true); // DESC
+    
+    const users = await SqlUser.findAll({ 
+      where: { ...filter, ...cursorWhere } as any,
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+      limit: limit + 1
+    });
+
+    let nextCursor = null;
+    if (users.length > limit) {
+      users.pop();
+      const lastItem = users[users.length - 1];
+      nextCursor = encodeCursor(lastItem.createdAt, lastItem.id);
+    }
+
+    return { items: users.map(sqlToRecord), nextCursor };
   },
 
   async count(): Promise<number> {

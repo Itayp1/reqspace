@@ -153,6 +153,14 @@ export const RequestTabBar: React.FC = () => {
         >
           <Plus size={14} />
         </button>
+        <button
+          data-testid="new-connection-btn"
+          onClick={useRequestStore.getState().newConnectionTab}
+          className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/60 dark:hover:bg-gray-800 rounded transition-colors ml-1 text-xs"
+          title="New Connection Tab"
+        >
+          +Conn
+        </button>
       </div>
 
       {contextMenu && (

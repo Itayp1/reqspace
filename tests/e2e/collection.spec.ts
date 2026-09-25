@@ -5,7 +5,7 @@ test.describe('Collection Operations', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('Login and create workspace', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto('/login');
     // We assume data-testids exist
     await page.getByTestId('login-email').fill('admin');
     await page.getByTestId('login-password').fill('admin');
@@ -25,7 +25,7 @@ test.describe('Collection Operations', () => {
   });
 
   test('Create a collection', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Click on New Collection
     const newBtn = page.getByTestId('new-collection-empty-btn');
@@ -43,7 +43,7 @@ test.describe('Collection Operations', () => {
   });
 
   test('Create a folder inside collection', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Open context menu for collection
     await page.getByTestId('node-Test Collection').hover();
@@ -59,7 +59,7 @@ test.describe('Collection Operations', () => {
   });
 
   test('Rename collection and delete folder', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Rename Collection
     await page.getByTestId('node-Test Collection').hover();

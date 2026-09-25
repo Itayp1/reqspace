@@ -6,7 +6,7 @@ test.describe('Edge Cases', () => {
     const timestamp = Date.now();
     const email = `edge_${timestamp}@example.com`;
     const pass = 'password123';
-    await page.goto('http://localhost:5173/register');
+    await page.goto('/register');
     await page.getByTestId('register-name').fill('Edge User');
     await page.getByTestId('register-email').fill(email);
     await page.getByTestId('register-password').fill(pass);

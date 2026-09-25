@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Reqspace Transport Options</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 500px; }
+    ul { list-style: none; padding: 0; }
+    li { display: flex; justify-content: space-between; margin-bottom: 5px; padding: 5px; background: #f0f0f0; }
+    button { cursor: pointer; }
+    input { width: 70%; padding: 5px; }
+    .form { display: flex; gap: 10px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Allowed Origins</h2>
+  <p>Add the origin (e.g. <code>https://reqspace.example.com</code>) of your Reqspace instances below.</p>
+  <ul id="list"></ul>
+  <div class="form">
+    <input type="text" id="newOrigin" placeholder="http://localhost:5173" />
+    <button id="addBtn">Add</button>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

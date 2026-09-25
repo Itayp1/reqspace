@@ -2,7 +2,7 @@ import { isPrivateOrReservedHost } from '../utils/ssrf';
 
 // These cases all use literal hosts (IP literals or numeric forms), so no DNS
 // lookup is performed — the tests are deterministic and offline. They cover the
-// parser gaps called out in CODE_REVIEW.md CR#25.
+// parser gaps called out in TODO.md CR#25.
 describe('ssrf: isPrivateOrReservedHost', () => {
   const blocked = [
     ['loopback v4', '127.0.0.1'],

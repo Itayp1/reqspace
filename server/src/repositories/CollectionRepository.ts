@@ -10,6 +10,7 @@ export interface ICollectionRecord {
   variables: any[];
   preRequestScript: string;
   testScript: string;
+  roles: any[];
   order: number;
   createdBy: string;
   createdAt: Date;
@@ -25,6 +26,7 @@ function sqlToRecord(c: SqlCollection): ICollectionRecord {
     variables: typeof c.variables === 'string' ? JSON.parse(c.variables) : c.variables,
     preRequestScript: c.preRequestScript,
     testScript: c.testScript,
+    roles: typeof c.roles === 'string' ? JSON.parse(c.roles) : (c.roles || []),
     order: c.order,
     createdBy: c.createdBy,
     createdAt: c.createdAt,
@@ -60,6 +62,7 @@ export const CollectionRepository = {
       variables: JSON.stringify(data.variables || []),
       preRequestScript: data.preRequestScript || '',
       testScript: data.testScript || '',
+      roles: '[]',
       order: data.order ?? 0,
       createdBy: data.createdBy,
     }));

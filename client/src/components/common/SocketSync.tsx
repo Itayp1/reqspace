@@ -4,7 +4,6 @@ import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
 import { useEnvironmentStore } from '../../store/environmentStore';
-import api from '../../api/axios'; // for baseurl
 
 export function SocketSync() {
   const activeWorkspace = useAuthStore(state => state.activeWorkspace);
@@ -13,10 +12,10 @@ export function SocketSync() {
   useEffect(() => {
     if (!activeWorkspace) return;
 
-    const socketUrl = api.defaults.baseURL?.replace('/api', '') || window.location.origin;
+    const socketUrl = window.location.origin;
     // withCredentials is required so the auth cookie reaches the server — it
     // authenticates the socket and authorizes which workspace rooms it may join.
-    const socket = io(socketUrl, { path: '/ws', withCredentials: true });
+    const socket = io(socketUrl, { path: '/ws', withCredentials: true, transports: ['websocket'] });
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -31,15 +30,15 @@ export function SocketSync() {
       useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
     };
 
-    socket.on('collection:created', handleUpdate);
-    socket.on('collection:updated', handleUpdate);
-    socket.on('collection:deleted', handleUpdate);
-    socket.on('folder:created', handleUpdate);
-    socket.on('folder:updated', handleUpdate);
-    socket.on('folder:deleted', handleUpdate);
-    socket.on('request:created', handleUpdate);
-    socket.on('request:deleted', handleUpdate);
-    socket.on('workspace:reordered', handleUpdate);
+    socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
+    socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
+    socket.on('collection:deleted', (id) => useCollectionStore.getState().applyCollectionDeleted(id));
+    socket.on('folder:created', (data) => useCollectionStore.getState().applyFolderUpserted(data));
+    socket.on('folder:updated', (data) => useCollectionStore.getState().applyFolderUpserted(data));
+    socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));
+    socket.on('request:created', (data) => useCollectionStore.getState().applyRequestUpserted(data));
+    socket.on('request:deleted', (id) => useCollectionStore.getState().applyRequestDeleted(id));
+    socket.on('workspace:reordered', (payload) => useCollectionStore.getState().applyWorkspaceReordered(payload));
 
     const handleEnvUpdate = () => {
       useEnvironmentStore.getState().fetchEnvironments(activeWorkspace._id);
@@ -70,7 +69,7 @@ export function SocketSync() {
     // For request update, we handle live conflict checking
     socket.on('request:updated', (updatedRequest: any) => {
       // First update the collection store to reflect the new name/method in the sidebar
-      handleUpdate();
+      useCollectionStore.getState().applyRequestUpserted(updatedRequest);
 
       // Check if it affects open tabs
       const requestStore = useRequestStore.getState();

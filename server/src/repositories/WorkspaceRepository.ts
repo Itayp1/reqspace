@@ -1,3 +1,4 @@
+import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
 import { SqlWorkspace } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -79,7 +80,24 @@ export const WorkspaceRepository = {
     await SqlWorkspace.destroy({ where: { id } });
   },
 
-  async list(): Promise<IWorkspaceRecord[]> {
-    return (await SqlWorkspace.findAll()).map(sqlToRecord);
+  async list(options?: { limit?: number, cursor?: string }): Promise<{ items: IWorkspaceRecord[], nextCursor: string | null }> {
+    const limit = (options && options.limit && options.limit <= 200) ? options.limit : 200;
+    const cursorObj = decodeCursor(options?.cursor);
+    const cursorWhere = getCursorWhere(cursorObj, 'createdAt', true); // DESC
+    
+    const workspaces = await SqlWorkspace.findAll({ 
+      where: cursorWhere,
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+      limit: limit + 1
+    });
+
+    let nextCursor = null;
+    if (workspaces.length > limit) {
+      workspaces.pop();
+      const lastItem = workspaces[workspaces.length - 1];
+      nextCursor = encodeCursor(lastItem.createdAt, lastItem.id);
+    }
+
+    return { items: workspaces.map(sqlToRecord), nextCursor };
   },
 };

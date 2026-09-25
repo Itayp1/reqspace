@@ -7,7 +7,7 @@ test.describe('Scripts Scope', () => {
     const pass = 'password123';
     
     // Register
-    await page.goto('http://localhost:5173/register');
+    await page.goto('/register');
     await page.getByTestId('register-name').fill('Script User');
     await page.getByTestId('register-email').fill(email);
     await page.getByTestId('register-password').fill(pass);

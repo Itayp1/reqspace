@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api/axios';
 import { Play } from 'lucide-react';
+import { sendRequest } from '../transport';
 
 export default function SharedCollectionPage() {
   const { shortId } = useParams();
@@ -19,14 +20,13 @@ export default function SharedCollectionPage() {
   const executeRequest = async (req: any) => {
     setExecuting(req._id);
     try {
-      const response = await api.post('/share/' + shortId + '/proxy', {
+      const response = await sendRequest({
         method: req.method,
         url: req.url,
         headers: req.headers,
-        body: req.body,
-        auth: req.auth
+        body: req.body
       });
-      setResults(prev => ({ ...prev, [req._id]: response.data }));
+      setResults(prev => ({ ...prev, [req._id]: response }));
     } catch (err: any) {
       setResults(prev => ({ ...prev, [req._id]: err.response?.data || err.message }));
     }

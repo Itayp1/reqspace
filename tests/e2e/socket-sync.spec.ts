@@ -14,7 +14,7 @@ test.describe('WebSocket Sync', () => {
     const pass = 'password123';
 
     // 1. Register User B in Context B
-    await pageB.goto('http://localhost:5173/register');
+    await pageB.goto('/register');
     await pageB.getByTestId('register-name').fill('User B');
     await pageB.getByTestId('register-email').fill(emailB);
     await pageB.getByTestId('register-password').fill(pass);
@@ -22,7 +22,7 @@ test.describe('WebSocket Sync', () => {
     await expect(pageB).toHaveURL(/.*\/$/);
     
     // 2. Register User A in Context A
-    await pageA.goto('http://localhost:5173/register');
+    await pageA.goto('/register');
     await pageA.getByTestId('register-name').fill('User A');
     await pageA.getByTestId('register-email').fill(emailA);
     await pageA.getByTestId('register-password').fill(pass);

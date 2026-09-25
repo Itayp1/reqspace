@@ -4,7 +4,8 @@ import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
 import { Shield, ShieldOff, Trash2, Ban } from 'lucide-react';
 import { AddUserModal } from '../components/admin/AddUserModal';
-
+import { customConfirm } from '../utils/dialog';
+import { useToastStore } from '../store/toastStore';
 
 
 export default function AdminPage() {
@@ -65,7 +66,7 @@ export default function AdminPage() {
     fetchUsers();
   };
   const handleDeleteUser = async (id: string) => {
-    if (confirm('Delete user?')) {
+    if (await customConfirm('Confirm Deletion', 'Delete user?')) {
       await api.delete(`/admin/users/${id}`);
       fetchUsers();
     }
@@ -74,9 +75,9 @@ export default function AdminPage() {
   const saveConfig = async () => {
     try {
       await api.put('/admin/config', config);
-      alert('Config saved');
+      useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
-      alert(e.message);
+      useToastStore.getState().addToast('error', e.message);
     }
   };
 
@@ -262,9 +263,9 @@ export default function AdminPage() {
                         onClick={async () => {
                           try {
                             const res = await api.post('/admin/test-smtp', config.auth.smtp);
-                            alert(res.data.message);
+                            useToastStore.getState().addToast('success', res.data.message);
                           } catch(err: any) {
-                            alert(err.response?.data?.message || err.message);
+                            useToastStore.getState().addToast('error', err.response?.data?.message || err.message);
                           }
                         }}
                         className="bg-primary text-white text-xs px-3 py-1.5 rounded hover:bg-orange-600 transition"
@@ -388,7 +389,7 @@ export default function AdminPage() {
                   <div>
                     <label className="text-sm font-medium block">Allow requests to internal/private network addresses</label>
                     <p className="text-xs text-text-muted mt-0.5">
-                      Off by default: every user's "Send" / share-link / capture requests are blocked from reaching
+                      Off by default: every user's "Send" and share-link requests are blocked from reaching
                       localhost, RFC1918 ranges, and link-local addresses (including cloud metadata endpoints like
                       169.254.169.254) — this prevents any signed-in user from using this server to reach its own
                       internal network (SSRF). Only enable this on a self-hosted, single-tenant deployment that
@@ -440,7 +441,7 @@ export default function AdminPage() {
                   data-testid="export-data-btn"
                   onClick={() => {
                     const workspaceId = useAuthStore.getState().activeWorkspace?._id;
-                    if (!workspaceId) return alert('No active workspace selected.');
+                    if (!workspaceId) return useToastStore.getState().addToast('error', 'No active workspace selected.');
                     window.location.href = `/api/admin/export/${workspaceId}`;
                   }}
                   className="bg-surface border border-border px-4 py-2 rounded hover:bg-border transition text-sm"
@@ -456,19 +457,19 @@ export default function AdminPage() {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       const workspaceId = useAuthStore.getState().activeWorkspace?._id;
-                      if (!workspaceId) return alert('No active workspace selected.');
+                      if (!workspaceId) return useToastStore.getState().addToast('error', 'No active workspace selected.');
                       
                       const reader = new FileReader();
                       reader.onload = async (event) => {
                         try {
                           const dump = JSON.parse(event.target?.result as string);
-                          if (!confirm('This will insert all dumped collections, environments, and globals into the current workspace, and overwrite system configuration. Proceed?')) return;
+                          if (!(await customConfirm('Confirm Import', 'This will insert all dumped collections, environments, and globals into the current workspace. Proceed?'))) return;
                           
                           await api.post(`/admin/import/${workspaceId}`, dump);
-                          alert('Import successful! Reloading...');
-                          window.location.reload();
+                          useToastStore.getState().addToast('success', 'Import successful! Reloading...');
+                          setTimeout(() => window.location.reload(), 1500);
                         } catch (err: any) {
-                          alert('Import failed: ' + (err.response?.data?.message || err.message));
+                          useToastStore.getState().addToast('error', 'Import failed: ' + (err.response?.data?.message || err.message));
                         }
                       };
                       reader.readAsText(file);
@@ -555,7 +556,7 @@ function WorkspacePermissionsModal({ workspaceId, onClose }: { workspaceId: stri
   };
 
   const handleRemove = async (userId: string) => {
-    if (!confirm('Remove member from workspace?')) return;
+    if (!(await customConfirm('Confirm Action', 'Remove member from workspace?'))) return;
     try {
       await api.delete(`/workspaces/${workspaceId}/members/${userId}`);
       fetchWorkspace();

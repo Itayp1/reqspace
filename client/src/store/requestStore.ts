@@ -19,18 +19,17 @@ export interface RequestBody {
 }
 
 export interface RequestAuth {
-  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'ntlm' | 'inherit';
+  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'inherit';
   bearer?: { token: string };
   basic?: { username: string; password: string };
   apikey?: { key: string; value: string; in: 'header' | 'query' };
   oauth2?: { token: string; clientId?: string; clientSecret?: string; authUrl?: string; accessTokenUrl?: string; scope?: string };
-  ntlm?: { username?: string; password?: string; domain?: string; workstation?: string };
 }
 
 export interface ActiveRequest {
   _id?: string;
   tabId?: string; // unique tab identifier
-  tabType?: 'request' | 'environment';
+  tabType?: 'request' | 'environment' | 'connection';
   environmentId?: string; // If tabType is 'environment', holds the ID or 'global'
   collectionId?: string;
   folderId?: string | null;
@@ -89,6 +88,7 @@ interface RequestStore {
   closeAllToLeft: (tabId: string) => void;
   closeOtherTabs: (tabId: string) => void;
   reorderTabs: (draggedId: string, targetId: string, pos: 'before'|'after') => void;
+  newConnectionTab: () => void;
   undo: () => void;
   redo: () => void;
 }
@@ -96,7 +96,7 @@ interface RequestStore {
 const historyMap: Record<string, { undo: ActiveRequest[], redo: ActiveRequest[], lastPush: number }> = {};
 
 // SEC-4: never let credentials sit in localStorage. Auth secrets (bearer
-// token, basic password, apikey value, ntlm password, oauth2 secrets) and
+// token, basic password, apikey value, oauth2 secrets) and
 // sensitive header values are stripped before every persist — only the auth
 // TYPE survives, so the tab reopens on the right auth tab with fields empty.
 const SENSITIVE_HEADER_KEYS = /^(authorization|proxy-authorization|cookie|x-api-key|api-key|x-auth-token)$/i;
@@ -275,6 +275,22 @@ export const useRequestStore = create<RequestStore>()(
           tabType: 'request',
           name: 'New Request',
           method: 'GET',
+          url: '',
+          params: [],
+          headers: [],
+          auth: { type: 'none' },
+          body: { mode: 'none' },
+          isDirty: false,
+        };
+        get().setActiveRequest(newReq);
+      },
+
+      newConnectionTab: () => {
+        const newReq: ActiveRequest = {
+          tabId: Math.random().toString(36).substring(2, 9),
+          tabType: 'connection',
+          name: 'New Connection',
+          method: 'WS', // Protocol placeholder
           url: '',
           params: [],
           headers: [],

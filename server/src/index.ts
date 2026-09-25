@@ -2,6 +2,8 @@ import 'express-async-errors';
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { Redis } from 'ioredis';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -56,7 +58,13 @@ export const io = new SocketIOServer(server, {
     credentials: true,
   },
   path: '/ws',
-});
+  });
+
+  if (process.env.REDIS_URL) {
+    const pubClient = new Redis(process.env.REDIS_URL);
+    const subClient = pubClient.duplicate();
+    io.adapter(createAdapter(pubClient, subClient));
+  }
 
 /** Verifies the socket's auth cookie and returns the userId, or null. */
 function getSocketUserId(socket: import('socket.io').Socket): string | null {
@@ -76,7 +84,22 @@ function getSocketUserId(socket: import('socket.io').Socket): string | null {
   }
 }
 
+import { roleCache } from './utils/cache';
+
 io.on('connection', (socket) => {
+  socket.data.userId = getSocketUserId(socket);
+  const userId = socket.data.userId;
+  const MAX_ROOMS = 50;
+
+  // Periodic token check
+  const tokenInterval = setInterval(() => {
+    const currentUserId = getSocketUserId(socket);
+    if (!currentUserId || currentUserId !== userId) {
+      socket.disconnect(true);
+    }
+  }, 60000);
+
+  socket.on('disconnect', () => clearInterval(tokenInterval));
   const userId = getSocketUserId(socket);
   const authorizedWorkspaces = new Set<string>();
 
@@ -299,3 +322,4 @@ if (require.main === module) {
 }
 
 export { app };
+

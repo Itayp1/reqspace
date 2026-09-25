@@ -7,7 +7,7 @@ test.describe('Tab Operations', () => {
     const testEmail = `tabs_${timestamp}@example.com`;
     const testPassword = 'password123';
 
-    await page.goto('http://localhost:5173/register');
+    await page.goto('/register');
     await page.getByTestId('register-name').fill('Tab User');
     await page.getByTestId('register-email').fill(testEmail);
     await page.getByTestId('register-password').fill(testPassword);

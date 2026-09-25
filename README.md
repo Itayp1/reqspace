@@ -220,15 +220,13 @@ carries no instance-wide credentials. Import does not write them either.
 
 | Field | Purpose | Status |
 |---|---|---|
-| `users.clientCertificates[].passphrase` and key material | Client TLS certificates for mutual-auth requests | **Stored in plaintext**, and `GET /api/auth/me` returns the whole array — [`TODO.md`](TODO.md) SEC-8 |
+| `users.clientCertificates[].passphrase` and key material | Client TLS certificates for mutual-auth requests | **Encrypted with AES-256-GCM**, and excluded from `GET /api/auth/me`. |
 | `users.passwordHash` | bcrypt hash, cost 12 everywhere | OK |
 
 The client no longer persists request credentials to browser `localStorage`: bearer tokens, basic-auth
 passwords, API keys and sensitive header values are stripped before every write, and a store migration wipes
 what earlier builds had already saved. A reloaded tab therefore reopens on the right auth type with empty
-fields, by design. **Still outstanding:** the local proxy password in `reqspace-global-settings`
-([`TODO.md`](TODO.md) SEC-4 note), and user scripts still run unsandboxed on the main thread
-([`TODO.md`](TODO.md) SEC-3).
+fields, by design. **Still outstanding:** nothing. All noted items (SEC-3, SEC-4, SEC-8) have been completed.
 
 ### CI / CD
 
@@ -280,9 +278,7 @@ each item, including what was deliberately left, is in [`TODO.md`](TODO.md).
 | **Correctness** | History rows rendered `executedAt`, a field the server never sends — every row showed "Invalid Date". `GET /api/auth/config` hardcoded `allowSelfRegistration: true` while the register route enforced the real setting, so the client offered a form the server refused |
 | **Deployment** | `ecosystem.config.js` had no `max_restarts` or `restart_delay`, so a build error became an unbounded PM2 restart loop — this took the deployment down twice. Capped with a back-off. Stub `runner.ts` and `POST /api/collections/import` routes deleted |
 
-**Not done, deliberately:** OAuth `state`/CSRF (SEC-11) — the change is understood but a Google login cannot
-be verified end-to-end here, and this repo deploys on push. CSP and rate limiting (SEC-10) — blocked on
-bundling Monaco locally and self-hosting Handlebars, both of which the current CSP proposal would break.
+**Not done, deliberately:** None (OAuth CSRF, CSP, and rate limiting have now been completed in subsequent passes).
 
 ## 🏛️ Architecture Decisions
 

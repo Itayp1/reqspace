@@ -6,7 +6,7 @@ test.describe('Script Execution', () => {
     const testEmail = `scripts_${timestamp}@example.com`;
 
     // 1. Register
-    await page.goto('http://localhost:5173/register');
+    await page.goto('/register');
     await page.getByTestId('register-name').fill('Script User');
     await page.getByTestId('register-email').fill(testEmail);
     await page.getByTestId('register-password').fill('password123');

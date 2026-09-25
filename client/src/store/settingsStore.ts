@@ -67,6 +67,12 @@ export const useSettingsStore = create<SettingsStore>()(
         return { settings: next };
       }),
     }),
-    { name: 'reqspace-global-settings' }
+    { 
+      name: 'reqspace-global-settings',
+      partialize: (state) => {
+        const { proxyPassword, ...safeSettings } = state.settings;
+        return { settings: safeSettings } as any;
+      }
+    }
   )
 );

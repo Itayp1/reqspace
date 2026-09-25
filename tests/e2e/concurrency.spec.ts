@@ -6,7 +6,7 @@ test.describe('Concurrency & Tabs', () => {
     const timestamp = Date.now();
     const email = `concurrency_${timestamp}@example.com`;
     const pass = 'password123';
-    await page.goto('http://localhost:5173/register');
+    await page.goto('/register');
     await page.getByTestId('register-name').fill('Concurrency User');
     await page.getByTestId('register-email').fill(email);
     await page.getByTestId('register-password').fill(pass);

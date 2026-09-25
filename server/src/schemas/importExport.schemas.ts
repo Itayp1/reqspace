@@ -14,3 +14,8 @@ export const importWsdlSchema = z.object({
   url: z.string().url(),
   workspaceId: z.string()
 }).strict();
+
+export const importCollectionSchema = z.object({
+  workspaceId: z.string(),
+  collection: z.any()
+}).strict();

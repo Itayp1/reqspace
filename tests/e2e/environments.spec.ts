@@ -4,7 +4,7 @@ test.describe('Environments Operations', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('Login and create workspace', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto('/login');
     await page.getByTestId('login-email').fill('admin');
     await page.getByTestId('login-password').fill('admin');
     await page.getByTestId('login-submit').click();
@@ -19,7 +19,7 @@ test.describe('Environments Operations', () => {
   });
 
   test('Create an environment, add a variable, select and verify', async ({ page }) => {
-    await page.goto('http://localhost:5173/');
+    await page.goto('/');
 
     // Click on Environments tab
     await page.getByTestId('tab-environments').click();

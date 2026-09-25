@@ -3,7 +3,7 @@ import net from 'net';
 
 /**
  * Blocks requests to internal/private network destinations from the proxy,
- * share-proxy, capture, and WSDL-import routes — all of which let a
+ * share-proxy and WSDL-import routes — all of which let a
  * logged-in (or, for share-proxy, even anonymous) user make this
  * server issue an arbitrary outbound HTTP request. Without this, a hosted
  * multi-tenant deployment is an open SSRF pivot into its own private network
