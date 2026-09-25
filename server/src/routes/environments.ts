@@ -36,7 +36,7 @@ router.post('/workspaces/:workspaceId/environments',
       workspaceId: req.params.workspaceId,
       createdBy: req.user!._id
     });
-    emitToWorkspace(req.params.workspaceId, 'environment-created', env);
+    emitToWorkspace(req.params.workspaceId, 'environment:created', env);
     return res.status(201).json(env);
   }
 );
@@ -46,7 +46,7 @@ router.put('/environments/:id',
   async (req: AuthRequest, res: Response) => {
     const env = await EnvironmentRepository.update(req.params.id, req.body);
     if (!env) return res.status(404).json({ message: 'Not found' });
-    emitToWorkspace(req.params.workspaceId, 'environment-updated', env);
+    emitToWorkspace(req.params.workspaceId, 'environment:updated', env);
     return res.json(env);
   }
 );
@@ -55,7 +55,7 @@ router.delete('/environments/:id',
   checkEnvPermission('editor'),
   async (req: AuthRequest, res: Response) => {
     await EnvironmentRepository.delete(req.params.id);
-    emitToWorkspace(req.params.workspaceId, 'environment-deleted', req.params.id);
+    emitToWorkspace(req.params.workspaceId, 'environment:deleted', req.params.id);
     return res.status(204).end();
   }
 );

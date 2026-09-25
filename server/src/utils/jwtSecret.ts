@@ -8,8 +8,17 @@ const SECRET_FILE = path.resolve(__dirname, '../../.jwt-secret.local');
 
 const KNOWN_INSECURE_VALUES = new Set([
   'changeme',
+  'changeme123',
+  // Was committed to k8s/secret.yaml as base64 — public in this repo's history,
+  // so it is permanently burned as a signing key.
+  'change_me_in_production',
   'change_me_in_production_very_long_secret_key',
+  'secret',
+  'jwt_secret',
+  'your-secret-key',
 ]);
+
+const MIN_SECRET_LENGTH = 32;
 
 let cached: string | null = null;
 
@@ -25,7 +34,19 @@ export function resolveJwtSecret(): string {
   if (cached) return cached;
 
   const fromEnv = process.env.JWT_SECRET;
-  if (fromEnv && !KNOWN_INSECURE_VALUES.has(fromEnv)) {
+  if (fromEnv) {
+    // Refuse outright rather than falling through to a generated secret: a
+    // deployment that sets a known-public value must fail loudly, not boot
+    // with a key anyone can read out of this repository.
+    if (KNOWN_INSECURE_VALUES.has(fromEnv)) {
+      throw new Error(
+        'JWT_SECRET is a known placeholder or publicly leaked value and cannot be used. ' +
+        'Generate a real one: openssl rand -hex 32',
+      );
+    }
+    if (process.env.NODE_ENV === 'production' && fromEnv.length < MIN_SECRET_LENGTH) {
+      throw new Error(`JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters in production.`);
+    }
     cached = fromEnv;
     return cached;
   }

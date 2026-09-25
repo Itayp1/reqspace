@@ -163,6 +163,19 @@ The suite assumes a server is already running on `http://localhost:3005` (`webSe
 Playwright suite. What that leaves uncovered, and the rules any new test must follow, is in
 [`TODO.md`](TODO.md) Stage 4.
 
+## 🚨 Open critical finding — self-registration grants superadmin
+
+`server/src/routes/auth.ts:54` creates every self-registered user with `isSuperAdmin: true`. Combined with
+`allowSelfRegistration` defaulting to `true`, **anyone who can reach the login page can give themselves full
+superadmin** — every workspace, the admin dashboard, user management, audit logs and system configuration.
+
+Introduced in commit `c965de2` (2026-09-25). Verified by registering a new account and observing
+`isSuperAdmin: true` in the response. The fix is one word (`true` → `false`); the bootstrap superadmin in
+`server/src/index.ts` is the only account that should ever be created with that flag.
+
+**Until it is fixed, either disable self-registration in the Admin Dashboard or do not expose the instance.**
+Then audit `users` for unexpected superadmins — an account created while this was live still has the flag.
+
 ## 🔐 Secrets Inventory
 
 Every credential the project needs, where it lives, and how to set it. **Names and locations only — no values are recorded here, and none should ever be added.** This repository is public; a value committed to it is disclosed the moment it is pushed, and rewriting history does not un-disclose it.
@@ -182,7 +195,9 @@ Set in `server/.env` locally (gitignored) and as a Kubernetes Secret in a cluste
 | `GOOGLE_ALLOWED_REDIRECT_URIS` | OAuth redirect allowlist | Comma-separated |
 | `ALLOW_EPHEMERAL_JWT_SECRET` | Permit a generated per-process secret in production | Single-node deployments only |
 
-> ⚠️ **`JWT_SECRET` — read this before deploying.** `utils/jwtSecret.ts` rejects a short list of known placeholder values and, outside production, falls back to a random secret written to a local file (`server/.jwt-secret.local`). In production it refuses to boot without a real `JWT_SECRET` (opt out with `ALLOW_EPHEMERAL_JWT_SECRET=true` for a deliberate single-node deployment). **But `k8s/secret.yaml` ships `JWT_SECRET` as the base64 of `change_me_in_production`, and that exact string is *not* on the rejection list** — so a cluster applying this manifest boots with a signing key published in a public repository, and anyone can forge a session for any user. Never deploy that value; supply the secret from a sealed secret or an external secrets manager. Tracked in [`TODO.md`](TODO.md) 0.1.
+> ⚠️ **`JWT_SECRET` — read this before deploying.** `utils/jwtSecret.ts` rejects a list of known placeholder and publicly leaked values, requires at least 32 characters in production, and refuses to boot without a real `JWT_SECRET` there (opt out with `ALLOW_EPHEMERAL_JWT_SECRET=true` for a deliberate single-node deployment). Outside production it falls back to a random secret written to a local, gitignored file (`server/.jwt-secret.local`).
+>
+> `k8s/secret.yaml` used to ship `JWT_SECRET` as the base64 of `change_me_in_production`, and that string was *not* on the rejection list — so any cluster applying the manifest booted with a signing key published in this public repository. **The value is now removed from the manifest and rejected at startup.** Because it was committed, it is permanently burned: **if you ever deployed that manifest, rotate `JWT_SECRET` now.** Rotation invalidates every existing session automatically, which is the intended effect. History rewriting is *not* required and should not be attempted.
 
 ### Runtime configuration stored in the database
 
@@ -197,19 +212,23 @@ These are **not** environment variables. They live in the `SystemConfig` documen
 | `proxy.username` | Upstream proxy credentials |
 | `proxy.password` | Upstream proxy credentials |
 
-`GET /api/admin/config` masks these on read. `GET /api/admin/export/:workspaceId` does **not** — it embeds
-the raw config in the downloaded file ([`TODO.md`](TODO.md) 2.9). Import no longer overwrites them.
+`GET /api/admin/config` and `PUT /api/admin/config` mask these on read.
+`GET /api/admin/export/:workspaceId` no longer includes the config in its dump at all, so a workspace export
+carries no instance-wide credentials. Import does not write them either.
 
 ### Per-user secrets stored in the database
 
 | Field | Purpose | Status |
 |---|---|---|
-| `User.clientCertificates[].passphrase` and key material | Client TLS certificates for mutual-auth requests | **Stored in plaintext** — [`TODO.md`](TODO.md) 2.10 |
-| `User.passwordHash` | bcrypt hash, cost 12 everywhere | OK |
+| `users.clientCertificates[].passphrase` and key material | Client TLS certificates for mutual-auth requests | **Stored in plaintext**, and `GET /api/auth/me` returns the whole array — [`TODO.md`](TODO.md) SEC-8 |
+| `users.passwordHash` | bcrypt hash, cost 12 everywhere | OK |
 
-The client also persists credentials into browser `localStorage` — bearer tokens, basic-auth passwords and
-the local proxy password ([`TODO.md`](TODO.md) 2.5). Those are secrets in the blast radius of any XSS, and
-today user scripts run unsandboxed on the same thread ([`TODO.md`](TODO.md) 2.4).
+The client no longer persists request credentials to browser `localStorage`: bearer tokens, basic-auth
+passwords, API keys and sensitive header values are stripped before every write, and a store migration wipes
+what earlier builds had already saved. A reloaded tab therefore reopens on the right auth type with empty
+fields, by design. **Still outstanding:** the local proxy password in `reqspace-global-settings`
+([`TODO.md`](TODO.md) SEC-4 note), and user scripts still run unsandboxed on the main thread
+([`TODO.md`](TODO.md) SEC-3).
 
 ### CI / CD
 
@@ -233,7 +252,7 @@ Optional. Read by `test-all-dbs.ps1`; when unset, that backend is skipped.
 | `server/.env` | ❌ gitignored | Real values |
 | `server/.jwt-secret.local` | ❌ gitignored | Auto-generated JWT secret |
 | `server/.env.example` | ✅ tracked | Placeholders and documentation only |
-| `k8s/secret.yaml` | ✅ tracked | ⚠️ A known-public `JWT_SECRET` value — see the warning above. Real cluster values must come from a sealed secret or an external secrets manager |
+| `k8s/secret.yaml` | ✅ tracked | Nothing — the `data:` block is deliberately empty. `deployment.yaml` consumes it via `envFrom: secretRef`, so the object must exist but may be empty. Real cluster values come from a sealed secret or an external secrets manager |
 
 Before adding any new credential: put the name and a placeholder in `server/.env.example`, add a row to this table, and confirm the file holding the real value is gitignored.
 
@@ -244,6 +263,26 @@ You can enable Google Authentication without touching the code!
 2. Go to the **Admin Dashboard** -> **Settings**.
 3. Toggle "Enable Google OAuth" and enter your Client ID and Secret.
 4. Save, and the "Continue with Google" button will instantly appear on the login screen.
+
+## ✅ Hardening completed on 2026-09-25
+
+One pass, verified against a running instance and covered by tests (153 server tests pass). Full detail for
+each item, including what was deliberately left, is in [`TODO.md`](TODO.md).
+
+| Area | What changed |
+|---|---|
+| **JWT signing key** | `change_me_in_production` (and six other placeholders) rejected at startup; 32-character minimum enforced in production; the value stripped from `k8s/secret.yaml`. **Rotate if you ever deployed that manifest.** |
+| **Credentials in `localStorage`** | Auth secrets and sensitive header values stripped before every persist, with a store migration that clears what earlier builds already wrote. Fake seed cookie removed |
+| **Authorization** | `POST /api/history/:id/save` and `POST /api/import/wsdl` took a collection/workspace id straight from the request body and wrote into it with no membership check. Both now resolve the owning workspace and require `editor`; `GET /api/collections/:id/export` requires `viewer`. Guard extracted to `middleware/resolveWorkspace.ts` |
+| **Database error disclosure** | The `/api` gate returned the raw driver message — which names host, database and user — to unauthenticated callers on every path. Masked in production, with the client's error screen updated so it still appears |
+| **Search input** | `LIKE` wildcards escaped and terms capped, so `?q=%` no longer matches every row; an array-valued `?q[]=` no longer reaches the query. Orphaned `escapeRegex` util deleted (no `new RegExp` remains server-side) |
+| **Realtime** | Environment create/update/delete events were emitted as `environment-created` while the client listened for `environment:created`, so environment changes never propagated. Renamed to the colon form used by the other ten emit sites |
+| **Correctness** | History rows rendered `executedAt`, a field the server never sends — every row showed "Invalid Date". `GET /api/auth/config` hardcoded `allowSelfRegistration: true` while the register route enforced the real setting, so the client offered a form the server refused |
+| **Deployment** | `ecosystem.config.js` had no `max_restarts` or `restart_delay`, so a build error became an unbounded PM2 restart loop — this took the deployment down twice. Capped with a back-off. Stub `runner.ts` and `POST /api/collections/import` routes deleted |
+
+**Not done, deliberately:** OAuth `state`/CSRF (SEC-11) — the change is understood but a Google login cannot
+be verified end-to-end here, and this repo deploys on push. CSP and rate limiting (SEC-10) — blocked on
+bundling Monaco locally and self-hosting Handlebars, both of which the current CSP proposal would break.
 
 ## 🏛️ Architecture Decisions
 
@@ -266,10 +305,15 @@ Standing principles. The concrete work they imply is in [`TODO.md`](TODO.md).
 
 ## 📈 Scalability Targets
 
-The architecture is aimed at **400k+ workspaces, 2M+ collections, 20M+ requests**, which drives five
-requirements — indexing on every foreign key, cursor pagination with lazy-loaded tree nodes, granular
-socket deltas instead of whole-tree refetches, cached RBAC and system config, and a Redis adapter with
-sticky sessions for 10k+ concurrent sockets. Status and remaining work: [`TODO.md`](TODO.md) Stage 3.
+The working targets are **10,000 workspaces, 100,000 collections, 100,000+ requests** (design headroom to
+20M) and **10,000 concurrent sockets**. They drive five requirements — indexing on every foreign key, cursor
+pagination with lazy-loaded tree nodes, granular socket deltas instead of whole-tree refetches, cached RBAC
+and system config, and a Redis adapter with sticky sessions.
+
+Indexing shipped (migrations `001`-`003`, applied through `umzug` on boot). The other four have not:
+opening a workspace still issues 1 + 2×N HTTP requests, nothing but history paginates and it uses offsets
+with no cap, socket events trigger whole-tree refetches, and there is no Redis adapter behind
+`replicas: 2`. Status and remaining work: [`TODO.md`](TODO.md) `PERF` and `SOCK`.
 
 ## 🤝 Contributing
 

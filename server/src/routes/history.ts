@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
+import { requireRoleOnCollection } from '../middleware/resolveWorkspace';
 import { SqlHistory } from '../db/sql-models';
 import { UserRepository } from '../repositories/UserRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
@@ -86,7 +87,10 @@ router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer')
 });
 
 // ── POST /api/history/:id/save – Save to Collection ─────────────────────────
-router.post('/history/:id/save', async (req: AuthRequest, res: Response) => {
+// The collectionId comes from the body, so membership on its workspace has to be
+// resolved and checked — without this the route writes a request into any
+// collection whose id the caller can guess.
+router.post('/history/:id/save', requireRoleOnCollection('editor'), async (req: AuthRequest, res: Response) => {
   const item = await SqlHistory.findOne({
     where: {
       id: req.params.id,

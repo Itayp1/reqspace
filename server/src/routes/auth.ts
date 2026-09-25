@@ -148,7 +148,7 @@ router.get('/config', async (_req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   return res.json({
     mode: config?.auth.mode ?? 'login',
-    allowSelfRegistration: true,
+    allowSelfRegistration: config?.auth?.allowSelfRegistration ?? false,
     googleOAuth: {
       enabled: config?.auth.googleOAuth?.enabled ?? false,
       clientId: config?.auth.googleOAuth?.clientId ?? '',

@@ -188,7 +188,7 @@ export default function HistorySidebar() {
                       {item.requestSnapshot.url}
                     </div>
                     <div className="text-[10px] text-text-muted/60 mt-0.5 pl-12">
-                      {new Date(item.executedAt).toLocaleString()}
+                      {new Date(item.createdAt).toLocaleString()}
                     </div>
                   </div>
                   {/* Action buttons (visible on hover) */}

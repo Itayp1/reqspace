@@ -173,10 +173,14 @@ function App() {
         }
       } catch (err: any) {
         // Can't reach server at all — check if it's a DB 503
-        if (err.response?.status === 503 && err.response?.data?.dbError) {
+        // A 503 from the '/api' gate means the server is up but its database is
+        // not. The body is deliberately generic in production, so don't require
+        // it to carry a message — without this fallback the screen never shows.
+        if (err.response?.status === 503) {
           setDbError({
-            dbType: err.response.data.dbType || 'unknown',
-            dbError: err.response.data.dbError,
+            dbType: err.response.data?.dbType || 'unknown',
+            dbError: err.response.data?.dbError
+              || 'The server cannot reach its database — check the server logs.',
           });
         }
         // Otherwise just continue — LoginPage will handle it

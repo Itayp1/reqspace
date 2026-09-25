@@ -1,6 +1,7 @@
 import { SqlUser } from '../db/sql-models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 
 export interface IUserRecord {
   _id: string;
@@ -101,11 +102,14 @@ export const UserRepository = {
 
   async search(query: string): Promise<Pick<IUserRecord, '_id' | 'name' | 'email' | 'avatar'>[]> {
     const { Op } = require('sequelize');
+    // Escaped here as well as at the route, so a second caller cannot skip it.
+    const term = escapeLike(String(query).slice(0, MAX_SEARCH_LENGTH));
+    if (!term) return [];
     const users = await SqlUser.findAll({
       where: {
         [Op.or]: [
-          { name: { [Op.like]: `${query}%` } },
-          { email: { [Op.like]: `${query}%` } }
+          { name: { [Op.like]: `${term}%` } },
+          { email: { [Op.like]: `${term}%` } }
         ]
       },
       limit: 10,

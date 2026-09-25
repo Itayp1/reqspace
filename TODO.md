@@ -96,6 +96,30 @@ without it. That is expected, not a regression.
 
 # SEC — Security
 
+## SEC-13 — Self-registration grants superadmin
+
+* **Status:** verified real, **UNFIXED** · **Size:** XS (one word) · **Severity: critical — this is the most
+  severe open item in this file.**
+* **Goal:** a self-registered user is an ordinary user.
+* **Verified state:** `server/src/routes/auth.ts:54` creates the user with
+  `authType: 'password', isSuperAdmin: true`. Introduced in commit `c965de2` (2026-09-25). Confirmed
+  empirically: registering `bob.outsider@example.com` against a fresh instance returned
+  `"isSuperAdmin": true`. `allowSelfRegistration` defaults to `true`
+  (`server/src/repositories/SystemConfigRepository.ts:57`).
+* **Why:** anyone who can reach the login page can grant themselves full superadmin — every workspace, the
+  admin dashboard, user management, audit logs and system configuration. It also silently defeats the whole
+  RBAC layer, because `requireWorkspaceRole` and `requireRoleOnCollection` both short-circuit for
+  superadmins, so no membership check applies to a self-registered account.
+* **Change:** `isSuperAdmin: false`. The bootstrap superadmin in `server/src/index.ts:226-252` is the only
+  account that should ever be created with that flag, and it already handles the "no admin exists yet" case.
+* **Operational, alongside the code fix:** audit the `users` table for unexpected superadmins — any account
+  created while this was live still carries the flag, and fixing the route does not revoke it. Until it is
+  fixed, disable self-registration in the Admin Dashboard or do not expose the instance.
+* **Done when:** an API test registers a user and asserts `isSuperAdmin` is false in the response **and** in
+  the database, and asserts that user gets 403 from an admin-only route.
+
+---
+
 ## SEC-0 — Delete the server-side proxy entirely
 
 * **Status:** verified real, **deferred by the owner on 2026-09-25.** Nothing below is being built right
@@ -224,122 +248,6 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 ---
 
-## SEC-1 — Rotate and remove the committed JWT secret
-
-* **Status:** verified real · **Size:** S · **Severity: critical — treat as an incident, not a code change.**
-* **Goal:** no signing key in the repository, and no way to boot with a known one.
-* **Verified state:** `k8s/secret.yaml` commits
-  `JWT_SECRET: Y2hhbmdlX21lX2luX3Byb2R1Y3Rpb24=`, which is base64 of `change_me_in_production`. That exact
-  string is **not** in `KNOWN_INSECURE_VALUES` (`server/src/utils/jwtSecret.ts:9-12`, which holds only
-  `changeme` and `change_me_in_production_very_long_secret_key`), and `resolveJwtSecret()` at `:28-31`
-  accepts any value not in that set with **no length check**.
-* **Why:** any cluster that applied this manifest signs every session token with a value published in this
-  repository. Anyone can mint a token for any user id, superadmin included.
-* **Change:**
-
-  1. Add the leaked value to the blocklist and add a production length floor:
-
-  ```ts
-  const KNOWN_INSECURE_VALUES = new Set([
-    'changeme',
-    'change_me_in_production',                       // was committed in k8s/secret.yaml — permanently burned
-    'change_me_in_production_very_long_secret_key',
-    'secret', 'jwt_secret', 'your-secret-key', 'changeme123',
-  ]);
-
-  const MIN_SECRET_LENGTH = 32;
-  ```
-
-  2. Replace `jwtSecret.ts:27-31` with a version that throws instead of falling through:
-
-  ```ts
-  const fromEnv = process.env.JWT_SECRET;
-  if (fromEnv) {
-    if (KNOWN_INSECURE_VALUES.has(fromEnv)) {
-      throw new Error('JWT_SECRET is a known placeholder/leaked value. Generate a real one: openssl rand -hex 32');
-    }
-    if (process.env.NODE_ENV === 'production' && fromEnv.length < MIN_SECRET_LENGTH) {
-      throw new Error(`JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters in production.`);
-    }
-    cached = fromEnv;
-    return cached;
-  }
-  ```
-
-  Leave the rest of the function (the production refusal when unset, `ALLOW_EPHEMERAL_JWT_SECRET`, and the
-  `.jwt-secret.local` generate-and-persist path) exactly as it is.
-
-  3. Strip the value from `k8s/secret.yaml`, leaving a comment that says where it comes from instead:
-
-  ```yaml
-  apiVersion: v1
-  kind: Secret
-  metadata:
-    name: reqspace-web-secret
-  type: Opaque
-  # JWT_SECRET is intentionally NOT committed — the value that used to live here is public in this
-  # repo's history and is now rejected at startup by server/src/utils/jwtSecret.ts. Supply it from a
-  # SealedSecret or a secrets manager:
-  #   kubectl create secret generic reqspace-web-secret --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
-  ```
-
-  4. **Operational, for a human — do not automate:** generate and install a fresh secret in every
-     environment that ever applied this manifest. All old tokens then fail verification automatically,
-     which is the invalidation. **Do not rewrite git history** — rotation plus the blocklist is the correct
-     remediation, and a rewrite is destructive for every clone.
-* **Traps:**
-  * This changes behaviour deliberately: an insecure `JWT_SECRET` used to fall through to the generated
-    local file with a warning, and now it throws. A developer with `JWT_SECRET=changeme` in `.env` gets a
-    hard startup failure. Keep the throw; do not soften it to a warning.
-  * `grep -rn "reqspace-web-secret" k8s/` — a Deployment with a `secretKeyRef` and no `optional: true`
-    will leave the pod in `CreateContainerConfigError` once the key is gone. That is the intended
-    fail-closed behaviour, but whoever deploys needs to expect it.
-* **Done when:** jest asserts `resolveJwtSecret()` throws for `change_me_in_production`, throws in
-  production for a 20-character secret, and succeeds for a 64-character one; and
-  `grep -rn "change_me_in_production" k8s/` returns nothing.
-
-  Test note: `jwtSecret.ts` imports `'dotenv/config'`, so `server/.env` may already have populated
-  `process.env.JWT_SECRET`. Set it explicitly per case and `jest.resetModules()` between cases (the
-  function memoises into a module-level `cached`). Do not assert the generate-a-file branch in CI — it
-  writes `server/.jwt-secret.local`.
-
----
-
-## SEC-2 — Close the authorization holes on client-supplied parent ids
-
-* **Status:** verified real — **four of the previous revision's six candidates are genuine, two are not** ·
-  **Size:** M · Write TEST-4's matrix first; it is this task's proof.
-* **Goal:** no route accepts a client-supplied parent id without checking membership on the resolved
-  workspace.
-* **Verified state:** `server/src/routes/importExport.ts` has **zero** `requireWorkspaceRole` calls — as do
-  `admin.ts`, `auth.ts`, `runner.ts`, `share.ts`, `localVariables.ts` and `users.ts`.
-
-| # | Where | Hole | Verdict |
-|---|---|---|---|
-| 1 | `routes/history.ts:89` `POST /history/:id/save` | Creates a request in a `collectionId` taken from the body at `:99`, with no role check | **real** |
-| 2 | `routes/importExport.ts:124` `POST /import/wsdl` | Writes a collection into the body's `workspaceId` at `:138-141` | **real** |
-| 3 | `routes/importExport.ts:15-18` `GET /collections/:id/export` | No role check — but returns a `{info:{name}, item:[]}` dummy, so it leaks only the collection **name** | **real but trivial**; FIX-1/FEAT-10 rewrite it anyway |
-| 4 | `routes/importExport.ts:20-22` `POST /collections/import` | No checks — but it is a pure stub that writes nothing | **real but inert**; delete the route |
-| 5 | `routes/importExport.ts:24` `POST /requests/import/curl` | Destructures `workspaceId` and never uses it; parses and returns, no write | **not a hole** |
-| 6 | `routes/importExport.ts:74` `POST /requests/import/raw-http` | Same shape as #5 | **not a hole** |
-
-  Also noted, not a hole: `routes/localVariables.ts:8,28` (`GET`/`PUT /:workspaceId`) have no role check,
-  but every row is scoped by `userId` **and** `workspaceId`, so a non-member can only read and write their
-  own row. Worth one line of comment, not a fix.
-* **Why:** these are reachable only by bypassing the UI, which is exactly why the browser suite never
-  caught them (see TEST-4 rule 2).
-* **Change:** the guard you need **already exists** — `checkPermission` at `server/src/routes/collections.ts:40-54`
-  has precisely the right shape. Extract it to `server/src/middleware/resolveWorkspace.ts` as
-  `requireRoleOnCollection(minRole)`, resolving `req.params.id ?? req.body.collectionId` → collection →
-  workspace, short-circuiting for `isSuperAdmin`, then delegating to `requireWorkspaceRole`. Do not write a
-  new one. Then sweep:
-  `grep -n "req.body.workspaceId\|req.body.collectionId\|req.body.folderId" server/src/routes/*.ts` — every
-  hit must be preceded by a role check on the **resolved** workspace.
-* **Done when:** TEST-4's matrix covers holes 1-4 as an authenticated non-member and asserts 403, and each
-  test fails against the current code.
-
----
-
 ## SEC-3 — Sandbox user scripts
 
 * **Status:** verified real · **Size:** L · Also the prerequisite for dropping `'unsafe-eval'` in SEC-10.
@@ -383,98 +291,6 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 * **Done when:** a test script running
   `pm.test('leak', () => pm.expect(typeof localStorage).to.equal('undefined'))` passes, a script touching
   `window.parent` fails, and a Playwright test asserts the visualizer frame cannot reach `parent`.
-
----
-
-## SEC-6 — Escape user input that reaches a query pattern
-
-* **Status:** **substantially downgraded.** The ReDoS vulnerability the previous revision described **no
-  longer exists** · **Size:** S
-* **Verified state:** `grep -rn "new RegExp" server/src` returns **zero matches** — the Mongo removal
-  (`36b3331`) deleted every `$regex` / `new RegExp` search path, including the `admin.ts` sites the previous
-  revision named (`admin.ts` has no search route at all now). There is no ReDoS vector and no
-  CPU-pinning test to write. What remains is unescaped `LIKE` wildcards and no length cap:
-  * `server/src/repositories/UserRepository.ts:102-119` — `{ [Op.like]: \`${query}%\` }`, reached by
-    `GET /api/users/search` (`server/src/routes/users.ts:8-15`, authenticated, any logged-in user). It
-    guards `q.length < 2` and has no upper bound.
-  * `server/src/repositories/RequestRepository.ts:101-113` — `{ [Op.like]: \`%${query}%\` }`. **Dead code:**
-    no route calls it; client global search filters the in-memory `collectionStore`
-    (`client/src/components/common/GlobalSearchModal.tsx`). Only `db.repositories.test.ts:293,298` reach it.
-  * `server/src/utils/escapeRegex.ts` is imported at `routes/users.ts:4` and **never called** — a dead
-    import that only compiles because the server tsconfig lacks `noUnusedLocals`.
-* **Why:** Sequelize parameterises the value, so this is not SQL injection. The real effects are that
-  `q = "%"` returns every row the caller can see, `_` matches any character, and an unbounded term makes a
-  large `LIKE` scan.
-* **Change:**
-  1. New `server/src/utils/escapeLike.ts` exporting `escapeLike(value)` — `value.replace(/[\\%_]/g, c => '\\' + c)` —
-     and `MAX_SEARCH_LENGTH = 100`.
-  2. `routes/users.ts`: read the query defensively and drop the dead import:
-     `const q = (typeof req.query.q === 'string' ? req.query.q : '').trim().slice(0, MAX_SEARCH_LENGTH);`
-     The `typeof` check matters — `?q[]=a&q[]=b` makes `req.query.q` an **array**, and the current
-     `req.query.q as string` then calls `.length` on it and stringifies it into the pattern.
-  3. Apply `escapeLike` + the cap **inside** both repository methods too, so a second caller cannot skip
-     it. Add `limit: 200` to `searchInWorkspace`.
-  4. **Decide and record:** `searchInWorkspace` is dead. Either keep it hardened (above) or delete it with
-     its two tests. Do not do both. Same decision for `escapeRegex.ts`, which has no callers left — an
-     orphan security util tends to get "reused" wrongly later.
-* **Traps:** `\` is the default LIKE escape on postgres, mysql and sqlite, but **mssql** uses `[]` bracket
-  escaping and has no default escape character, and `DB_TYPE` still accepts `mssql`
-  (`server/src/db/dbConfig.ts:4`). Either dialect-switch inside `escapeLike` via
-  `getSequelize().getDialect()` (six lines) or state in the code that LIKE escaping is only correct on the
-  three supported backends.
-* **Done when:** `GET /api/users/search?q=%25` returns only users whose name or email literally starts with
-  `%`, `?q[]=a&q[]=b` returns `[]` instead of throwing, and `npm test --prefix server` is green.
-
----
-
-## SEC-7 — Stop leaking `dbError` to anonymous callers
-
-* **Status:** verified real · **Size:** S · **The client half is not optional — read the trap.**
-* **Verified state:** `/api/health` **does** mask in production (`server/src/index.ts:132-136`:
-  `dbError: dbError ? (isProd ? 'Database unavailable' : dbError) : undefined`). The DB-down gate
-  immediately below it, `index.ts:144-157`, does **not** — it returns
-  `dbError: dbError || 'Database is not connected'` plus `dbType` on **every** `/api/*` path to
-  **unauthenticated** callers. `dbError` is assigned at `index.ts:260` from the failed `connectDb`'s
-  `err.message`, which routinely names host, port, database and user: this project's own debugging produced
-  `Access denied for user 'sql7837542'@'46.210.27.183' (using password: YES)`.
-* **Change:**
-  1. `server/src/index.ts:144-157` — mirror the health check:
-
-  ```ts
-  const isProd = process.env.NODE_ENV === 'production';
-  return res.status(503).json({
-    message: 'Database not available',
-    dbError: isProd ? 'Database unavailable' : (dbError || 'Database is not connected'),
-    dbType: isProd ? undefined : dbType,
-    dbStatus,
-  });
-  ```
-
-  Keep a masked **non-empty string** rather than dropping the key (the previous revision proposed
-  `undefined`) — see the trap.
-
-  2. `client/src/App.tsx:174-182` — stop requiring the body to carry a message:
-
-  ```ts
-  if (err.response?.status === 503) {
-    setDbError({
-      dbType: err.response.data?.dbType || 'unknown',
-      dbError: err.response.data?.dbError || 'The server cannot reach its database — check the server logs.',
-    });
-  }
-  ```
-* **Traps:** `App.tsx:176` currently reads
-  `if (err.response?.status === 503 && err.response?.data?.dbError)`. If the server stops sending
-  `dbError`, that condition goes false, `setDbError` is never called, and the app silently falls through to
-  the login page against a dead API with no explanation at all — a worse user experience than the leak.
-  Change both sides in the same commit.
-* **Done when:** with `NODE_ENV=production` and an unreachable DB, `curl -i localhost:3005/api/collections`
-  returns 503 whose body contains neither the host, the user, nor driver text; the full-screen DB error
-  page still appears (check it in a browser, not only in a unit test); and in development the real message
-  is still shown.
-
-  Test shape: put the body builder in a new `server/src/utils/dbGate.ts` and unit-test it. Importing
-  `index.ts` runs `bootstrap()` at module scope, so testing it in place needs a live server.
 
 ---
 
@@ -733,7 +549,7 @@ app.use('/api', (req, res, next) =>
 
 # FIX — Broken in place
 
-Numbering note: FIX-2 and FIX-3 are absent because they shipped. See
+Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. See
 [Removed](#removed-on-2026-09-25). Their numbers are not reused, so old commit messages stay meaningful.
 
 ## FIX-1 — Admin workspace export throws, and import silently orphans everything
@@ -823,41 +639,6 @@ Numbering note: FIX-2 and FIX-3 are absent because they shipped. See
   requests, imports it into a fresh workspace, and asserts the resulting tree — names, nesting and order —
   matches the source exactly; plus a test asserting a dump with a dangling `parentFolderId` is rejected
   rather than partially applied.
-
----
-
-## FIX-4 — Every history row renders "Invalid Date"
-
-* **Status:** verified real · **Size:** XS · **Not in the previous revision of this file.**
-* **Verified state:** `client/src/components/history/HistorySidebar.tsx:191` renders
-  `new Date(item.executedAt)`, but no server response ever emits `executedAt` —
-  `grep -rn "executedAt" server/src` returns nothing, and the history model and route use **`createdAt`**
-  (`server/src/db/sql-models/index.ts:288-298`).
-* **Why:** the timestamp column of the history sidebar is broken for every user, on every row, always.
-* **Change:** render `item.createdAt`. Check the rest of the component for the same assumption, and check
-  whether any client-side type declares `executedAt` — if so, fix the type rather than casting at the call
-  site.
-* **Traps:** PERF-3 wants a history cursor over this same field. Settle on `createdAt` here first so both
-  tasks agree, and do not "fix" it by adding an `executedAt` alias on the server — that would leave two
-  names for one column.
-* **Done when:** a test asserts a freshly created history entry renders a parseable date, not
-  "Invalid Date".
-
----
-
-## FIX-5 — `GET /api/auth/config` advertises self-registration that the server refuses
-
-* **Status:** verified real · **Size:** XS
-* **Verified state:** `server/src/routes/auth.ts:152` returns `allowSelfRegistration: true` **hardcoded**,
-  while `POST /api/auth/register` (`:20`) enforces the real
-  `config?.auth?.allowSelfRegistration`.
-* **Why:** with self-registration disabled, the client still shows the Register screen, the user fills the
-  form, and the server answers 403. It reads as a bug in the product rather than a deliberate policy.
-* **Change:** `allowSelfRegistration: config?.auth?.allowSelfRegistration ?? false`.
-* **Traps:** the register-route half of this may already be in the working tree uncommitted — check
-  `git status` before editing, and see the note in [Working-tree state](#working-tree-state).
-* **Done when:** an API test sets `allowSelfRegistration: false`, reads `GET /api/auth/config`, and asserts
-  the flag is `false`; and the client hides the Register link in that state.
 
 ---
 
@@ -1060,35 +841,6 @@ rows touched, bytes transferred, milliseconds.
 ---
 
 # SOCK — Realtime
-
-## SOCK-0 — Environment events never reach the client
-
-* **Status:** verified real · **Size:** XS (a one-word fix) · **Not in the previous revision of this file.**
-* **Goal:** an environment created, renamed or deleted in one browser shows up in the other.
-* **Verified state:** the server emits hyphenated names and the client listens for colons, so no handler
-  ever fires:
-
-| Server emits | Client listens for |
-|---|---|
-| `server/src/routes/environments.ts:39` `'environment-created'` | `client/src/components/common/SocketSync.tsx:46` `'environment:created'` |
-| `:49` `'environment-updated'` | `:50` `'environment:updated'` |
-| `:58` `'environment-deleted'` | `:47` `'environment:deleted'` |
-
-  Every other event in the app uses the colon form (`collection:created`, `request:updated`, …), so the
-  hyphens are the typo, not the convention.
-* **Why:** environment edits are exactly the case where two people diverge silently — B keeps sending
-  requests against a variable value A already changed. It looks like a caching bug and is unfindable from
-  the UI.
-* **Change:** rename the three server emits to the colon form. Do **not** change the client, so the naming
-  stays consistent with the other ten emit sites.
-* **Traps:** `tests/e2e/socket-advanced.spec.ts` contains a test named for global-variable sync that
-  currently passes. Determine *why* before changing anything — if it passes by refetching on focus rather
-  than on the event, the test is not proving what its name claims and should be tightened in the same
-  commit.
-* **Done when:** a two-context test renames an environment in A and asserts the name changes in B's
-  selector **without** B reloading or refocusing.
-
----
 
 ## SOCK-1 — Apply deltas instead of refetching the tree
 
@@ -1576,13 +1328,12 @@ Everything here was explicitly selected by the owner. Anything *not* here and no
 
 | # | Item | Verified state | Action |
 |---|---|---|---|
-| 1 | Empty runner route | `server/src/routes/runner.ts` is 12 lines returning `'Run started (stub)'`, mounted at `index.ts:176`. It also carries a prefix-less `router.use(authenticate)`, making it one of the blanket-`/api` routers implicated in the share-route bug | Delete the file and the mount. The collection runner is a client feature |
-| 2 | PM2 restart storm | `ecosystem.config.js` sets no `max_restarts` and no `restart_delay`, so a build error becomes an unbounded crash loop (this has already happened twice) | Add both, and a `min_uptime` |
 | 3 | Inconsistent naming | `package.json:14` `appId: com.reqspaceclone.app`; `server/src/db/dbConfig.ts:78` default DB `postman_clone`; repo folder `postman`; product Reqspace; also `server/src/tests/db.connection.manual.ts:9-10` | Pick one name and apply it |
 | 4 | Dead dependencies | Zero usages in `server/src` for `multer` (1.4.5-lts.1 is end-of-life), `archiver`, `postman-collection`, `http-proxy-middleware`, `ajv` — **all droppable now.** Also `@types/archiver`, `@types/multer`. `undici` has **3** live usages and must stay until SEC-0.4. `soap@^1.12.0` is live in `importExport.ts` — do not touch | Drop the five plus the two `@types` |
 | 5 | Stale capture copy | `server/src/utils/ssrf.ts:6` says "share-proxy, capture, and WSDL-import routes"; `client/src/pages/AdminPage.tsx:391` says "every user's Send / share-link / capture requests". Capture was deleted in `36b3331` | Fix both strings (the second is also UI-6) |
 | 6 | Stale doc references | `scripts/smoke-core.sh:4` points at `TESTING.md` and `server/src/tests/ssrf.test.ts:5` at `CODE_REVIEW.md`; **neither document exists** in the repo | Repoint both at this file |
 | 7 | `IGNORE.md` drift | Its section B cites `server/src/models/AuditLog.ts`, `server/src/routes/capture.ts` and `CaptureTrafficModal.tsx`, all deleted | Repoint or drop those rows |
+
 ---
 
 # Removed on 2026-09-25
@@ -1597,6 +1348,14 @@ diff, a stale review or a memory of "there was a task for that".
 | **SEC-4** — stop persisting credentials to `localStorage` | `stripSecrets()` strips auth secrets and sensitive header values before every persist; `version: 1` + `migrate` wipes what was already in users' browsers; the fake `sess_default_123` seed cookie is gone | `client/src/store/requestStore.ts`, `cookieStore.ts`, commit `ff0d60f` |
 | **FIX-2** | Shipped before this pass; the section was already deleted. Its only trace was a dangling "see FIX-2 step 4" cross-reference, now removed | — |
 | **FIX-3** — add real migrations | `umzug` wired into `connect.ts` with four migrations: `001-indexes` (all 13 indexes), `002-user-settings-columns`, `002-shared-link-columns`, `003-sync-missing-columns` (generic add-only column backfill), plus `npm run migrate` | `server/src/db/connect.ts`, `server/src/db/migrations/` |
+| **SEC-1** — rotate and remove the committed JWT secret | Seven placeholder/leaked values rejected at startup, 32-char minimum in production, value stripped from the k8s manifest. **Operational step still outstanding: rotate `JWT_SECRET` in any cluster that applied the old manifest** | `server/src/utils/jwtSecret.ts`, `k8s/secret.yaml`, `server/src/tests/jwtSecret.test.ts` |
+| **SEC-2** — authorization holes on client-supplied parent ids | `POST /history/:id/save` and `POST /import/wsdl` now resolve the owning workspace and require `editor`; `GET /collections/:id/export` requires `viewer`; the inert `POST /collections/import` stub deleted. Guard extracted, with an explicit id extractor because `req.params.id` means different things per route | `server/src/middleware/resolveWorkspace.ts`, `routes/history.ts`, `routes/importExport.ts` |
+| **SEC-6** — escape user input reaching a query pattern | `escapeLike` (dialect-aware, mssql included) plus a 100-char cap, applied at the route and inside both repositories; array-valued `?q[]=` no longer reaches the query; orphaned `escapeRegex.ts` deleted | `server/src/utils/escapeLike.ts`, `routes/users.ts`, `UserRepository.ts`, `RequestRepository.ts` |
+| **SEC-7** — stop leaking `dbError` to anonymous callers | Gate body masked in production via `dbDownBody`, and the client's 503 branch no longer requires the body to carry a message — without that half the DB-error screen would have silently stopped appearing | `server/src/utils/dbGate.ts`, `index.ts`, `client/src/App.tsx`, `tests/dbGate.test.ts` |
+| **FIX-4** — history rows rendered "Invalid Date" | `item.executedAt` → `item.createdAt` | `client/src/components/history/HistorySidebar.tsx:191` |
+| **FIX-5** — `/api/auth/config` advertised self-registration the server refused | Returns the real `config.auth.allowSelfRegistration`; the register route's half landed in `4f45c58` | `server/src/routes/auth.ts:152` |
+| **SOCK-0** — environment events never reached the client | Three emits renamed from `environment-created` etc. to the colon form the client and the other ten emit sites use | `server/src/routes/environments.ts:39,49,58` |
+| **CLEAN** — stub runner route; PM2 restart storm | `routes/runner.ts` and its mount deleted (also removing one blanket-`/api` auth router); `max_restarts: 10`, `restart_delay: 5000`, `min_uptime: 30000` added | `ecosystem.config.js` |
 
 Two corrections that outlived FIX-3 and now live in the tasks that need them:
 

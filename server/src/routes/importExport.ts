@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireWorkspaceRole } from '../middleware/rbac';
+import { requireRoleOnCollection } from '../middleware/resolveWorkspace';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { FolderRepository } from '../repositories/FolderRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
@@ -11,15 +13,13 @@ import * as soap from 'soap';
 const router = Router();
 router.use(authenticate);
 
-// Import/Export Routes placeholder
-router.get('/collections/:id/export', async (req: AuthRequest, res: Response) => {
-  const collection = await CollectionRepository.findById(req.params.id);
-  res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
-});
-
-router.post('/collections/import', async (req: AuthRequest, res: Response) => {
-  res.json({ message: 'Import successful (stub)' });
-});
+// Import/Export Routes placeholder — the real implementation is FEAT-10.
+router.get('/collections/:id/export',
+  requireRoleOnCollection('viewer', (req) => req.params.id),
+  async (req: AuthRequest, res: Response) => {
+    const collection = await CollectionRepository.findById(req.params.id);
+    res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
+  });
 
 router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => {
   const { curl, workspaceId } = req.body;
@@ -121,7 +121,10 @@ router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response)
 });
 
 // ──────── POST /api/import/wsdl ────────────────────────────────────────────────────
-router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
+// requireWorkspaceRole falls back to req.body.workspaceId, which is where this
+// route takes it from — without the guard it creates a collection in any
+// workspace the caller names.
+router.post('/import/wsdl', requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
   const { url, workspaceId } = req.body;
   if (!url || !workspaceId) {
     return res.status(400).json({ message: 'url and workspaceId are required' });

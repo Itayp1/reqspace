@@ -1,5 +1,6 @@
 import { SqlRequest } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 
 export interface IRequestRecord {
   _id: string; id: string;
@@ -100,11 +101,14 @@ export const RequestRepository = {
 
   async searchInWorkspace(query: string, collectionIds: string[]): Promise<IRequestRecord[]> {
     const { Op } = await import('sequelize');
+    const term = escapeLike(String(query).slice(0, MAX_SEARCH_LENGTH));
+    if (!term || !collectionIds.length) return [];
     return (await SqlRequest.findAll({
       where: {
         collectionId: { [Op.in]: collectionIds },
-        [Op.or]: [{ name: { [Op.like]: `%${query}%` } }, { url: { [Op.like]: `%${query}%` } }],
-      }
+        [Op.or]: [{ name: { [Op.like]: `%${term}%` } }, { url: { [Op.like]: `%${term}%` } }],
+      },
+      limit: 200,
     })).map(sqlToRecord);
   },
 };

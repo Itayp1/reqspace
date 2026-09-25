@@ -25,13 +25,13 @@ import usersRouter from './routes/users';
 import shareRouter from './routes/share';
 import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
-import runnerRouter from './routes/runner';
 import localVariablesRouter from './routes/localVariables';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
 import { getUserWorkspaceRole } from './middleware/rbac';
 import { resolveJwtSecret } from './utils/jwtSecret';
+import { dbDownBody } from './utils/dbGate';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = resolveJwtSecret();
@@ -146,12 +146,12 @@ app.use('/api', (req, res, next) => {
   // '/admin/db-config' carve-out referenced a route that doesn't exist — CR#18.)
   if (req.path === '/health') return next();
   if (dbStatus !== 'ok') {
-    return res.status(503).json({
-      message: 'Database not available',
-      dbError: dbError || 'Database is not connected',
-      dbType,
+    return res.status(503).json(dbDownBody({
       dbStatus,
-    });
+      dbError,
+      dbType,
+      isProd: process.env.NODE_ENV === 'production',
+    }));
   }
   next();
 });
@@ -173,7 +173,6 @@ app.use('/api/proxy', proxyRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/users', usersRouter);
 app.use('/api', importExportRouter);
-app.use('/api', runnerRouter);
 app.use('/api/local-variables', localVariablesRouter);
 
 // Serve client static files (production)
