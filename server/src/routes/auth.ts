@@ -18,7 +18,7 @@ const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 
 router.post('/register', registerLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.ensure();
 
-  if (false) {
+  if (!config?.auth?.allowSelfRegistration) {
     return res.status(403).json({ message: 'Self-registration is disabled' });
   }
 
@@ -224,7 +224,7 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
     // 3. Find or create user
     let user = await UserRepository.findByEmail(userData.email);
     if (!user) {
-      if (false) {
+      if (!config?.auth?.allowSelfRegistration) {
         return res.status(403).json({ message: 'Self registration is disabled' });
       }
       user = await UserRepository.create({

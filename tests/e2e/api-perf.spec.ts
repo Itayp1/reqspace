@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { v4 as uuidv4 } from 'uuid';
+const uuidv4 = () => require('crypto').randomUUID();
 
 test.describe('Performance Tests', () => {
   const perfLimit = parseInt(process.env.PERF_TIMEOUT || '100', 10);

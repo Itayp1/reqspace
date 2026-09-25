@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { v4 as uuidv4 } from 'uuid';
+const uuidv4 = () => require('crypto').randomUUID();
 
 test.describe('Full CRUD / Rename Matrix', () => {
   const email = `matrix_${uuidv4()}@example.com`;
