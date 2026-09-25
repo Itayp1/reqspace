@@ -1,0 +1,31 @@
+{
+  "name": "reqspace",
+  "repo": "Itayp1/reqspace",
+  "checkedAt": "2026-09-25T09:52:50.641Z",
+  "steps": {
+    "docker-compose service block": {
+      "ok": true,
+      "detail": "added — remember to git add/commit/push this repo too"
+    },
+    "local .env file": {
+      "ok": false,
+      "detail": "create reqspace/.env by hand before \"docker compose up -d\""
+    },
+    "Cloudflare tunnel ingress + DNS": {
+      "ok": true,
+      "detail": "dns=created"
+    },
+    "GitHub deploy workflow": {
+      "ok": true,
+      "detail": "added"
+    },
+    "secret PUBLISHER_WEBHOOK_SECRET": {
+      "ok": true,
+      "detail": "set"
+    },
+    "secret WATCHTOWER_TOKEN": {
+      "ok": true,
+      "detail": "set"
+    }
+  }
+}
