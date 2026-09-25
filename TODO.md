@@ -2,24 +2,57 @@
 
 Execution plan. Written for someone who has **not** seen the codebase or the discussion behind it.
 
+**Every claim in this file was re-verified against the source on 2026-09-25.** The previous revision had
+drifted badly — it described a ReDoS vulnerability that no longer existed, pointed at files that had been
+deleted, and proposed a CSP that would have broken three features. Items that turned out to be already
+done or no longer applicable were **deleted**, and are listed once in
+[Removed on 2026-09-25](#removed-on-2026-09-25) at the end so nobody re-adds them. If you find a claim here
+that does not match the code, the code wins — fix this file in the same commit.
+
 Every task has:
 
+* **Status** — verified real / partially done, and how big it is.
 * **Goal** — what "working" means, in one sentence.
-* **Where** — exact files and line numbers (verified 2026-09-24; re-check before editing).
+* **Verified state** — exact files and line numbers, and what the code there actually does today.
 * **Why** — the concrete failure. Never "best practice".
-* **Steps** — numbered, ordered, small enough to commit one at a time.
-* **Technical detail** — the actual code, index, query or command. Copy it, adapt names, verify it compiles.
+* **Change** — the actual code, index, query or command. Copy it, adapt names, verify it compiles.
+* **Traps** — what breaks if you implement it the obvious way. Read this before writing code.
 * **Done when** — the test that proves it. No task is finished without one.
 
 ## Rules
 
 1. **Do not invent scope.** If it is not in this file and not in [`IGNORE.md`](IGNORE.md), ask first.
-2. **`IGNORE.md` is binding.** Do not build, plan or suggest anything listed there.
-3. **Order:** `SEC` → `FIX` → `PERF` → `SOCK` → `TEST` → `UI` → `FEAT` → `CLEAN`. Within a section, top to bottom.
-4. **One task per commit.** Commit message starts with the task id: `SEC-0.2: add client transport layer`.
-5. **Every task ships a test that fails before the change and passes after.** Write the test first, watch it fail.
-6. **No new `any`.** No new `import { X } from '../models/...'` outside `server/src/repositories/`.
-7. **Delete the task from this file in the same commit that completes it.**
+2. **`IGNORE.md` is binding.** Do not build, plan or suggest anything listed there. (Its section B — "already
+   built" — has its own drift: it still points at `server/src/models/AuditLog.ts`, `routes/capture.ts` and
+   `CaptureTrafficModal.tsx`, all of which are deleted. Treat B as a hint, not a citation.)
+3. **Order:** `SEC` → `FIX` → `PERF` → `SOCK` → `TEST` → `UI` → `FEAT` → `CLEAN`. Within a section, top to
+   bottom. Two exceptions are called out in place: SEC-10 has a hard prerequisite, and PERF-0 must precede
+   every other PERF item.
+4. **One task per commit.** Commit message starts with the task id: `SEC-2: close the four authz holes`.
+5. **Every task ships a test that fails before the change and passes after.** Write the test first, watch
+   it fail.
+6. **No new `any`.** All database access goes through `server/src/repositories/*.ts` — nothing else may
+   import Sequelize models directly. (The old rule named `server/src/models/`, a Mongoose directory that no
+   longer exists; Mongo was removed entirely in commit `36b3331`.)
+7. **Delete the task from this file in the same commit that completes it**, and add a line to
+   [Removed](#removed-on-2026-09-25) saying what shipped.
+
+## Before you touch anything
+
+* **A build error is a production outage.** `deploy.js` runs `npm run build` for `client/` then `server/`
+  and PM2 restarts on any non-zero exit, with no `max_restarts` or `restart_delay` in
+  `ecosystem.config.js`. A type error therefore becomes an instant crash loop. Run **both** builds before
+  every commit. (Capping the restarts is a `CLEAN` item.)
+* **The two tsconfigs differ.** `server/tsconfig.json` has no `noUnusedLocals`; `client/tsconfig.app.json`
+  sets `noUnusedLocals` **and** `noUnusedParameters`. An unused import compiles on the server and fails the
+  client build.
+* **`server/src/index.ts` does not export `app`.** Any `supertest` test needs `export { app };` added
+  first, and note `bootstrap()` runs at module scope on import — prefer extracting pure functions into
+  `server/src/utils/` and unit-testing those.
+* **Router mount order is load-bearing.** `collectionsRouter`, `environmentsRouter` and `historyRouter` are
+  mounted on the bare `/api` prefix and each calls `router.use(authenticate)` with no path, so they
+  swallow every `/api/*` request that reaches them. Anything with a deliberately public route (today:
+  `shareRouter`) must be mounted **before** them — see the comment at `server/src/index.ts:162-165`.
 
 ## Scale targets — these decide every design choice
 
@@ -42,9 +75,22 @@ Rules of thumb that follow from those numbers:
 | Term | Meaning here |
 |---|---|
 | **Repository** | `server/src/repositories/*.ts`. The only place allowed to touch Sequelize. Every repository returns a plain record type. |
-| **The three backends** | sqlite, postgres, mysql. Selected by `DB_TYPE`. |
-| **Transport** | The thing that actually sends a user's HTTP request. After SEC-0 it is never the Reqspace server. |
+| **The three backends** | sqlite, postgres, mysql. Selected by `DB_TYPE`, which also still accepts `mssql`. |
+| **Transport** | The thing that actually sends a user's HTTP request. Today it is the Reqspace server (`routes/proxy.ts`); SEC-0 is the decision to change that. |
 | **Two-client test** | A test with two connected socket clients where the *observer* (which did not act) is the subject of the assertion. |
+
+## Where the tests actually live
+
+| Suite | Path | Runs in CI? |
+|---|---|---|
+| Server unit + live-auth e2e (jest) | `server/src/tests/*.test.ts` | ✅ `npm test --prefix server` |
+| Browser e2e (Playwright, 25 spec files) | `tests/e2e/*.spec.ts` | ❌ **nothing runs them** — TEST-1 |
+| Core smoke (bash + curl) | `scripts/smoke-core.sh` | ✅ |
+
+CI is `.github/workflows/test.yml`: build server → build client → boot a real sqlite-backed
+`node server/dist/index.js` on port 3005 → jest → smoke script. The live server matters:
+`server/src/tests/auth.e2e.test.ts` makes real HTTP calls to `localhost:3005` and fails in isolation
+without it. That is expected, not a regression.
 
 ---
 
@@ -52,18 +98,22 @@ Rules of thumb that follow from those numbers:
 
 ## SEC-0 — Delete the server-side proxy entirely
 
+* **Status:** verified real, **deferred by the owner on 2026-09-25.** Nothing below is being built right
+  now. It stays in this file because half the other tasks reference it and because the decision it records
+  must not be re-litigated from scratch. **Do not start any SEC-0 subtask without saying so explicitly.**
+* **Size:** XL — the largest item in this file by an order of magnitude.
+
 **Owner's decision:** the Reqspace server must never issue an HTTP request on a user's behalf. Request
-sending belongs to the client.
+sending belongs to the client. This one change removes an entire class of vulnerability: the anonymous open
+proxy, all SSRF surface, the proxy DoS vectors, the stored upstream-proxy credentials, and the server-side
+response-handling path.
 
-This one change removes an entire class of vulnerability: the anonymous open proxy, all SSRF surface,
-the proxy DoS vectors, the stored upstream-proxy credentials, and the server-side response-handling path.
+### SEC-0.0 — Transport decision (read before touching any code)
 
-### ⚠️ SEC-0.0 — Transport decision (read before touching any code)
-
-A web page **cannot** send arbitrary cross-origin HTTP requests. CORS forbids custom headers and
-non-simple methods unless the *target* server opts in — and the target is a third-party API we do not
-control. Naively moving sending into `fetch()` inside the SPA means **most requests stop working**. This
-is the reason every API client has a proxy, an agent or an extension.
+A web page **cannot** send arbitrary cross-origin HTTP requests. CORS forbids custom headers and non-simple
+methods unless the *target* server opts in — and the target is a third-party API we do not control. Naively
+moving sending into `fetch()` inside the SPA means **most requests stop working**. This is why every API
+client has a proxy, an agent or an extension.
 
 | Option | Where the request is made | Works in a browser tab? | Cost |
 |---|---|---|---|
@@ -71,959 +121,385 @@ is the reason every API client has a proxy, an agent or an extension.
 | **B. Chrome extension** | MV3 service worker with `host_permissions` | ✅ | Per-browser build, store review, install friction. |
 | **C. Local agent** | A small binary on `localhost` called by the SPA | ✅ | A new artifact to build, ship, update, document. |
 
-**Decision: A + B.** Electron uses its main process; the web build talks to a Chrome extension
-(SEC-0.7). C is documented as a future fallback and is **not** built now.
+**Decision: A + B.** Electron uses its main process; the web build talks to a Chrome extension (SEC-0.7).
+C is documented as a future fallback and is **not** built.
 
 **Why the extension works:** an extension service worker granted `host_permissions` is not subject to the
 page's CORS rules. It can `fetch` any origin, read the full body, and see response headers a page never
-could. The page never makes the cross-origin call — it asks the extension to. The Reqspace **server**
-still proxies nothing.
+could. The page never makes the cross-origin call — it asks the extension to.
 
-**Do not start SEC-0.1 until this decision is written at the top of the task.**
+### SEC-0.1 — Inventory of server-side outbound calls
 
----
-
-### SEC-0.1 — Inventory every server-side outbound call
-
-* **Goal:** know exactly what is being deleted before deleting it.
-* **Where:** `server/src/routes/proxy.ts`, `shareProxy.ts`, `capture.ts`, `importExport.ts`,
-  `auth.ts`, `admin.ts`, `server/src/utils/ssrf.ts`
-
-#### Steps
-
-1. Run the inventory command below.
-2. Classify every hit as **`move`** (the server acts on a user's behalf → must move to the client) or
-   **`keep`** (the server acts as *itself* against a fixed, known host).
-3. Paste the classified list into this task before proceeding.
-
-#### Technical detail
-
-```bash
-grep -rn "undiciFetch\|await fetch(\|ProxyAgent\|createSafeLookup\|assertSsrfSafe\|soap\." server/src
-```
-
-Expected classification:
+Done — this is the verified output of
+`grep -rn "undiciFetch\|await fetch(\|ProxyAgent\|createSafeLookup\|assertSsrfSafe\|soap\." server/src`:
 
 | Call site | Verdict | Reason |
 |---|---|---|
-| `routes/proxy.ts` — the whole file | **move** | This *is* the user proxy |
-| `routes/shareProxy.ts` — the whole file | **move** (then delete) | Anonymous user proxy |
-| `routes/capture.ts:140` `fetch(finalUrl, …)` | **move** | Forwards user traffic — see SEC-0.5 |
-| `routes/importExport.ts:134` `soap.createClientAsync(url)` | **move** | Fetches a user-supplied WSDL URL |
-| `routes/auth.ts:202,218` Google token + userinfo | **keep** | Server-to-Google, fixed hosts, server's own credentials |
-| `routes/admin.ts` SMTP send | **keep** | Server-to-SMTP, admin-configured, not a user URL |
+| `routes/proxy.ts:5,75,82,93,120` | **move** | This *is* the user proxy |
+| `routes/shareProxy.ts:4,54,55,76,83,87` | **move, then delete** | Anonymous user proxy |
+| `routes/importExport.ts:8,132,134` (`soap.createClientAsync`) | **move** | Fetches a user-supplied WSDL URL |
+| `routes/auth.ts:202,218` (Google token + userinfo) | **keep** | Server-to-Google, fixed hosts, server's own credentials |
 
-* **Done when:** the table above is filled in from real grep output and committed.
-
----
+Two rows from the previous revision were wrong and are gone: `routes/capture.ts:140` (the file is deleted)
+and "`routes/admin.ts` SMTP send", which never existed —
+`grep -rn "nodemailer\|createTransport\|sendMail" server/src` returns nothing. The `SystemConfig.auth.smtp`
+**config fields** exist, but nothing sends mail.
 
 ### SEC-0.2 — Build the client transport abstraction
 
-* **Goal:** one module decides *how* a request goes out, so no UI component ever knows or cares.
+* **Goal:** one module decides *how* a request goes out, so no UI component knows or cares.
 * **Where:** new `client/src/transport/` — `types.ts`, `index.ts`, `electron.ts`, `extension.ts`, `browser.ts`
-* **Current callers to migrate** (all four call `POST /api/proxy` today):
-  * `client/src/components/request/UrlBar.tsx:250` — the main send button
-  * `client/src/components/collection/CollectionRunnerModal.tsx:103` — the collection runner
-  * `client/src/utils/scripts.ts:175` — `pm.sendRequest` inside user scripts
-  * `client/src/components/request/LoadTestModal.tsx` — the load tester
-  * `client/src/pages/SharedCollectionPage.tsx:19` — `executeRequest` on a public share page
-
-#### Technical detail — the contract
-
-Create `client/src/transport/types.ts` with **exactly** the shape the existing code already builds
-(copied from `UrlBar.tsx:250-258`) so the migration is mechanical:
-
-```ts
-export interface OutboundRequest {
-  method: string;                       // 'GET' | 'POST' | ...
-  url: string;                          // already variable-resolved by the caller
-  headers: Record<string, string>;
-  body?: string | FormDataPayload | undefined;
-  followRedirects: boolean;
-  verifySsl: boolean;
-  timeout: number;                      // ms; 0 is NOT allowed — see FEAT-9
-  maxResponseBytes: number;             // FEAT-9
-  clientCertId?: string;                // Electron only
-  signal?: AbortSignal;
-}
-
-// Matches the `_isFormData` payload UrlBar.tsx:244 already builds.
-export interface FormDataPayload {
-  _isFormData: true;
-  items: Array<
-    | { type: 'text'; key: string; value: string }
-    | { type: 'file'; key: string; filename: string; content: string /* base64 */ }
-  >;
-}
-
-export interface OutboundResponse {
-  status: number;
-  statusText: string;
-  headers: Record<string, string>;
-  body: string;                         // utf8, or base64 when isBase64
-  isBase64: boolean;
-  responseTime: number;                 // ms
-  size: number;                         // bytes actually received
-  truncated: boolean;                   // hit maxResponseBytes
-  redirects?: Array<{ status: number; location: string }>;
-}
-
-export interface Transport {
-  readonly name: 'electron' | 'extension' | 'browser';
-  isAvailable(): Promise<boolean>;
-  send(req: OutboundRequest): Promise<OutboundResponse>;
-}
-```
-
-`client/src/transport/index.ts`:
-
-```ts
-import { electronTransport } from './electron';
-import { extensionTransport } from './extension';
-import { browserTransport } from './browser';
-
-let cached: Transport | null = null;
-
-export async function getTransport(): Promise<Transport> {
-  if (cached) return cached;
-  for (const t of [electronTransport, extensionTransport, browserTransport]) {
-    if (await t.isAvailable()) { cached = t; return t; }
-  }
-  return browserTransport;                  // always last-resort
-}
-
-export function resetTransport() { cached = null; }   // call when the extension installs/uninstalls
-
-export async function sendRequest(req: OutboundRequest): Promise<OutboundResponse> {
-  return (await getTransport()).send(req);
-}
-```
-
-`browser.ts` must not swallow the CORS case:
-
-```ts
-async send(req) {
-  try {
-    const res = await fetch(req.url, { /* … */ });
-    // …
-  } catch (e) {
-    // A CORS rejection surfaces as a TypeError with no status. Do not show "Network Error".
-    throw new TransportError('CORS_BLOCKED', {
-      message: `The browser blocked this request to ${new URL(req.url).origin} because that server ` +
-               `does not allow cross-origin calls. Install the Reqspace extension to send it.`,
-      installUrl: EXTENSION_INSTALL_URL,
-    });
-  }
-}
-```
-
-`electron.ts` — IPC. Add the handler in `main.js` and expose it in `preload.js`:
-
-```js
-// preload.js
-contextBridge.exposeInMainWorld('reqspace', {
-  send: (req) => ipcRenderer.invoke('reqspace:send', req),
-});
-
-// main.js
-const { net } = require('electron');
-ipcMain.handle('reqspace:send', async (_evt, req) => { /* use net.request or undici */ });
-```
-
-`isAvailable()` for Electron is simply `typeof window.reqspace?.send === 'function'`.
-
-#### Migration of the five callers
-
-Replace each `api.post('/proxy', {...})` with `sendRequest({...})`. The response shape is already
-compatible except `workspaceId`, which moves to the separate history call (SEC-0.3).
-
-* **Done when:** `grep -rn "api.post('/proxy'" client/src` returns nothing, and a Playwright test sends a
-  request end-to-end through the active transport and asserts the rendered status code.
-
----
+* **Verified callers to migrate** — all five still call `POST /api/proxy`:
+  `client/src/components/request/UrlBar.tsx:250`,
+  `client/src/components/collection/CollectionRunnerModal.tsx:103`,
+  `client/src/utils/scripts.ts:175`,
+  `client/src/components/request/LoadTestModal.tsx`,
+  `client/src/pages/SharedCollectionPage.tsx:19`.
+* **Done when:** `grep -rn "api.post('/proxy'" client/src` returns nothing and a Playwright test sends a
+  request through the abstraction with the transport stubbed.
 
 ### SEC-0.3 — Move history writing to a client-driven, server-validated endpoint
 
 * **Goal:** history still works once the server never sees the response.
-* **Where:** `server/src/routes/proxy.ts:149-170` (the current server-side write),
-  `server/src/routes/history.ts:111-171` (`saveHistoryEntry`), `client/src/components/request/UrlBar.tsx`
-* **Why:** history is written today inside the proxy handler, from data only the server had. After SEC-0
-  only the client has it — but the client must not be trusted to respect its own quota.
-
-#### Technical detail
-
-New route in `server/src/routes/history.ts`:
-
-```ts
-router.post(
-  '/workspaces/:workspaceId/history',
-  requireWorkspaceRole('viewer'),
-  validate(createHistorySchema),          // SEC-9
-  async (req: AuthRequest, res: Response) => {
-    // Reuse the existing quota + truncation logic. It must run server-side:
-    // a client that lies about `size` must not be able to exceed its quota.
-    await saveHistoryEntry(String(req.user!._id), req.params.workspaceId, req.body);
-    return res.status(201).json({ ok: true });
-  },
-);
-```
-
-Change `saveHistoryEntry`'s signature from
-workspaceId: string, …)` — the `ObjectId` casts break on SQL UUIDs (see FIX-2 step 4).
-
-Server-side caps to enforce, regardless of what the client sends:
-
-| Cap | Source | Behaviour |
-|---|---|---|
-| Body size | `SystemConfig.history.maxRequestBodyKB` (default 10 KB) | Truncate, set `bodyTruncated` |
-| Per-user total | `SystemConfig.history.maxTotalPerUserMB` (default 20 MB) | GC oldest first (batched — PERF-4) |
-| Recompute `size` | Always | Never trust the client's `size` field |
-
-Client, in `UrlBar.tsx` after a successful send:
-
-```ts
-if (settings.saveHistory && activeWorkspace?._id) {
-  api.post(`/workspaces/${activeWorkspace._id}/history`, { requestSnapshot, responseSnapshot })
-     .catch(() => { /* history is best-effort; never block the user */ });
-}
-```
-
-* **Done when:** API tests prove (a) a viewer can write their own history, (b) a non-member gets 403,
-  (c) a client claiming `size: 0` on a 5 MB body still has the real size counted against its quota.
-
----
+* **Where:** `server/src/routes/proxy.ts:149-170` writes history today from data only the server had.
+* **Note:** the response-size cap (FEAT-9) applies here — the endpoint must never accept a 200 MB body.
+* **Done when:** API tests prove a viewer can write their own history, a non-member gets 403, and an
+  oversized body is rejected rather than truncated after the fact.
 
 ### SEC-0.4 — Delete the routes and everything that existed only for them
 
-#### Delete list
-
-| Path | Action |
-|---|---|
-| `server/src/routes/proxy.ts` | delete file |
-| `server/src/routes/shareProxy.ts` | delete file |
-| `server/src/index.ts:164` `app.use('/api/proxy', proxyRouter)` | delete line + import at `:21` |
-| `server/src/index.ts:169` `app.use('/api/share', shareProxyRouter)` | delete line + import at `:26` |
-| `server/src/utils/ssrf.ts` | delete file |
-| `server/src/tests/ssrf.test.ts` | delete file |
-| `server/package.json` | remove `undici`, `http-proxy-middleware` |
-| `server/src/models/SystemConfig.ts` | remove the `proxy` sub-document |
-| `server/src/repositories/SystemConfigRepository.ts` | remove `proxy` from the defaults and the type |
-| `client/src/pages/AdminPage.tsx` | remove the proxy settings panel |
-| `client/src/store/settingsStore.ts:51-55` | remove `proxyEnabled`, `proxyUrl`, `proxyAuthEnabled`, `proxyUsername`, `proxyPassword` |
-| `server/src/routes/auth.ts:271-275` | remove the proxy keys from `ALLOWED_SETTINGS_KEYS` |
-
-#### Steps
-
-1. Delete in the order above; run `npm run build --prefix server` after each file.
-2. Note in the commit message that existing `SystemConfig` documents keep a dead `proxy` key. Harmless —
-   do not write a migration to remove it.
-3. Update `README.md`: the "Proxying is not the central server's job" principle becomes past tense, and
-   the `proxy.username` / `proxy.password` rows leave the secrets inventory.
-
 * **Done when:** `grep -rn "api/proxy\|shareProxy\|assertSsrfSafe\|createSafeLookup" server/src client/src`
-  is empty and the full Playwright suite passes.
+  returns nothing, and `undici` + `http-proxy-middleware` come out of `server/package.json`. (`undici` has
+  **3** live usages today and is the one dead-looking dependency that must **not** be dropped before this
+  lands — see CLEAN.)
 
----
+### SEC-0.5 — ~~Decide the fate of traffic capture~~ — **removed, moot**
 
-### SEC-0.5 — Decide the fate of traffic capture
-
-* **Where:** `server/src/routes/capture.ts`, `client/src/components/layout/CaptureTrafficModal.tsx`
-* **Why:** capture is a server-side forwarder (`capture.ts:140` calls the global `fetch`) — the same
-  category as the proxy, and it cannot survive SEC-0 unchanged.
-* **Options:** (a) delete it with the proxy; (b) move it into the Electron main process.
-  **Do not** push it into the Chrome extension — capturing live browsing traffic needs a far wider
-  permission surface than the transport does (see the scope note in SEC-0.7).
-* **Done when:** capture either works through the chosen path, or is gone from server, client, tests and docs.
-  A half-removed capture path is not acceptable.
-
----
+`server/src/routes/capture.ts` and `client/src/components/layout/CaptureTrafficModal.tsx` were both deleted
+in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
+`server/src/utils/ssrf.ts:6` still says "share-proxy, capture, and WSDL-import routes", and
+`client/src/pages/AdminPage.tsx:391` still tells admins the setting affects "every user's Send / share-link
+/ capture requests".
 
 ### SEC-0.6 — Strip the public share payload, and make links revocable
 
-* **Goal:** a share link cannot hand out credentials, and a leaked one can be killed.
-* **Where:** `server/src/routes/share.ts:12-35`, `client/src/components/collection/ShareLinkModal.tsx`
-* **Why:** `GET /api/share/:shortId` currently returns `ApiRequest.find({collectionId}).lean()` — the
-  **whole document**, including `auth` (bearer tokens, basic passwords), every header, and both scripts —
-  plus the full collection document with its `variables`, to anyone holding the link. `shortId` is
-  `crypto.randomBytes(6)` = 48 bits. There is no delete route, so a leaked link lives until `expiresAt`.
-
-#### Technical detail
-
-Replace the response with an explicit projection — allowlist, never denylist:
-
-```ts
-const SAFE_HEADER_DENYLIST = new Set([
-  'authorization', 'proxy-authorization', 'cookie', 'set-cookie',
-  'x-api-key', 'api-key', 'x-auth-token', 'x-access-token',
-]);
-
-function publicRequest(r: IRequestRecord) {
-  return {
-    _id: r._id,
-    name: r.name,
-    method: r.method,
-    url: r.url,
-    description: r.description,
-    params: (r.params ?? []).map(({ key, value, enabled }: any) => ({ key, value, enabled })),
-    headers: (r.headers ?? [])
-      .filter((h: any) => !SAFE_HEADER_DENYLIST.has(String(h.key).toLowerCase()))
-      .map((h: any) => ({ key: h.key, value: h.value, enabled: h.enabled })),
-    // deliberately absent: auth, preRequestScript, testScript, body, comments, createdBy
-  };
-}
-
-return res.json({
-  collection: { _id: collection._id, name: collection.name, description: collection.description },
-  //            ^ NOT collection.variables
-  requests: requests.map(publicRequest),
-  expiresAt: link.expiresAt,
-});
-```
-
-Also:
-
-1. `share.ts:56` — `crypto.randomBytes(6)` → `crypto.randomBytes(16)` (128 bits).
-2. New route:
-
-```ts
-router.delete('/:shortId', authenticate, async (req: AuthRequest, res: Response) => {
-  const link = await SharedLink.findOne({ shortId: req.params.shortId });
-  if (!link) return res.status(404).json({ message: 'Not found' });
-  const isCreator = String(link.createdBy) === String(req.user!._id);
-  let allowed = isCreator || !!req.user!.isSuperAdmin;
-  if (!allowed) {
-    const role = await getUserWorkspaceRole(String(req.user!._id), String(link.workspaceId));
-    allowed = role === 'editor' || role === 'owner';
-  }
-  if (!allowed) return res.status(403).json({ message: 'Not allowed to revoke this link' });
-  await SharedLink.deleteOne({ shortId: req.params.shortId });
-  return res.json({ ok: true });
-});
-```
-
-3. Rate-limit `GET /:shortId` per IP (reuse `middleware/rateLimit.ts`): 60/min.
-4. Add a **Revoke** button to `ShareLinkModal.tsx` with a confirm (the app's `ConfirmModal`, not
-   `window.confirm` — UI-1).
-5. `SharedCollectionPage.tsx:19` `executeRequest` must now go through the client transport (SEC-0.2),
-   since the share proxy is gone.
-
-* **Done when:** an API test creates a share link for a collection whose request carries
-  `auth: { type: 'bearer', bearer: { token: 'SECRET123' } }` and a header `Authorization: Bearer X`, then
-  asserts neither `SECRET123` nor `Bearer X` appears anywhere in the public response body; a second test
-  revokes the link and asserts a follow-up `GET` returns 404.
-
----
+* **Status:** verified real — and this one is worth doing **even though the rest of SEC-0 is deferred.**
+  It is independent of the transport decision.
+* **Verified state:** `server/src/routes/share.ts:9-31` — `GET /api/share/:shortId` returns the whole
+  `collection` row plus whole `requests` rows: `auth`, `headers`, `body`, `preRequestScript` and
+  `testScript`. The short id is `crypto.randomBytes(6)` at `:49`. The file contains **only two routes** —
+  there is no DELETE, so a leaked link can never be killed. No rate limit either.
+* **Why:** a share link is a public, unauthenticated URL. Today it hands every anonymous visitor the bearer
+  tokens, basic-auth passwords and API keys saved on every request in the collection, plus any script the
+  author wrote. One link posted in a ticket leaks the collection's credentials permanently.
+* **Change:** project the response down to what a viewer needs (`name`, `method`, `url`, non-sensitive
+  headers, `description`); strip `auth` to its type; drop both script fields entirely; add
+  `DELETE /api/share/:shortId` with an owner check; rate-limit the public GET.
+* **Traps:**
+  1. The previous revision's fix snippet was **Mongoose** (`SharedLink.findOne({shortId})`, `deleteOne()`,
+     `.lean()`). Mongoose is gone. Use `SqlSharedLink.findOne({ where: { shortId } })` and `.destroy()`.
+  2. **Extra bug found while verifying:** `share.ts:62` returns
+     `token: crypto.randomBytes(32).toString('hex')` — a *freshly generated* value, not the `link.token`
+     stored at `:54`. The token handed to the client can never match the one in the database. Decide what
+     `token` is for and either wire it correctly or delete the field; do not leave a credential-shaped
+     value that means nothing.
+  3. The route is mounted **before** the bare-`/api` routers on purpose (`server/src/index.ts:162-167`).
+     Do not reorder it — that is what broke anonymous viewing once already.
+* **Done when:** an API test creates a share link for a collection whose request carries a bearer token and
+  a test script, fetches it anonymously, and asserts neither the token nor the script appears; and a
+  revoked link returns 404.
 
 ### SEC-0.7 — Build the Chrome extension transport
 
-* **Goal:** the web build sends real requests to any host, with full headers and full response access,
-  without the Reqspace server touching the traffic.
-* **Where:** new top-level `extension/` (own `package.json`, own build), plus `client/src/transport/extension.ts`
-
-#### SEC-0.7.1 — Manifest and skeleton (MV3)
-
-```json
-{
-  "manifest_version": 3,
-  "name": "Reqspace Transport",
-  "version": "1.0.0",
-  "description": "Lets the Reqspace app send API requests that browser CORS rules would block.",
-  "background": { "service_worker": "background.js", "type": "module" },
-  "host_permissions": ["<all_urls>"],
-  "permissions": ["declarativeNetRequest", "storage"],
-  "externally_connectable": {
-    "matches": [
-      "https://reqspace.example.com/*",
-      "http://localhost:5173/*",
-      "http://localhost:3005/*"
-    ]
-  },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
-  }
-}
-```
-
-Notes for whoever implements this:
-
-* `externally_connectable` is what lets the page call the extension with
-  `chrome.runtime.sendMessage(EXTENSION_ID, msg, cb)` — **no content script is needed**. Do not add one.
-* Do **not** request `tabs`, `cookies`, `webRequest` or `scripting`. Each widens both the store review
-  and the blast radius. `declarativeNetRequest` is needed only for SEC-0.7.3.
-* `<all_urls>` will draw review scrutiny. Write the justification text before submitting.
-
-Handle a `ping` first, so detection can be built and tested before anything else:
-
-```js
-chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
-  if (!isAllowedOrigin(sender.origin)) return;                 // SEC-0.7.5
-  if (msg?.type === 'ping') { sendResponse({ v: 1, ok: true }); return; }
-  handleSend(msg).then(sendResponse);
-  return true;                                                  // keep the channel open (async)
-});
-```
-
-* **Done when:** the unpacked extension loads and answers `ping` from the app origin, and rejects it from
-  any other origin.
-
-#### SEC-0.7.2 — The request bridge
-
-Message contract — versioned, mirroring `OutboundRequest` / `OutboundResponse` from SEC-0.2:
-
-```ts
-// page → extension
-{ v: 1, type: 'send', id: string, method, url, headers, body, followRedirects, verifySsl, timeout, maxResponseBytes }
-// extension → page
-{ v: 1, id: string, ok: true,  status, statusText, headers, body, isBase64, responseTime, size, truncated, redirects }
-{ v: 1, id: string, ok: false, error: { code: 'TIMEOUT'|'DNS'|'REFUSED'|'TOO_LARGE'|'BAD_URL', message } }
-```
-
-Implementation notes:
-
-```js
-async function handleSend(msg) {
-  const started = performance.now();
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), msg.timeout);          // timeout is mandatory, never 0
-  const res = await fetch(msg.url, {
-    method: msg.method,
-    headers: msg.headers,
-    body: msg.body,
-    redirect: msg.followRedirects ? 'follow' : 'manual',
-    credentials: 'omit',                                              // SEC-0.7.4
-    signal: ctrl.signal,
-  });
-  clearTimeout(timer);
-
-  // Return EVERY response header. This visibility is the main reason the extension exists —
-  // a page can only read CORS-safelisted headers.
-  const headers = {};
-  res.headers.forEach((v, k) => { headers[k] = v; });
-
-  // Stream and enforce the cap; never buffer an unbounded body (FEAT-9).
-  const { bytes, truncated } = await readCapped(res.body, msg.maxResponseBytes);
-  // …
-}
-```
-
-`readCapped` reads from `res.body.getReader()` and aborts once the accumulated length exceeds the cap.
-Base64-encode when the `content-type` is binary (`image/`, `application/pdf`, `audio/`, `video/`,
-`application/octet-stream`) — the same rule `proxy.ts:98` used.
-
-* **Done when:** the app sends a `POST` with a custom header to a public API that returns no CORS headers,
-  and the response renders with all its headers visible.
-
-#### SEC-0.7.3 — Restore the headers Chrome strips
-
-* **Why:** `fetch` silently drops forbidden headers — `Origin`, `Referer`, `Cookie`, `Host`,
-  `User-Agent`, `Connection`, `Sec-*`. An API client must be able to set them; silently sending something
-  different from what the user typed is worse than refusing.
-
-```js
-const FORBIDDEN = ['user-agent', 'referer', 'origin', 'host', 'cookie', 'accept-encoding', 'connection'];
-
-async function withHeaderRules(url, headers, fn) {
-  const overrides = Object.entries(headers)
-    .filter(([k]) => FORBIDDEN.includes(k.toLowerCase()))
-    .map(([header, value]) => ({ header, operation: 'set', value }));
-  if (!overrides.length) return fn();
-
-  const id = nextRuleId();                       // pool ids; never reuse a live one
-  await chrome.declarativeNetRequest.updateSessionRules({
-    addRules: [{
-      id, priority: 1,
-      action: { type: 'modifyHeaders', requestHeaders: overrides },
-      condition: { urlFilter: url, resourceTypes: ['xmlhttprequest'] },
-    }],
-  });
-  try { return await fn(); }
-  finally { await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: [id] }); }
-}
-```
-
-Keep an explicit allowlist of which forbidden headers the product supports, and report any header that
-was dropped back to the app so the UI can warn the user.
-
-* **Done when:** a test sets `User-Agent: ReqspaceTest/1.0` and `Referer: https://example.com` and an echo
-  endpoint reports both exactly.
-
-#### SEC-0.7.4 — Cookie policy
-
-* **Decision:** default `credentials: 'omit'`. The user's real browser cookies are never attached
-  automatically. Add an explicit per-request toggle "send browser cookies for this domain" which switches
-  to `credentials: 'include'`.
-* **Why:** attaching ambient cookies silently would make every request a potential CSRF against sites the
-  user is logged into, fired from their own browser with their own session.
-* The app's own cookie manager (`CookieManagerModal.tsx`) remains the default cookie source, sent as a
-  normal `Cookie` header through SEC-0.7.3.
-* **Done when:** a test sends a request to a domain the browser holds a session cookie for and asserts the
-  cookie is absent unless the toggle is on.
-
-#### SEC-0.7.5 — Harden the extension itself
-
-An extension that can fetch any URL is a high-value target. Treat it as one.
-
-1. **Origin check in the handler**, not only in the manifest:
-
-```js
-const ALLOWED_ORIGINS = new Set([
-  'https://reqspace.example.com', 'http://localhost:5173', 'http://localhost:3005',
-]);
-const isAllowedOrigin = (origin) => ALLOWED_ORIGINS.has(origin);
-```
-
-2. No `eval`, no `new Function`, no remotely loaded code, no CDN. Strict CSP (already in the manifest).
-3. The extension stores **nothing**: no credentials, no history, no user data. It is a dumb pipe — the app
-   supplies the complete request every time.
-4. Reject any URL whose protocol is not `http:` or `https:` (blocks `file:`, `chrome-extension:`, `data:`).
-5. Zero runtime dependencies if possible; pin and review anything unavoidable.
-6. Publish the source and a reproducible build so the store artifact can be verified.
-
-* **Done when:** a test page served from an origin not in `ALLOWED_ORIGINS` calls the extension and is
-  rejected, and a `file:///etc/passwd` URL is refused.
-
-#### SEC-0.7.6 — App-side integration and UX
-
-```ts
-// client/src/transport/extension.ts
-const EXT_ID = import.meta.env.VITE_EXTENSION_ID;
-
-async function ping(): Promise<boolean> {
-  if (!(window as any).chrome?.runtime?.sendMessage || !EXT_ID) return false;
-  return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(false), 300);
-    (window as any).chrome.runtime.sendMessage(EXT_ID, { v: 1, type: 'ping' }, (r: any) => {
-      clearTimeout(t);
-      resolve(!!r?.ok);                       // chrome.runtime.lastError → undefined response
-    });
-  });
-}
-```
-
-1. Cache the result; re-probe on any transport failure and on window focus.
-2. Status chip in `TopBar.tsx`: **Desktop** / **Extension connected** / **Browser only (limited)**,
-   clickable, explaining the difference.
-3. When no transport can reach the target, show the `CORS_BLOCKED` error from SEC-0.2 with an install
-   link — never a bare "Network Error".
-4. Version negotiation: if the extension answers with a `v` lower than the app's contract, tell the user
-   to update the extension instead of failing obscurely.
-
-* **Done when:** with the extension disabled, sending to a non-CORS host shows the install prompt; with it
-  enabled the same request succeeds; the status chip reflects both states.
-
-#### SEC-0.7.7 — Build, test and ship
-
-1. `npm run build:extension` produces both a loadable directory and a zip.
-2. Playwright project that loads it:
-
-```ts
-// playwright.config.ts
-{
-  name: 'chromium-extension',
-  use: {
-    ...devices['Desktop Chrome'],
-    launchOptions: {
-      args: [
-        `--disable-extensions-except=${extPath}`,
-        `--load-extension=${extPath}`,
-      ],
-    },
-  },
-}
-```
-
-Note: extensions require a persistent context; use `chromium.launchPersistentContext` in a fixture if the
-project-level args are not enough.
-
-3. Document loading it unpacked for development and the store steps for release.
-4. Firefox: MV3 and `externally_connectable` differ there. Out of scope — record it so nobody assumes
-   cross-browser support.
-
-* **Done when:** a CI Playwright project runs the core send flow through the extension.
-
-> **Scope note:** this extension is a **transport**, not the traffic interceptor from the old parity list
-> (item 43, in `IGNORE.md`). Capturing the user's live browsing traffic is a much broader permission
-> surface. Do not let it creep in here.
+* **Status:** greenfield, nothing exists (`extension/` and `client/src/transport/` are both absent).
+* Subtasks, unchanged and still accurate: **0.7.1** MV3 manifest and skeleton · **0.7.2** the request
+  bridge · **0.7.3** restore the headers Chrome strips (`Origin`, `Referer`, `Cookie`, `Host`,
+  `User-Agent`) via `declarativeNetRequest` · **0.7.4** cookie policy — default `credentials: 'omit'`,
+  because attaching ambient cookies silently turns every request into a potential CSRF · **0.7.5** harden
+  the extension (origin allowlist, no `<all_urls>` beyond what is needed) · **0.7.6** app-side integration
+  and install prompt · **0.7.7** build, test and ship, with a CI Playwright project that runs the core send
+  flow through the extension.
+* Read `IGNORE.md`'s "browser-extension traffic interceptor" row before starting: that declined feature is
+  **not** this one, and the distinction is the permission surface.
 
 ---
 
 ## SEC-1 — Rotate and remove the committed JWT secret
 
+* **Status:** verified real · **Size:** S · **Severity: critical — treat as an incident, not a code change.**
 * **Goal:** no signing key in the repository, and no way to boot with a known one.
-* **Where:** `k8s/secret.yaml:7`, `server/src/utils/jwtSecret.ts:9-12`
-* **Why:** `JWT_SECRET` is `Y2hhbmdlX21lX2luX3Byb2R1Y3Rpb24=` = base64 of `change_me_in_production`. That
-  exact string is **not** in `KNOWN_INSECURE_VALUES` (which holds `changeme` and
-  `change_me_in_production_very_long_secret_key`), so `resolveJwtSecret()` accepts it as a real secret.
-  Production boots happily with a signing key published in a public repository. Anyone can mint a token
-  for any user id, superadmin included.
+* **Verified state:** `k8s/secret.yaml` commits
+  `JWT_SECRET: Y2hhbmdlX21lX2luX3Byb2R1Y3Rpb24=`, which is base64 of `change_me_in_production`. That exact
+  string is **not** in `KNOWN_INSECURE_VALUES` (`server/src/utils/jwtSecret.ts:9-12`, which holds only
+  `changeme` and `change_me_in_production_very_long_secret_key`), and `resolveJwtSecret()` at `:28-31`
+  accepts any value not in that set with **no length check**.
+* **Why:** any cluster that applied this manifest signs every session token with a value published in this
+  repository. Anyone can mint a token for any user id, superadmin included.
+* **Change:**
 
-#### Technical detail
+  1. Add the leaked value to the blocklist and add a production length floor:
 
-```ts
-// server/src/utils/jwtSecret.ts
-const KNOWN_INSECURE_VALUES = new Set([
-  'changeme',
-  'change_me_in_production',                              // ← the k8s value
-  'change_me_in_production_very_long_secret_key',
-  'secret', 'jwt_secret', 'your-secret-key',
-]);
+  ```ts
+  const KNOWN_INSECURE_VALUES = new Set([
+    'changeme',
+    'change_me_in_production',                       // was committed in k8s/secret.yaml — permanently burned
+    'change_me_in_production_very_long_secret_key',
+    'secret', 'jwt_secret', 'your-secret-key', 'changeme123',
+  ]);
 
-const MIN_SECRET_LENGTH = 32;
+  const MIN_SECRET_LENGTH = 32;
+  ```
 
-export function resolveJwtSecret(): string {
-  if (cached) return cached;
+  2. Replace `jwtSecret.ts:27-31` with a version that throws instead of falling through:
+
+  ```ts
   const fromEnv = process.env.JWT_SECRET;
-  const isProd = process.env.NODE_ENV === 'production';
-
   if (fromEnv) {
     if (KNOWN_INSECURE_VALUES.has(fromEnv)) {
-      throw new Error('JWT_SECRET is a known placeholder value. Generate a real one: openssl rand -hex 32');
+      throw new Error('JWT_SECRET is a known placeholder/leaked value. Generate a real one: openssl rand -hex 32');
     }
-    if (isProd && fromEnv.length < MIN_SECRET_LENGTH) {
+    if (process.env.NODE_ENV === 'production' && fromEnv.length < MIN_SECRET_LENGTH) {
       throw new Error(`JWT_SECRET must be at least ${MIN_SECRET_LENGTH} characters in production.`);
     }
-    console.log('🔑 JWT secret source: JWT_SECRET env var');
-    cached = fromEnv; return cached;
+    cached = fromEnv;
+    return cached;
   }
-  // …existing production refusal / local-file fallback…
-}
-```
+  ```
 
-`k8s/secret.yaml` — remove the value entirely so a misconfigured cluster fails instead of silently working:
+  Leave the rest of the function (the production refusal when unset, `ALLOW_EPHEMERAL_JWT_SECRET`, and the
+  `.jwt-secret.local` generate-and-persist path) exactly as it is.
 
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: reqspace-web-secret
-type: Opaque
-# JWT_SECRET is intentionally NOT committed. Supply it from a SealedSecret or an
-# external secrets manager:
-#   kubectl create secret generic reqspace-web-secret --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
-# The pod must fail to start if it is missing — see server/src/utils/jwtSecret.ts.
-```
+  3. Strip the value from `k8s/secret.yaml`, leaving a comment that says where it comes from instead:
 
-Then: rotate the value everywhere this manifest was applied, and treat all existing sessions as
-compromised (they are signed with a public key) — invalidate them.
+  ```yaml
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: reqspace-web-secret
+  type: Opaque
+  # JWT_SECRET is intentionally NOT committed — the value that used to live here is public in this
+  # repo's history and is now rejected at startup by server/src/utils/jwtSecret.ts. Supply it from a
+  # SealedSecret or a secrets manager:
+  #   kubectl create secret generic reqspace-web-secret --from-literal=JWT_SECRET="$(openssl rand -hex 32)"
+  ```
 
-* **Done when:** jest tests assert `resolveJwtSecret()` throws for `change_me_in_production`, throws in
-  production for a 20-character secret, and succeeds for a 64-character one.
+  4. **Operational, for a human — do not automate:** generate and install a fresh secret in every
+     environment that ever applied this manifest. All old tokens then fail verification automatically,
+     which is the invalidation. **Do not rewrite git history** — rotation plus the blocklist is the correct
+     remediation, and a rewrite is destructive for every clone.
+* **Traps:**
+  * This changes behaviour deliberately: an insecure `JWT_SECRET` used to fall through to the generated
+    local file with a warning, and now it throws. A developer with `JWT_SECRET=changeme` in `.env` gets a
+    hard startup failure. Keep the throw; do not soften it to a warning.
+  * `grep -rn "reqspace-web-secret" k8s/` — a Deployment with a `secretKeyRef` and no `optional: true`
+    will leave the pod in `CreateContainerConfigError` once the key is gone. That is the intended
+    fail-closed behaviour, but whoever deploys needs to expect it.
+* **Done when:** jest asserts `resolveJwtSecret()` throws for `change_me_in_production`, throws in
+  production for a 20-character secret, and succeeds for a 64-character one; and
+  `grep -rn "change_me_in_production" k8s/` returns nothing.
+
+  Test note: `jwtSecret.ts` imports `'dotenv/config'`, so `server/.env` may already have populated
+  `process.env.JWT_SECRET`. Set it explicitly per case and `jest.resetModules()` between cases (the
+  function memoises into a module-level `cached`). Do not assert the generate-a-file branch in CI — it
+  writes `server/.jwt-secret.local`.
 
 ---
 
-## SEC-2 — Close the four remaining authorization holes
+## SEC-2 — Close the authorization holes on client-supplied parent ids
 
-* **Goal:** no route accepts a client-supplied parent id without checking membership.
-* **Why:** these four are reachable only by bypassing the UI, which is exactly why the UI test suite
-  never caught them.
+* **Status:** verified real — **four of the previous revision's six candidates are genuine, two are not** ·
+  **Size:** M · Write TEST-4's matrix first; it is this task's proof.
+* **Goal:** no route accepts a client-supplied parent id without checking membership on the resolved
+  workspace.
+* **Verified state:** `server/src/routes/importExport.ts` has **zero** `requireWorkspaceRole` calls — as do
+  `admin.ts`, `auth.ts`, `runner.ts`, `share.ts`, `localVariables.ts` and `users.ts`.
 
-| # | Where | Hole | Fix |
+| # | Where | Hole | Verdict |
 |---|---|---|---|
-| 1 | `routes/history.ts:80-106` `POST /api/history/:id/save` | Creates a request in a client-supplied `collectionId` with no check | Resolve collection → workspace, require `editor` |
-| 2 | `routes/importExport.ts:124` `POST /api/import/wsdl` | Creates a collection in a client-supplied `workspaceId`, no `requireWorkspaceRole` | `requireWorkspaceRole('editor')` |
-| 3 | `routes/importExport.ts:15-18` `GET /collections/:id/export` | Authenticated but no role check at all | Resolve workspace, require `viewer` |
-| 4 | `routes/importExport.ts:20-22` `POST /collections/import` | Stub with no checks | Require `editor` (or delete with FEAT-10) |
+| 1 | `routes/history.ts:89` `POST /history/:id/save` | Creates a request in a `collectionId` taken from the body at `:99`, with no role check | **real** |
+| 2 | `routes/importExport.ts:124` `POST /import/wsdl` | Writes a collection into the body's `workspaceId` at `:138-141` | **real** |
+| 3 | `routes/importExport.ts:15-18` `GET /collections/:id/export` | No role check — but returns a `{info:{name}, item:[]}` dummy, so it leaks only the collection **name** | **real but trivial**; FIX-1/FEAT-10 rewrite it anyway |
+| 4 | `routes/importExport.ts:20-22` `POST /collections/import` | No checks — but it is a pure stub that writes nothing | **real but inert**; delete the route |
+| 5 | `routes/importExport.ts:24` `POST /requests/import/curl` | Destructures `workspaceId` and never uses it; parses and returns, no write | **not a hole** |
+| 6 | `routes/importExport.ts:74` `POST /requests/import/raw-http` | Same shape as #5 | **not a hole** |
 
-#### Technical detail
-
-Add a reusable guard rather than repeating the resolution logic — `routes/collections.ts:40-54` already
-has this shape; extract it to `server/src/middleware/resolveWorkspace.ts` and use it in both places:
-
-```ts
-export function requireRoleOnCollection(minRole: UserRole) {
-  return async (req: AuthRequest, res: Response, next: NextFunction) => {
-    const collectionId = req.params.id ?? req.body.collectionId;
-    if (!collectionId || !isValidId(collectionId)) {
-      return res.status(400).json({ message: 'Invalid collection id' });
-    }
-    const collection = await CollectionRepository.findById(collectionId);
-    if (!collection) return res.status(404).json({ message: 'Collection not found' });
-    req.params.workspaceId = collection.workspaceId;
-    (req as any).resolvedWorkspaceId = collection.workspaceId;
-    if (req.user?.isSuperAdmin) return next();
-    return requireWorkspaceRole(minRole)(req, res, next);
-  };
-}
-```
-
-Then sweep for the same shape:
-
-```bash
-grep -n "req.body.workspaceId\|req.body.collectionId\|req.body.folderId" server/src/routes/*.ts
-```
-
-Every hit must be preceded by a role check on the resolved workspace.
-
-* **Done when:** `tests/api-authorization.spec.ts` covers all four as a non-member and asserts 403 — and
-  each test fails against the current code.
+  Also noted, not a hole: `routes/localVariables.ts:8,28` (`GET`/`PUT /:workspaceId`) have no role check,
+  but every row is scoped by `userId` **and** `workspaceId`, so a non-member can only read and write their
+  own row. Worth one line of comment, not a fix.
+* **Why:** these are reachable only by bypassing the UI, which is exactly why the browser suite never
+  caught them (see TEST-4 rule 2).
+* **Change:** the guard you need **already exists** — `checkPermission` at `server/src/routes/collections.ts:40-54`
+  has precisely the right shape. Extract it to `server/src/middleware/resolveWorkspace.ts` as
+  `requireRoleOnCollection(minRole)`, resolving `req.params.id ?? req.body.collectionId` → collection →
+  workspace, short-circuiting for `isSuperAdmin`, then delegating to `requireWorkspaceRole`. Do not write a
+  new one. Then sweep:
+  `grep -n "req.body.workspaceId\|req.body.collectionId\|req.body.folderId" server/src/routes/*.ts` — every
+  hit must be preceded by a role check on the **resolved** workspace.
+* **Done when:** TEST-4's matrix covers holes 1-4 as an authenticated non-member and asserts 403, and each
+  test fails against the current code.
 
 ---
 
 ## SEC-3 — Sandbox user scripts
 
+* **Status:** verified real · **Size:** L · Also the prerequisite for dropping `'unsafe-eval'` in SEC-10.
 * **Goal:** a pre-request or test script cannot read the user's session, tokens, cookies or DOM.
-* **Where:** `client/src/utils/scripts.ts:131,306` (`new Function(...)`), `client/src/sandbox/worker.ts`
-  (exists; referenced **only from a comment** at `RunnerModal.tsx:16`),
-  `client/src/components/response/ResponseViewer.tsx:376-381` and `:536-562`
-* **Why:** scripts currently run on the main thread with `window`, `document`, `localStorage` and the
-  app's authenticated axios instance in scope (`scripts.ts:175` hands `api` straight to `pm.sendRequest`).
-  A malicious test script in a shared collection can read the persisted bearer tokens (SEC-4) and issue
-  requests as the user. The visualizer iframe has **no `sandbox` attribute at all** and loads
-  `handlebars@latest` from jsDelivr.
-
-#### Technical detail
-
-1. **One sandbox, not two.** Keep `client/src/sandbox/worker.ts`; delete the `new Function` paths in
-   `scripts.ts`. Two half-built implementations is the current state and it is what let the gap persist.
-
-2. **Message protocol** — the worker never receives a live object, only data:
-
-```ts
-// host → worker
-{ type: 'run', phase: 'pre'|'test', script: string,
-  request: { method, url, headers, body },
-  response?: { status, statusText, headers, body, time },
-  variables: { environment: Record<string,string>, globals: Record<string,string>, collection: …, local: … } }
-
-// worker → host
-{ type: 'result',
-  variableWrites: Array<{ scope: 'environment'|'globals'|'collection'|'local', key: string, value: string }>,
-  testResults: Array<{ name: string, passed: boolean, error?: string }>,
-  consoleLines: Array<{ level: string, args: string[] }>,
-  visualizer?: { template: string, data: unknown } }
-
-// worker → host (async, during the run)
-{ type: 'sendRequest', id: string, request: { method, url, headers, body } }
-// host → worker
-{ type: 'sendRequestResult', id: string, response | error }
-```
-
-The host applies `variableWrites` to the stores **after** validating scope and key. The worker never
-touches the stores itself.
-
-3. **`pm.sendRequest`** becomes a message the host validates and routes through the SEC-0.2 transport —
-   an allowlisted channel, not a handed-over HTTP client. Enforce a per-run cap (e.g. 10 requests) so a
-   script cannot become a load generator.
-
-4. **Visualizer iframe** (`ResponseViewer.tsx:536`):
-
-```tsx
-<iframe
-  className="w-full h-full border-none"
-  title="visualizer"
-  sandbox="allow-scripts"     // ← scripts yes, same-origin NO. Never add allow-same-origin here.
-  srcDoc={...}
-/>
-```
-
-With `allow-scripts` and **without** `allow-same-origin` the frame gets an opaque origin: it can run
-Handlebars but cannot reach `parent`, `localStorage` or cookies.
-
-5. **Self-host Handlebars.** Replace
-   `<script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.min.js">` with a bundled
-   copy inlined into the `srcDoc`. `@latest` from a CDN is unpinned third-party code on the render path.
-
-6. **HTML preview iframe** (`ResponseViewer.tsx:380`): `sandbox="allow-same-origin"` → `sandbox=""`.
-   Scripts are already blocked (no `allow-scripts`), so `allow-same-origin` buys nothing and becomes an
-   origin grant the day someone adds scripts.
-
+* **Verified state:**
+  * `client/src/utils/scripts.ts:134` and `:312` run user scripts with
+    `new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script)` — **on the main thread**,
+    with `window`, `document` and `localStorage` in scope.
+  * `scripts.ts:8` imports the app's authenticated axios instance and hands it to `pm.sendRequest` at
+    `:175-178` (`api.post('/proxy', …)`). A script therefore has the user's session.
+  * `client/src/sandbox/worker.ts` **already exists** — 95 lines, with a working `pm` shim (environment,
+    globals, variables, request, response, test, expect, sendRequest) and its own `new Function` at `:77`.
+    **Nothing instantiates it:** `grep "new Worker" client/src` returns nothing, and the only reference is
+    a *comment* at `client/src/components/collection/RunnerModal.tsx:16`. It is dead code.
+  * `client/src/components/response/ResponseViewer.tsx:377-381` — the HTML preview iframe has
+    `sandbox="allow-same-origin"`. `:537-540` — the visualizer iframe has **no `sandbox` attribute at all**
+    and loads `handlebars@latest` from jsDelivr.
+* **Why:** a malicious test script in a shared collection can read whatever is in browser storage and issue
+  requests as the user. Two half-built sandboxes (the dead worker and the live `new Function`) is how this
+  gap survived.
+* **Change:**
+  1. **One sandbox, not two.** Keep `sandbox/worker.ts`, delete the `new Function` paths in `scripts.ts`.
+  2. The worker receives **data only** — never a live object. Host→worker: `{type:'run', phase, script,
+     request, response?, variables}`. Worker→host: `{type:'result', variableWrites, testResults,
+     consoleLines, visualizer?}`. Async: `{type:'sendRequest', id, request}` answered with
+     `{type:'sendRequestResult', id, response|error}`. The host validates scope and key before applying
+     `variableWrites`; the worker never touches a store.
+  3. `pm.sendRequest` becomes a message the host routes and caps (e.g. 10 requests per run) — an
+     allowlisted channel, not a handed-over HTTP client.
+  4. Visualizer iframe: add `sandbox="allow-scripts"` and **never** `allow-same-origin` — that combination
+     gives an opaque origin, so Handlebars runs but `parent`, `localStorage` and cookies are unreachable.
+  5. Self-host Handlebars instead of fetching `@latest` from a CDN on the render path (this is also SEC-10
+     blocker 3 — do them together).
+  6. HTML preview iframe: `sandbox="allow-same-origin"` → `sandbox=""`. Scripts are already blocked, so the
+     grant buys nothing and becomes a real origin grant the day someone adds `allow-scripts`.
+* **Traps:** there are **two** runner modals — `RunnerModal.tsx` and `CollectionRunnerModal.tsx`. The dead
+  worker comment is in the former; the live runner that calls `POST /api/proxy` is the latter. Know which
+  one you are editing. Note also that `server/src/routes/runner.ts` is a stub returning
+  `'Run started (stub)'` — the runner is entirely client-side, so there is no server counterpart to
+  sandbox.
 * **Done when:** a test script running
-  `pm.test('leak', () => { pm.expect(typeof localStorage).to.equal('undefined') })` passes, a script
-  calling `window.parent` fails, and a Playwright test asserts the visualizer frame cannot access `parent`.
+  `pm.test('leak', () => pm.expect(typeof localStorage).to.equal('undefined'))` passes, a script touching
+  `window.parent` fails, and a Playwright test asserts the visualizer frame cannot reach `parent`.
 
 ---
 
-## SEC-4 — Stop persisting credentials to `localStorage`
+## SEC-6 — Escape user input that reaches a query pattern
 
-* **Goal:** an XSS or a rogue script finds no tokens in browser storage.
-* **Where:** `client/src/store/requestStore.ts:327-328`, `client/src/store/settingsStore.ts:55,70`,
-  `client/src/store/cookieStore.ts:33`
-* **Why:** `partialize: (state) => ({ tabs: state.tabs, activeTabId: state.activeTabId })` persists every
-  tab **whole** — `auth.bearer.token`, `auth.basic.password`, every header value and every request body —
-  into `localStorage` under `request-storage`. `settingsStore` persists `proxyPassword` (removed by
-  SEC-0.4). `cookieStore` seeds a fake `sess_default_123`.
-
-#### Technical detail
-
-```ts
-// client/src/store/requestStore.ts
-const SENSITIVE_HEADER_KEYS = /^(authorization|proxy-authorization|cookie|x-api-key|api-key|x-auth-token)$/i;
-
-function stripSecrets(tab: ActiveRequest): ActiveRequest {
-  return {
-    ...tab,
-    auth: tab.auth ? { type: tab.auth.type } : undefined,      // keep the TYPE, drop every value
-    headers: (tab.headers ?? []).map(h =>
-      SENSITIVE_HEADER_KEYS.test(h.key) ? { ...h, value: '', needsReentry: true } : h),
-    body: tab._id ? undefined : tab.body,   // saved requests refetch their body; only unsaved keep it
-  };
-}
-
-persist(/* … */, {
-  name: 'request-storage',
-  version: 2,
-  migrate: (persisted: any, from: number) =>
-    from < 2 ? { ...persisted, tabs: (persisted.tabs ?? []).map(stripSecrets) } : persisted,
-  partialize: (state) => ({
-    tabs: state.tabs.map(stripSecrets),
-    activeTabId: state.activeTabId,
-  }),
-});
-```
-
-* The `version` + `migrate` pair matters: it wipes secrets already sitting in users' browsers from the
-  current build. Without it, the fix only protects new data.
-* On rehydrate, tabs with `_id` refetch their saved request from the server. Fields marked
-  `needsReentry` render with a visible "re-enter value" marker.
-* Electron: store saved credentials in the OS keychain (`safeStorage`) instead.
-* Delete the `sess_default_123` seed in `cookieStore.ts:33`.
-
-* **Done when:** a Playwright test fills a bearer token, reloads the page, and asserts the token appears
-  neither in `localStorage.getItem('request-storage')` nor anywhere in the DOM.
-
----
-
-## SEC-5 — Stop exporting unmasked secrets
-
-* **Where:** `server/src/routes/admin.ts:278,286` vs `maskConfigSecrets` at `:206`
-* **Why:** `GET /api/admin/export/:workspaceId` embeds the raw `SystemConfig` — SMTP password, Google
-  OAuth client secret, outbound proxy password — into a downloaded file, while `GET /api/admin/config`
-  eighty lines above masks exactly those fields. The file then lives in a downloads folder or a ticket.
-
-#### Technical detail
-
-```ts
-// server/src/routes/admin.ts — in GET /export/:workspaceId
-const dump = {
-  version: 1,
-  workspace,
-  collections,
-  folders,
-  requests,
-  environments,
-  // config removed: a workspace export must not carry instance-wide credentials.
-  // POST /import already ignores dump.config, so nothing consumes it.
-};
-```
-
-If the config must stay for some workflow, it goes through `maskConfigSecrets(config)` first — never raw.
-
-* **Done when:** an API test sets an SMTP password, exports a workspace, and asserts the password string
-  does not appear in the response body.
-
----
-
-## SEC-6 — Escape every user string that reaches a regex
-
-* **Where:** `server/src/routes/admin.ts:26-27` and `:174`,
-  `server/src/repositories/RequestRepository.ts:133`
-* **Why:** the earlier ReDoS fix landed only in `workspaces.ts` and `users.ts`. Global search goes through
-  `RequestRepository.searchInWorkspace`, which does `new RegExp(query, 'i')` on raw user input —
-  reachable by any logged-in user. A malformed pattern (`[`) throws a 500; a pathological one
-  (`((((a+)+)+)+)$`) pins a CPU core.
-
-#### Technical detail
-
-```ts
-// server/src/repositories/RequestRepository.ts
-import { escapeRegex } from '../utils/escapeRegex';
-
-const MAX_QUERY_LENGTH = 100;
-
-async searchInWorkspace(query: string, collectionIds: string[]): Promise<IRequestRecord[]> {
-  const q = String(query).slice(0, MAX_QUERY_LENGTH);
-  if (!q) return [];
-  // SQL side already uses Op.like, but escape the LIKE wildcards too:
-  const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
-  // …
-}
-```
-
-Same treatment in `admin.ts`:
-
-```ts
-if (search) {
-  const rx = new RegExp(escapeRegex(String(search).slice(0, 100)), 'i');
-  query.$or = [{ name: rx }, { email: rx }];
-}
-```
-
-* **Done when:** API tests send `((((a+)+)+)+)$` and `[` as the search term and get a 200 or 400 within one
-  second, with the process still responsive.
+* **Status:** **substantially downgraded.** The ReDoS vulnerability the previous revision described **no
+  longer exists** · **Size:** S
+* **Verified state:** `grep -rn "new RegExp" server/src` returns **zero matches** — the Mongo removal
+  (`36b3331`) deleted every `$regex` / `new RegExp` search path, including the `admin.ts` sites the previous
+  revision named (`admin.ts` has no search route at all now). There is no ReDoS vector and no
+  CPU-pinning test to write. What remains is unescaped `LIKE` wildcards and no length cap:
+  * `server/src/repositories/UserRepository.ts:102-119` — `{ [Op.like]: \`${query}%\` }`, reached by
+    `GET /api/users/search` (`server/src/routes/users.ts:8-15`, authenticated, any logged-in user). It
+    guards `q.length < 2` and has no upper bound.
+  * `server/src/repositories/RequestRepository.ts:101-113` — `{ [Op.like]: \`%${query}%\` }`. **Dead code:**
+    no route calls it; client global search filters the in-memory `collectionStore`
+    (`client/src/components/common/GlobalSearchModal.tsx`). Only `db.repositories.test.ts:293,298` reach it.
+  * `server/src/utils/escapeRegex.ts` is imported at `routes/users.ts:4` and **never called** — a dead
+    import that only compiles because the server tsconfig lacks `noUnusedLocals`.
+* **Why:** Sequelize parameterises the value, so this is not SQL injection. The real effects are that
+  `q = "%"` returns every row the caller can see, `_` matches any character, and an unbounded term makes a
+  large `LIKE` scan.
+* **Change:**
+  1. New `server/src/utils/escapeLike.ts` exporting `escapeLike(value)` — `value.replace(/[\\%_]/g, c => '\\' + c)` —
+     and `MAX_SEARCH_LENGTH = 100`.
+  2. `routes/users.ts`: read the query defensively and drop the dead import:
+     `const q = (typeof req.query.q === 'string' ? req.query.q : '').trim().slice(0, MAX_SEARCH_LENGTH);`
+     The `typeof` check matters — `?q[]=a&q[]=b` makes `req.query.q` an **array**, and the current
+     `req.query.q as string` then calls `.length` on it and stringifies it into the pattern.
+  3. Apply `escapeLike` + the cap **inside** both repository methods too, so a second caller cannot skip
+     it. Add `limit: 200` to `searchInWorkspace`.
+  4. **Decide and record:** `searchInWorkspace` is dead. Either keep it hardened (above) or delete it with
+     its two tests. Do not do both. Same decision for `escapeRegex.ts`, which has no callers left — an
+     orphan security util tends to get "reused" wrongly later.
+* **Traps:** `\` is the default LIKE escape on postgres, mysql and sqlite, but **mssql** uses `[]` bracket
+  escaping and has no default escape character, and `DB_TYPE` still accepts `mssql`
+  (`server/src/db/dbConfig.ts:4`). Either dialect-switch inside `escapeLike` via
+  `getSequelize().getDialect()` (six lines) or state in the code that LIKE escaping is only correct on the
+  three supported backends.
+* **Done when:** `GET /api/users/search?q=%25` returns only users whose name or email literally starts with
+  `%`, `?q[]=a&q[]=b` returns `[]` instead of throwing, and `npm test --prefix server` is green.
 
 ---
 
 ## SEC-7 — Stop leaking `dbError` to anonymous callers
 
-* **Where:** `server/src/index.ts:143-156` (the `/api` DB-down gate), rendered by `client/src/App.tsx:63`
-* **Why:** `/api/health` masks the error in production (`index.ts:135`), but the gate immediately below
-  returns the same raw string — which can contain a connection string with credentials — on **every** API
-  path, to unauthenticated callers, and the client prints it full-screen.
+* **Status:** verified real · **Size:** S · **The client half is not optional — read the trap.**
+* **Verified state:** `/api/health` **does** mask in production (`server/src/index.ts:132-136`:
+  `dbError: dbError ? (isProd ? 'Database unavailable' : dbError) : undefined`). The DB-down gate
+  immediately below it, `index.ts:144-157`, does **not** — it returns
+  `dbError: dbError || 'Database is not connected'` plus `dbType` on **every** `/api/*` path to
+  **unauthenticated** callers. `dbError` is assigned at `index.ts:260` from the failed `connectDb`'s
+  `err.message`, which routinely names host, port, database and user: this project's own debugging produced
+  `Access denied for user 'sql7837542'@'46.210.27.183' (using password: YES)`.
+* **Change:**
+  1. `server/src/index.ts:144-157` — mirror the health check:
 
-#### Technical detail
+  ```ts
+  const isProd = process.env.NODE_ENV === 'production';
+  return res.status(503).json({
+    message: 'Database not available',
+    dbError: isProd ? 'Database unavailable' : (dbError || 'Database is not connected'),
+    dbType: isProd ? undefined : dbType,
+    dbStatus,
+  });
+  ```
 
-```ts
-app.use('/api', (req, res, next) => {
-  if (req.path === '/health') return next();
-  if (dbStatus !== 'ok') {
-    const isProd = process.env.NODE_ENV === 'production';
-    return res.status(503).json({
-      message: 'Database not available',
-      dbError: isProd ? undefined : (dbError || 'Database is not connected'),
-      dbType: isProd ? undefined : dbType,
-      dbStatus,
+  Keep a masked **non-empty string** rather than dropping the key (the previous revision proposed
+  `undefined`) — see the trap.
+
+  2. `client/src/App.tsx:174-182` — stop requiring the body to carry a message:
+
+  ```ts
+  if (err.response?.status === 503) {
+    setDbError({
+      dbType: err.response.data?.dbType || 'unknown',
+      dbError: err.response.data?.dbError || 'The server cannot reach its database — check the server logs.',
     });
   }
-  next();
-});
-```
+  ```
+* **Traps:** `App.tsx:176` currently reads
+  `if (err.response?.status === 503 && err.response?.data?.dbError)`. If the server stops sending
+  `dbError`, that condition goes false, `setDbError` is never called, and the app silently falls through to
+  the login page against a dead API with no explanation at all — a worse user experience than the leak.
+  Change both sides in the same commit.
+* **Done when:** with `NODE_ENV=production` and an unreachable DB, `curl -i localhost:3005/api/collections`
+  returns 503 whose body contains neither the host, the user, nor driver text; the full-screen DB error
+  page still appears (check it in a browser, not only in a unit test); and in development the real message
+  is still shown.
 
-`client/src/App.tsx` renders `dbError` when present and a generic "The server cannot reach its database —
-check the server logs" when it is not.
-
-* **Done when:** a test booting with `NODE_ENV=production` and an unreachable DB asserts the response body
-  contains neither the connection string nor the driver error text.
+  Test shape: put the body builder in a new `server/src/utils/dbGate.ts` and unit-test it. Importing
+  `index.ts` runs `bootstrap()` at module scope, so testing it in place needs a live server.
 
 ---
 
 ## SEC-8 — Encrypt client certificates at rest
 
-* **Where:** `server/src/routes/auth.ts:294-314` (create), `:130-143` (`GET /me` returns them)
-* **Why:** `User.clientCertificates[]` stores the PEM private key and its passphrase in clear text, and
-  `GET /api/auth/me` returns the whole array — key material included — on every session check.
-
-#### Technical detail
-
-```ts
-// server/src/utils/cryptoBox.ts
-import crypto from 'crypto';
-
-const KEY = () => {
-  const raw = process.env.CERT_ENCRYPTION_KEY;
-  if (!raw || raw.length < 64) throw new Error('CERT_ENCRYPTION_KEY must be 32 bytes as 64 hex chars');
-  return Buffer.from(raw, 'hex');
-};
-
-export function seal(plain: string): string {
-  const iv = crypto.randomBytes(12);
-  const c = crypto.createCipheriv('aes-256-gcm', KEY(), iv);
-  const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
-  return [iv.toString('base64'), c.getAuthTag().toString('base64'), enc.toString('base64')].join('.');
-}
-
-export function open(sealed: string): string {
-  const [iv, tag, data] = sealed.split('.').map((s) => Buffer.from(s, 'base64'));
-  const d = crypto.createDecipheriv('aes-256-gcm', KEY(), iv);
-  d.setAuthTag(tag);
-  return Buffer.concat([d.update(data), d.final()]).toString('utf8');
-}
-```
-
-* `POST /certificates` seals `key` and `passphrase` before storing.
-* `GET /me` returns metadata only: `{ _id, hostname, createdAt }` — never `cert`, `key` or `passphrase`.
-* Decrypt only at the moment a certificate is handed to the Electron transport for a request.
-* Add `CERT_ENCRYPTION_KEY` to `server/.env.example` and to the README secrets inventory.
-
+* **Status:** verified real · **Size:** M
+* **Verified state:** `server/src/routes/auth.ts:294-314` stores `{hostname, cert, key, passphrase}` in
+  clear text, and `:140` (`GET /api/auth/me`) returns the **whole array** — PEM private key and passphrase
+  included — on every session check. Storage is the `users.clientCertificates` TEXT column
+  (`server/src/db/sql-models/index.ts:200`, added by migration `002`).
+* **Change:** a `server/src/utils/cryptoBox.ts` with AES-256-GCM `seal`/`open` keyed from
+  `CERT_ENCRYPTION_KEY` (32 bytes as 64 hex chars, validated at use). `POST /certificates` seals `key` and
+  `passphrase`; `GET /me` returns metadata only (`{ _id, hostname, createdAt }`) — never `cert`, `key` or
+  `passphrase`. Add `CERT_ENCRYPTION_KEY` to `server/.env.example` and the README secrets inventory.
+* **Traps:**
+  1. The previous revision said "decrypt only at the moment a certificate is handed to the Electron
+     transport" — **there is no Electron transport** (that is SEC-0.2, deferred). The only consumer today
+     is `server/src/routes/proxy.ts:60` (`req.user?.clientCertificates`). So either add the decrypt call
+     there now, or sequence SEC-8 after SEC-0.4 deletes that file. Decide before starting.
+  2. Narrowing `GET /me` changes a shape the client already renders:
+     `client/src/components/common/GlobalSettingsModal.tsx:11,28,40` reads `user.clientCertificates`. Update
+     it in the same commit or the settings screen breaks.
+  3. Existing rows are plaintext. The read path needs to tolerate both until a migration re-seals them —
+     and that migration needs `CERT_ENCRYPTION_KEY` present, so it must fail loudly rather than silently
+     skipping.
 * **Done when:** a repository test asserts the stored `key` is not the plaintext PEM, and an API test
   asserts `GET /api/auth/me` contains no `-----BEGIN` string.
 
@@ -1031,164 +507,225 @@ export function open(sealed: string): string {
 
 ## SEC-9 — Validate every request body with Zod
 
-* **Where:** `zod` is at `server/package.json:71` and imported **nowhere** in `server/src`
-* **Why:** the mass-assignment fixes so far are hand-written allowlists scattered across route handlers.
-  One missed field is one privilege escalation. `ajv` (v6) is also installed and unused.
+* **Status:** verified real · **Size:** L (33 routes) · Roll out per route group, one commit each.
+* **Verified state:** `zod` is at `server/package.json:73` and `grep "from 'zod'" server/src` returns
+  **nothing**. `ajv ^6.15.0` sits at `:43`, also unused. There is no `server/src/middleware/validate.ts`
+  (the middleware directory holds only `auth.ts`, `rateLimit.ts`, `rbac.ts`). The surface is **33**
+  `POST`/`PUT`/`PATCH` routes across `server/src/routes/*.ts`. `AuthRequest.user?: any` is confirmed at
+  `server/src/middleware/auth.ts:11`.
+* **Why:** the mass-assignment fixes so far are hand-written allowlists scattered through handlers. One
+  missed field is one privilege escalation.
+* **Change:** a `validate(schema)` middleware whose whole point is the reassignment —
 
-#### Technical detail
+  ```ts
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid request body', issues: … });
+  req.body = parsed.data;      // unknown keys are DROPPED, not merely ignored
+  ```
 
-```ts
-// server/src/middleware/validate.ts
-import { ZodSchema } from 'zod';
-
-export function validate(schema: ZodSchema) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({
-        message: 'Invalid request body',
-        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-      });
-    }
-    req.body = parsed.data;      // ← the point: unknown keys are DROPPED, not merely ignored
-    next();
-  };
-}
-```
-
-```ts
-// server/src/schemas/collections.ts
-import { z } from 'zod';
-
-export const updateCollectionSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(5000).optional(),
-  variables: z.array(z.object({
-    key: z.string().max(200), value: z.string().max(10_000), enabled: z.boolean().optional(),
-  })).max(500).optional(),
-  preRequestScript: z.string().max(100_000).optional(),
-  testScript: z.string().max(100_000).optional(),
-  order: z.number().int().min(0).optional(),
-}).strict();     // ← .strict() rejects workspaceId outright instead of silently dropping it
-```
-
-Roll-out order: SEC-2 routes → auth → admin → collections/environments/history.
-
-Also replace `AuthRequest.user?: any` (`middleware/auth.ts:11`) with a real type:
-
-```ts
-export interface AuthUser {
-  _id: string; email: string; name: string;
-  isSuperAdmin: boolean; status: 'active' | 'suspended';
-  mustChangePassword?: boolean; settings?: UserSettings; authType: AuthType;
-}
-export interface AuthRequest extends Request { user?: AuthUser; params: Record<string, string>; }
-```
-
-Then remove `ajv` from `package.json`.
-
-* **Done when:** a test walks the Express router stack and fails if any `POST`/`PUT`/`PATCH` route has no
-  `validate` middleware, and a test posting `{ name: 'x', workspaceId: '<other>' }` to
-  `PUT /api/collections/:id` gets 400.
+  plus per-resource schemas in `server/src/schemas/`, each `.strict()` so a foreign `workspaceId` is
+  **rejected** rather than silently dropped. Roll-out order: the SEC-2 routes → auth → admin →
+  collections/environments/history. Replace `AuthRequest.user?: any` with a real `AuthUser` interface while
+  you are in the file, then remove `ajv`.
+* **Traps:** the previous revision also proposed adding `params: Record<string, string>` to `AuthRequest` —
+  that is **already there** at `middleware/auth.ts:15`. Do not add it twice.
+* **Done when:** a test walks the Express router stack and fails if any `POST`/`PUT`/`PATCH` route lacks
+  `validate`, and posting `{ name: 'x', workspaceId: '<other>' }` to `PUT /api/collections/:id` returns 400.
 
 ---
 
 ## SEC-10 — Baseline HTTP hardening, the remaining half
 
-* **Where:** `server/src/index.ts:114` (`helmet({ contentSecurityPolicy: false })`),
-  `server/src/middleware/rateLimit.ts` (in-memory), `routes/auth.ts:14-15` (only login/register limited)
+* **Status:** verified real, **with three blockers that must be cleared first** · **Size:** M-L ·
+  **Do this last in the SEC section** — it is the only item here that can break the UI.
+* **Verified state:** `server/src/index.ts:115` is `app.use(helmet({ contentSecurityPolicy: false }))` —
+  no CSP, no HSTS. `server/src/middleware/rateLimit.ts` is an in-memory fixed-window limiter keyed strictly
+  by `req.ip`, applied to exactly three routes (`routes/auth.ts:14-15` → `/register`, `/login`,
+  `/google`). Nothing else in the API is throttled.
 
-#### Technical detail
+### SEC-10.0 — Blockers (verified; clear these before enabling any policy)
+
+1. **`new Function` is on two live paths.** `client/src/utils/scripts.ts:134` and `:312`, plus
+   `client/src/sandbox/worker.ts:77`. The previously proposed `scriptSrc: ["'self'", "'wasm-unsafe-eval'"]`
+   **does not permit `new Function`** — `'wasm-unsafe-eval'` covers WebAssembly compilation only. Scripts
+   would throw `EvalError` under that policy. Either ship with `'unsafe-eval'` (still blocks injected
+   remote scripts, inline handlers and plugins — most of the value) or block SEC-10 on SEC-3.
+   **Recommended: ship with `'unsafe-eval'` and a comment naming SEC-3 as what removes it.** Never ship a
+   policy that silently breaks scripts.
+2. **Monaco is fetched from a CDN at runtime.** `client/package.json` depends on `@monaco-editor/react@^4.7.0`
+   but **not** on `monaco-editor`, and `grep -rn "loader.config" client/src` finds nothing — so the loader
+   pulls `https://cdn.jsdelivr.net/npm/monaco-editor@*/min/vs/...` on demand. `script-src 'self'` breaks
+   **every** editor (`BodyEditor.tsx`, `ScriptEditor.tsx`, `ResponseViewer.tsx`). Fix it properly as part of
+   this item: `npm --prefix client install monaco-editor`, then once in `client/src/main.tsx`:
+
+   ```ts
+   import { loader } from '@monaco-editor/react';
+   import * as monaco from 'monaco-editor';
+   loader.config({ monaco });
+   ```
+
+   This also removes a live supply-chain dependency and makes the app work offline. Expect a much larger
+   bundle (Monaco is ~2-3 MB pre-gzip) — coordinate with PERF-7, which is the same file. Allowlisting
+   jsdelivr in `script-src` instead keeps the CDN trust and is **not** recommended.
+3. **The visualizer iframe needs the CDN and an inline script.**
+   `client/src/components/response/ResponseViewer.tsx:537-560` builds the frame with **`srcDoc`**, which
+   inherits the parent's CSP, and inside it loads `handlebars@latest` from jsDelivr plus an inline
+   `<script>` that compiles the user's template. Under any reasonable policy it breaks twice. Fix: add
+   `handlebars` as a client dependency, compile the template **in the parent**, and put only the resulting
+   HTML into a `sandbox=""` iframe with no scripts at all. This is the same work as SEC-3 step 5 — do them
+   together.
+4. **Hotlinked Google favicon.** `client/src/pages/LoginPage.tsx:83` and `RegisterPage.tsx:111` use
+   `https://www.google.com/favicon.ico`. Vendor a local `google.svg` into `client/public/` rather than
+   widening `img-src`.
+5. **Dev mode differs.** Vite's dev server uses inline scripts and a `ws://localhost:5173` HMR socket, and
+   helmet runs in dev too. Gate the strict policy on `NODE_ENV === 'production'`.
+
+### SEC-10.1 — CSP
+
+Replace `index.ts:115`:
 
 ```ts
+const isProd = process.env.NODE_ENV === 'production';
+
 app.use(helmet({
   contentSecurityPolicy: {
+    useDefaults: false,
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'wasm-unsafe-eval'"],   // Monaco needs wasm; no CDN after SEC-3
-      styleSrc: ["'self'", "'unsafe-inline'"],       // Tailwind injects styles
+      // 'unsafe-eval' is required by the script runner (client/src/utils/scripts.ts uses
+      // new Function). SEC-3 is what removes it; 'wasm-unsafe-eval' does NOT cover new Function.
+      scriptSrc: ["'self'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],          // Tailwind + inline <style> in App.tsx
       imgSrc: ["'self'", 'data:', 'blob:'],
-      connectSrc: ["'self'"],                        // the server never proxies now (SEC-0)
-      workerSrc: ["'self'", 'blob:'],                // Monaco + the script sandbox (SEC-3)
-      frameSrc: ["'self'"],
+      connectSrc: isProd ? ["'self'"] : ["'self'", 'ws:', 'wss:', 'http://localhost:5173'],
+      workerSrc: ["'self'", 'blob:'],
+      frameSrc: ["'self'", 'blob:'],                    // srcDoc frames are opaque-origin
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
+      frameAncestors: ["'self'"],
     },
   },
-  hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true } : false,
+  hsts: isProd ? { maxAge: 15552000, includeSubDomains: false } : false,
 }));
 ```
 
-Rate limiting — extend beyond login/register and key by user as well as IP:
+**Ship it `reportOnly: true` first.** Click through every screen — editors, visualizer, runner, admin,
+share page, OAuth — collect violations from the console, then flip to enforcing. This is the
+highest-value step in the item.
+
+HSTS: start at 180 days and leave `includeSubDomains` **off** for the first rollout. HSTS is cached by
+browsers and cannot be undone remotely, and this deployment is reached over a Tailscale Funnel hostname
+where a mistake is awkward to reverse. Raise it once the header has been live and stable.
+
+### SEC-10.2 — Rate limiting beyond login
+
+Add an optional `keyBy` to `rateLimit` (defaulting to the current `req.ip`), then in `index.ts`, after the
+DB gate and before the route mounts:
 
 ```ts
-const mutationLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 300,
-  keyBy: (req) => (req as AuthRequest).user?._id ?? req.ip,
-});
+const mutationLimiter = rateLimit({ windowMs: 60_000, max: 300, message: 'Too many requests — please slow down.' });
 app.use('/api', (req, res, next) =>
   ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? mutationLimiter(req, res, next) : next());
 ```
 
-Then move the store behind an interface so Redis backs it when SOCK-3 lands — an in-memory limiter does
-nothing across replicas.
-
-* **Done when:** a test asserts the CSP header is present, the app loads with zero CSP violations in the
-  console, and the 301st mutation in a minute returns 429.
+* **Traps:**
+  1. The previous revision proposed `keyBy: (req) => (req as AuthRequest).user?._id ?? req.ip` **at this
+     mount point**. That cannot work: this middleware runs before any router's `authenticate`, so
+     `req.user` is always `undefined` and the limiter silently degrades to IP-keying. Accept IP-keying here
+     (`app.set('trust proxy', …)` is configured at `index.ts:109`, so `req.ip` is the real client IP), or
+     mount a user-keyed limiter **inside** routers after `authenticate`. Never key by an unverified token
+     claim — a forged `sub` would let an attacker choose someone else's bucket.
+  2. **Validate the threshold against the collection runner before shipping.** It issues bursts of writes,
+     and an office behind one NAT shares an IP. A limiter that fires on legitimate use gets ripped out
+     wholesale in a panic, which is worse than not having one.
+  3. In-memory means per-process. With `replicas: 2` the effective limit is double and inconsistent — the
+     real fix shares SOCK-3's Redis.
+* **Done when:** the CSP header is present in production, the console is violation-free across every screen
+  listed above, Monaco loads with the network offline (proving it is bundled), the 301st write in a minute
+  returns 429, and a full collection-runner execution does **not**.
 
 ---
 
 ## SEC-11 — OAuth `state` / CSRF
 
-* **Where:** `server/src/routes/auth.ts:183-268`, `client/src/pages/OAuthCallbackPage.tsx`
-* **Why:** `redirect_uri` is now allowlisted, but there is no `state`, so a login-CSRF (attacker's code
-  redeemed in the victim's browser, silently logging them into the attacker's account) is still possible.
+* **Status:** verified real · **Size:** S-M
+* **Verified state:** `grep -n "state" server/src/routes/auth.ts` finds no OAuth state anywhere.
+  `POST /api/auth/google` (`:183-268`) takes `{ code, redirectUri }`, allowlists `redirectUri` against
+  `GOOGLE_ALLOWED_REDIRECT_URIS` (`:193-198`), exchanges the code and sets the session cookie. The
+  authorize URL is built **on the client in two places** — `client/src/pages/LoginPage.tsx:33-34` and
+  `RegisterPage.tsx:34-35` — from `config.googleOAuth.clientId`, served by the public
+  `GET /api/auth/config` (`routes/auth.ts:146-157`). `client/src/pages/OAuthCallbackPage.tsx` reads only
+  `code` and posts `{ code, redirectUri }`.
+* **Why:** an attacker completes their own authorize flow, captures their `code`, and gets a victim to load
+  `/auth/google/callback?code=<attacker_code>`. The victim's browser posts it, the server exchanges it, and
+  the victim is silently logged into the **attacker's** account, where the attacker can read everything the
+  victim then creates. Nothing today ties a callback to a flow the victim started.
+* **Change:** keep URL construction on the client and add a state-issuing endpoint (smaller than moving the
+  whole authorize URL server-side, and the standard double-submit-cookie mitigation).
 
-#### Technical detail
+  1. `GET /api/auth/state` — issue a one-time token and set it as an httpOnly cookie:
 
-```ts
-// GET /api/auth/google/start — new route
-const state = crypto.randomBytes(32).toString('hex');
-res.cookie('oauth_state', state, {
-  httpOnly: true, secure: cookieSecure(), sameSite: 'lax', path: '/', maxAge: 10 * 60 * 1000,
-});
-return res.json({ state, authUrl: buildGoogleAuthUrl(state) });
+  ```ts
+  const state = crypto.randomBytes(32).toString('hex');
+  res.cookie('oauth_state', state, {
+    httpOnly: true, secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax', path: '/', maxAge: 10 * 60 * 1000,
+  });
+  return res.json({ state });
+  ```
 
-// POST /api/auth/google — verify before anything else
-const cookieState = req.cookies?.oauth_state;
-if (!cookieState || !req.body.state || cookieState !== req.body.state) {
-  return res.status(400).json({ message: 'Invalid OAuth state' });
-}
-res.clearCookie('oauth_state', { path: '/' });
-```
+  `sameSite: 'lax'` is **required**, not `'strict'`: the callback arrives via a top-level cross-site
+  redirect from Google, and a `strict` cookie is not sent on that navigation. Mirror the other attributes
+  from `authCookieOptions()` (`server/src/middleware/auth.ts:37-44`) exactly — `clearCookie` only removes a
+  cookie whose attributes match.
 
-Client: call `/start`, keep `state` in memory, send it back from the callback page.
+  2. `POST /api/auth/google` — verify **before the code is exchanged**, and clear the cookie either way so
+     a leaked state cannot be replayed:
 
-* **Done when:** an API test posting to `/api/auth/google` with no `oauth_state` cookie, and one with a
-  mismatched value, both get 400.
+  ```ts
+  const cookieState = req.cookies?.oauth_state;
+  const ok = typeof state === 'string' && typeof cookieState === 'string' &&
+    state.length === cookieState.length &&
+    crypto.timingSafeEqual(Buffer.from(state), Buffer.from(cookieState));
+  res.clearCookie('oauth_state', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/' });
+  if (!ok) return res.status(400).json({ message: 'Invalid OAuth state' });
+  ```
+
+  (`timingSafeEqual` throws on length mismatch, hence the explicit length check. `cookieParser()` is
+  already mounted at `index.ts:121`.)
+
+  3. Client: both pages fetch `/auth/state` and append `&state=...` to the URL they already build. Extract
+     a shared `startGoogleOAuth(config)` helper so the two copies cannot drift. Wrap the fetch in
+     try/catch and show an error — **never** fall back to launching the flow without `state`, or the check
+     is bypassed by making one request fail.
+  4. `OAuthCallbackPage.tsx`: read `state` from the query string (Google echoes it) and include it in the
+     POST. Do not try to carry it in React state or `sessionStorage` — the browser leaves the app entirely
+     and returns on a fresh page load.
+* **Done when:** API tests assert 400 for a missing cookie and for a mismatched value, two `/state` calls
+  return different values, and a matching state proceeds past the check (assert the 403
+  "Google OAuth is disabled" with OAuth off — that proves the state check passed). Then confirm a real
+  Google login still works in a browser, and that hand-editing `state` in the callback URL shows the error
+  screen instead of logging in.
+
+  Test note: these routes sit behind `loginLimiter` (15 per 15 min per IP). Keep the suite under that.
 
 ---
 
 ## SEC-12 — Remove the NTLM auth option
 
-* **Where:** `client/src/components/request/AuthEditor.tsx:13,182-220`,
-  `client/src/components/request/UrlBar.tsx:172-178`, `client/src/store/requestStore.ts:22,27`
-* **Why:** the UI collects a domain username and password and sends them as
-  `x-reqspace-ntlm-username` / `-password` / `-domain` / `-workstation` headers. **Nothing reads them** —
-  `grep -ri ntlm server/src` returns no matches. The handshake never happens; the user's domain
-  credentials are simply transmitted in clear custom headers to whatever host they typed. NTLM is in
-  `IGNORE.md`, so the fix is removal.
-
-#### Technical detail
-
-1. `requestStore.ts:22` — drop `'ntlm'` from the union; `:27` — delete the `ntlm?` field.
-2. `AuthEditor.tsx:13` — remove the `AUTH_TYPES` entry; `:182-220` — delete the panel.
-3. `UrlBar.tsx:172-178` — delete the branch.
-4. Migrate on read: any stored request with `auth.type === 'ntlm'` becomes `{ type: 'none' }` — add it to
-   the `requestStore` migration from SEC-4 (bump to `version: 3`).
-
+* **Status:** verified real, **deferred by the owner on 2026-09-25** — the half-built UI stays for now.
+  Recorded here so it is not rediscovered as a new finding. `IGNORE.md` lists NTLM as declined and points
+  at this task as the removal.
+* **Verified state:** the UI collects a domain username and password and sends them as
+  `x-reqspace-ntlm-username` / `-password` / `-domain` / `-workstation` headers.
+  **Nothing reads them** — `grep -ri ntlm server/src` returns no matches. The handshake never happens; the
+  user's domain credentials are simply transmitted in clear custom headers to whatever host they typed.
+* **Change when resumed:** drop `'ntlm'` from the `RequestAuth` union and delete the `ntlm?` field
+  (`client/src/store/requestStore.ts:22,27`); remove the `AUTH_TYPES` entry and panel
+  (`client/src/components/request/AuthEditor.tsx:13`, `:182-220`); delete the branch in
+  `UrlBar.tsx:172-178`; and migrate on read — any stored request with `auth.type === 'ntlm'` becomes
+  `{ type: 'none' }`, added to the existing `requestStore` persist migration (bump to `version: 2`).
 * **Done when:** `grep -ri ntlm client/src server/src` returns nothing and a request saved with NTLM auth
   loads as "No Auth".
 
@@ -1196,303 +733,248 @@ Client: call `/start`, keep `state` in memory, send it back from the callback pa
 
 # FIX — Broken in place
 
-## FIX-1 — Admin export exports nothing
+Numbering note: FIX-2 and FIX-3 are absent because they shipped. See
+[Removed](#removed-on-2026-09-25). Their numbers are not reused, so old commit messages stay meaningful.
 
-* **Where:** `server/src/routes/admin.ts:274-277` (export) and `:308-311` (import)
-* **Why:** it queries `Folder.find({ workspaceId })` and `ApiRequest.find({ workspaceId })`, but **neither
-  model has a `workspaceId` field** — `models/Folder.ts` is scoped by `collectionId`, `models/Request.ts`
-  likewise (confirmed: `grep -n workspaceId server/src/models/` lists only Collection, Environment,
-  History, SharedLink). Both queries always return `[]`. The export therefore contains collections and
-  environments and **zero folders and zero requests**, and the import writes a `workspaceId` field that
+## FIX-1 — Admin workspace export throws, and import silently orphans everything
 
-#### Technical detail — export
+* **Status:** verified real, **and worse than the previous revision claimed** · **Size:** M
+* **Goal:** export a workspace and import it into another, producing an identical tree.
+* **Verified state — export is a 500, not an empty result.** `server/src/routes/admin.ts:55-66`. The
+  previous revision said the folder and request queries "always return `[]`". They don't: `SqlFolder` and
+  `SqlRequest` have **no `workspaceId` attribute** at all (`server/src/db/sql-models/index.ts:232-244` and
+  `:246-272` — they are scoped by `collectionId` / `folderId`), so `admin.ts:59` and `:60` emit invalid SQL.
+  Verified empirically against sqlite:
 
-```ts
-const collections = await Collection.find({ workspaceId }).lean();
-const collectionIds = collections.map((c) => c._id);
+  ```
+  FOLDERS      -> THREW: SequelizeDatabaseError | SQLITE_ERROR: no such column: SqlFolder.workspaceId
+  REQUESTS     -> THREW: SequelizeDatabaseError | SQLITE_ERROR: no such column: SqlRequest.workspaceId
+  COLLECTIONS  -> OK, rows = 0
+  ```
 
-const folders     = await Folder.find({ collectionId: { $in: collectionIds } }).lean();
-const requests    = await ApiRequest.find({ collectionId: { $in: collectionIds } }).lean();
-const environments = await Environment.find({ workspaceId }).lean();
-```
+* **Verified state — import writes invisible rows.** `admin.ts:68-80`. Each `bulkCreate` passes
+  `{ ...c, workspaceId, id: undefined }`, so Sequelize applies the model's `defaultValue: uuidv4` and the
+  collection gets a **new** id — while the folders and requests keep their **old** `collectionId` /
+  `folderId`. Every child is orphaned. Verified empirically:
 
-#### Technical detail — import (id remapping is the part that is easy to get wrong)
+  ```
+  new collection id   : 0489c598-…   (old was OLD-COL-1)
+  folder.collectionId : OLD-COL-1     ORPHANED: true
+  folder has workspaceId attr? false  ← silently dropped, no error
+  ```
 
-```ts
-const idMap = new Map<string, string>();       // old id → new id
+  The endpoint returns 200. Nothing tells the operator that the import produced unreachable rows.
+* **Why:** this is the admin disaster-recovery path. It is worse than missing, because it reports success.
+* **Change:**
+  1. **Export:** query children by their real parent, and add a `version`:
 
-for (const c of dump.collections ?? []) {
-  const created = await CollectionRepository.create({ ...stripIds(c), workspaceId });
-  idMap.set(String(c._id), String(created._id));
-}
+  ```ts
+  const collections = await SqlCollection.findAll({ where: { workspaceId }, raw: true });
+  const collectionIds = collections.map(c => c.id);
+  const [folders, requests, environments] = await Promise.all([
+    SqlFolder.findAll({ where: { collectionId: { [Op.in]: collectionIds } }, raw: true }),
+    SqlRequest.findAll({ where: { collectionId: { [Op.in]: collectionIds } }, raw: true }),
+    SqlEnvironment.findAll({ where: { workspaceId }, raw: true }),
+  ]);
+  const dump = { version: 1, workspace, collections, folders, requests, environments };
+  ```
 
-// Folders must be inserted parents-first so parentFolderId can be remapped.
-for (const f of topologicalByParent(dump.folders ?? [])) {
-  const created = await FolderRepository.create({
-    ...stripIds(f),
-    collectionId:   idMap.get(String(f.collectionId))!,
-    parentFolderId: f.parentFolderId ? idMap.get(String(f.parentFolderId)) ?? null : null,
-  });
-  idMap.set(String(f._id), String(created._id));
-}
+  Guard `collectionIds.length === 0` before the `Op.in` (an empty `IN ()` is invalid on some dialects).
 
-for (const r of dump.requests ?? []) {
-  await RequestRepository.create({
-    ...stripIds(r),
-    collectionId: idMap.get(String(r.collectionId))!,
-    folderId:     r.folderId ? idMap.get(String(r.folderId)) ?? null : null,
-    createdBy:    String(req.user!._id),
-  });
-}
-```
+  2. **Import:** remap ids explicitly, parents first, and reject a dump without `version`:
 
-Also: add `version: 1` to the export and reject an import without it. Use the repositories, not the
+  ```ts
+  const idMap = new Map<string, string>();               // old id → new id
 
+  for (const c of dump.collections ?? []) {
+    const created = await CollectionRepository.create({ ...withoutId(c), workspaceId });
+    idMap.set(String(c.id), String(created.id));
+  }
+  // Folders parents-first, so parentFolderId can be remapped.
+  for (const f of topologicalByParent(dump.folders ?? [])) {
+    const created = await FolderRepository.create({
+      ...withoutId(f),
+      collectionId:   idMap.get(String(f.collectionId))!,
+      parentFolderId: f.parentFolderId ? idMap.get(String(f.parentFolderId)) ?? null : null,
+    });
+    idMap.set(String(f.id), String(created.id));
+  }
+  for (const r of dump.requests ?? []) {
+    await RequestRepository.create({
+      ...withoutId(r),
+      collectionId: idMap.get(String(r.collectionId))!,
+      folderId:     r.folderId ? idMap.get(String(r.folderId)) ?? null : null,
+      createdBy:    String(req.user!._id),
+    });
+  }
+  ```
+
+  Fail the whole import (ideally in a transaction) if any `idMap.get` misses — a dump referencing an
+  unknown parent is corrupt, and half-importing it is how you get the current situation.
+* **Traps:**
+  1. The previous revision's snippet was **Mongo-era**: `Collection.find({...}).lean()`,
+     `CollectionRepository.create` with Mongo semantics, and two helpers — `stripIds` and
+     `topologicalByParent` — that **do not exist anywhere in the repo**. The id-remapping *logic* is
+     correct; the API is not. Write both helpers (`withoutId`, `topologicalByParent`) as part of this task.
+  2. Go through the repositories, not the `Sql*` models, for the writes — rule 6.
+  3. The import currently reads `dump.workspace` and `dump.environments` with no validation at all. Pair
+     this with SEC-9 or at minimum check `version`, types and array lengths.
 * **Done when:** a round-trip test exports a workspace containing 2 collections, 3 nested folders and 5
-  requests, imports it into a fresh workspace, and asserts the resulting tree — names, nesting and
-  order — matches the source exactly.
+  requests, imports it into a fresh workspace, and asserts the resulting tree — names, nesting and order —
+  matches the source exactly; plus a test asserting a dump with a dangling `parentFolderId` is rejected
+  rather than partially applied.
 
 ---
 
+## FIX-4 — Every history row renders "Invalid Date"
+
+* **Status:** verified real · **Size:** XS · **Not in the previous revision of this file.**
+* **Verified state:** `client/src/components/history/HistorySidebar.tsx:191` renders
+  `new Date(item.executedAt)`, but no server response ever emits `executedAt` —
+  `grep -rn "executedAt" server/src` returns nothing, and the history model and route use **`createdAt`**
+  (`server/src/db/sql-models/index.ts:288-298`).
+* **Why:** the timestamp column of the history sidebar is broken for every user, on every row, always.
+* **Change:** render `item.createdAt`. Check the rest of the component for the same assumption, and check
+  whether any client-side type declares `executedAt` — if so, fix the type rather than casting at the call
+  site.
+* **Traps:** PERF-3 wants a history cursor over this same field. Settle on `createdAt` here first so both
+  tasks agree, and do not "fix" it by adding an `executedAt` alias on the server — that would leave two
+  names for one column.
+* **Done when:** a test asserts a freshly created history entry renders a parseable date, not
+  "Invalid Date".
+
 ---
 
-## FIX-3 — Add real migrations
+## FIX-5 — `GET /api/auth/config` advertises self-registration that the server refuses
 
-* **Where:** `server/src/db/connect.ts:38` — `await sq.sync(isProd ? {} : { alter: true })`
-* **Why:** `sync({})` creates **missing tables**. It does not add an index or a column to a table that
-  already exists. Every index declared in `server/src/db/sql-models/index.ts` (lines 199, 215, 229,
-  253-257, 266, 284, 294) is therefore absent on any database created before those declarations landed —
-  which is exactly the long-lived, large database that needs them.
-
-#### Technical detail
-
-```ts
-// server/src/db/migrations/001-indexes.ts
-import { QueryInterface } from 'sequelize';
-
-export async function up({ context: qi }: { context: QueryInterface }) {
-  const add = async (table: string, fields: string[], name: string) => {
-    try { await qi.addIndex(table, fields, { name }); }
-    catch (e: any) { if (!/already exists|duplicate/i.test(e.message)) throw e; }
-  };
-  await add('collections', ['workspaceId'],                          'idx_collections_workspace');
-  await add('collections', ['workspaceId', 'order'],                 'idx_collections_workspace_order');
-  await add('folders',     ['collectionId'],                         'idx_folders_collection');
-  await add('folders',     ['collectionId', 'parentFolderId'],       'idx_folders_collection_parent');
-  await add('requests',    ['collectionId'],                         'idx_requests_collection');
-  await add('requests',    ['folderId'],                             'idx_requests_folder');
-  await add('requests',    ['collectionId', 'folderId', 'order'],    'idx_requests_collection_folder_order');
-  await add('environments',['workspaceId'],                          'idx_environments_workspace');
-  await add('history',     ['userId', 'workspaceId'],                'idx_history_user_workspace');
-  await add('history',     ['createdAt'],                            'idx_history_created');
-  await add('audit_logs',  ['userId'],                               'idx_audit_user');
-  await add('audit_logs',  ['targetId'],                             'idx_audit_target');
-  await add('workspaces',  ['ownerId'],                              'idx_workspaces_owner');
-}
-```
-
-Wire `umzug` in `connect.ts`, before `sync`:
-
-```ts
-const umzug = new Umzug({
-  migrations: { glob: 'dist/db/migrations/*.js' },
-  context: sq.getQueryInterface(),
-  storage: new SequelizeStorage({ sequelize: sq }),
-  logger: console,
-});
-await umzug.up();                       // fail fast — do not swallow
-await sq.sync(process.env.NODE_ENV === 'production' ? {} : { alter: true });
-```
-
-``
-
-Add `"migrate": "node dist/db/migrate.js"` to `server/package.json` scripts.
-
-* **Done when:** a test that boots against a database created **without** the index declarations asserts
-  every index in the list above exists afterwards. Verify manually once per dialect:
-  `psql -c '\di'`, `SHOW INDEX FROM requests;`, `PRAGMA index_list(requests);`,
-  `db.requests.getIndexes()`.
+* **Status:** verified real · **Size:** XS
+* **Verified state:** `server/src/routes/auth.ts:152` returns `allowSelfRegistration: true` **hardcoded**,
+  while `POST /api/auth/register` (`:20`) enforces the real
+  `config?.auth?.allowSelfRegistration`.
+* **Why:** with self-registration disabled, the client still shows the Register screen, the user fills the
+  form, and the server answers 403. It reads as a bug in the product rather than a deliberate policy.
+* **Change:** `allowSelfRegistration: config?.auth?.allowSelfRegistration ?? false`.
+* **Traps:** the register-route half of this may already be in the working tree uncommitted — check
+  `git status` before editing, and see the note in [Working-tree state](#working-tree-state).
+* **Done when:** an API test sets `allowSelfRegistration: false`, reads `GET /api/auth/config`, and asserts
+  the flag is `false`; and the client hides the Register link in that state.
 
 ---
 
 # PERF — Efficiency at 10k workspaces / 100k collections / 100k requests
 
-Every item below is a measured defect at the target scale. Each task must report a number: queries
-issued, rows touched, bytes transferred, milliseconds.
+Every item below is a measured defect at the target scale. Each task must report a number: queries issued,
+rows touched, bytes transferred, milliseconds.
 
 ## PERF-0 — Build the scale harness first
 
-* **Goal:** nothing below can be verified without realistic data. **Do this before optimising anything.**
-* **Where:** new `scripts/seed-scale.ts`, `scripts/measure.ts`
+* **Status:** verified real — nothing exists · **Size:** M · **Blocks every other PERF item and TEST-6.**
+* **Verified state:** no `scripts/seed-scale.ts`, no `scripts/measure.ts`, no `seed` or `measure` npm
+  script. `scripts/` contains only `clean-scratch-files.sh` and `smoke-core.sh`.
+* **Change:** a bulk seeder (`bulkCreate` in batches of 1000, never through the API) and a measurement
+  harness that **counts queries**, not just milliseconds:
 
-#### Technical detail
+  ```ts
+  let queryCount = 0;
+  sequelize.options.logging = () => { queryCount++; };
+  ```
 
-```ts
-// scripts/seed-scale.ts — bulk insert, never through the API
-// Usage: DB_TYPE=sqlite npx ts-node scripts/seed-scale.ts --workspaces=10000 --collections-per-ws=10 \
-//                                                          --requests-per-collection=10 --users=200
-// Insert in batches of 1000. Use insertMany / bulkCreate. Expect minutes, not seconds.
-```
-
-Targets: 10,000 workspaces · 100,000 collections · 100,000+ requests · 200 users with mixed roles ·
-50,000 history rows. Make it idempotent and parameterised so a laptop can run `--workspaces=100`.
-
-```ts
-// scripts/measure.ts — count queries, not just time
-import { Sequelize } from 'sequelize';
-let queryCount = 0;
-sequelize.options.logging = () => { queryCount++; };
-
-async function scenario(name: string, fn: () => Promise<void>) {
-  queryCount = 0;
-  const t0 = performance.now();
-  await fn();
-  console.log(`${name}: ${(performance.now() - t0).toFixed(0)}ms, ${queryCount} queries`);
-}
-```
-
-Record a baseline table in this task for: login → list workspaces → open a workspace → expand a
-collection → open a request → send → list history.
-
-* **Done when:** `npm run seed:scale && npm run measure` prints the baseline on sqlite and postgres, and
-  the numbers are pasted into this task.
+  Targets: 10,000 workspaces · 100,000 collections · 100,000+ requests · 200 users with mixed roles ·
+  50,000 history rows. Idempotent and parameterised, so a laptop can run `--workspaces=100`.
+* **Why the query count matters more than the clock:** a millisecond figure is machine- and
+  load-dependent, which is exactly why `tests/e2e/api-perf.spec.ts`'s single 100 ms assertion is useless. A
+  query count is stable and catches the actual defect class (N+1).
+* **Done when:** `npm run seed:scale && npm run measure` prints a baseline on sqlite **and** postgres for
+  login → list workspaces → open a workspace → expand a collection → open a request → send → list history,
+  and the numbers are pasted into this task.
 
 ---
 
 ## PERF-1 — Opening a workspace issues 1 + 2×N HTTP requests
 
-* **This is the single worst performance defect in the product.**
-* **Where:** `client/src/store/collectionStore.ts:99-140` (`fetchCollectionsData`)
-* **Why:** it fetches the collection list, then does **two HTTP requests per collection** — folders and
-  requests — in a `Promise.all` over every collection:
+* **Status:** verified real · **Size:** M · **The single worst performance defect in the product.**
+* **Verified state:** `client/src/store/collectionStore.ts:117` fetches the collection list, then `:127-130`
+  runs a `Promise.all` over every collection issuing **two** requests each —
+  `api.get('/collections/:id/folders')` and `/requests`. A workspace with 200 collections therefore fires
+  **401 HTTP requests** on open, and again on every socket event and every window focus (SOCK-1). Each one
+  runs `checkPermission` → `resolveWorkspaceId` → 1-2 DB reads (PERF-4 #2).
+* **Change — part 1, one batched endpoint** (a stop-gap that is one line for the client):
 
-```ts
-await Promise.all(serverCols.map(async (col) => {
-  const [fRes, rRes] = await Promise.all([
-    api.get(`/collections/${col._id}/folders`),
-    api.get(`/collections/${col._id}/requests`),
-  ]);
-  // …
-}));
-```
-
-A workspace with 200 collections fires **401 HTTP requests**, in parallel, on open — and again on every
-socket event and every window focus (SOCK-1). At 100k collections this is unusable, and each of those
-requests runs `checkPermission` → `resolveWorkspaceId` → 1-2 DB reads (PERF-4).
-
-#### Fix, in two parts
-
-**Part 1 — one batched endpoint** (a stop-gap that is one line for the client and removes 2N round-trips):
-
-```ts
-// server/src/routes/collections.ts
-router.get('/workspaces/:workspaceId/tree',
-  requireWorkspaceRole('viewer'),
-  async (req: AuthRequest, res: Response) => {
+  ```ts
+  // server/src/routes/collections.ts
+  router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), async (req, res) => {
     const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId, { limit: 200 });
-    const ids = collections.map((c) => c._id);
+    const ids = collections.map(c => c._id);
     const [folders, requests] = await Promise.all([
-      FolderRepository.findByCollections(ids),      // new: ONE query with $in / Op.in
-      RequestRepository.findByCollections(ids, { summaryOnly: true }),
+      FolderRepository.findByCollections(ids),
+      RequestRepository.findByCollections(ids, { summaryOnly: true }),   // PERF-6 projection
     ]);
     return res.json({ collections, folders, requests });
   });
-```
+  ```
 
-New repository methods (mirroring the existing `findByCollection`):
-
-```ts
-// server/src/repositories/RequestRepository.ts
-async findByCollections(collectionIds: string[], opts?: { summaryOnly?: boolean }) {
-  if (!collectionIds.length) return [];
-  const projection = opts?.summaryOnly
-    ? { _id: 1, collectionId: 1, folderId: 1, name: 1, method: 1, order: 1 }   // PERF-6
-    : undefined;
-  const { Op } = await import('sequelize');
-  return (await SqlRequest.findAll({
-    where: { collectionId: { [Op.in]: collectionIds } },
-    attributes: opts?.summaryOnly ? ['id','collectionId','folderId','name','method','order'] : undefined,
-    order: [['order', 'ASC']],
-  })).map(sqlToRecord);
-}
-```
-
-**Part 2 — lazy loading** (PERF-2). Part 1 alone still sends the whole tree; it is a bridge, not the
-destination.
-
-* **Done when:** `measure.ts` shows opening a workspace with 200 collections issuing **1** HTTP request
-  and **≤ 3** DB queries.
+* **Change — part 2:** PERF-2. Part 1 alone still ships the whole tree; it is a bridge, not the destination.
+* **Traps:** `FolderRepository.findByCollections` and `RequestRepository.findByCollections` **do not
+  exist** — only the singular `findByCollection` (`server/src/repositories/RequestRepository.ts:51`). Write
+  them as part of this task, with an empty-array guard before the `Op.in`.
+* **Done when:** `measure.ts` shows opening a workspace with 200 collections issuing **1** HTTP request and
+  **≤ 3** DB queries.
 
 ---
 
 ## PERF-2 — Lazy-load the tree
 
+* **Status:** verified real · **Size:** L · Do PERF-1 part 1 first.
 * **Goal:** opening a workspace fetches collections only; children load on expand.
-* **Where:** `client/src/store/collectionStore.ts`, `client/src/components/collection/CollectionExplorer.tsx`
-
-#### Technical detail
-
-```ts
-interface CollectionStore {
-  collections: Collection[];
-  foldersByCollection: Record<string, Folder[] | 'loading' | undefined>;
-  requestsByFolder: Record<string, ApiRequest[] | 'loading' | undefined>;   // key: `${collectionId}:${folderId ?? 'root'}`
-  openCollectionIds: Set<string>;
-
-  loadWorkspace(workspaceId: string): Promise<void>;          // collections page only
-  loadCollectionChildren(collectionId: string): Promise<void>; // on first expand
-  loadFolderChildren(collectionId: string, folderId: string): Promise<void>;
-}
-```
-
-Rules:
-
-1. `loadWorkspace` fetches one page of collections. Nothing else.
-2. `loadCollectionChildren` runs **once** per collection — guard on the `'loading'` / present state.
-3. Show a skeleton row while `'loading'`.
-4. Expansion state lives in the store (it already does: `openCollectionIds`), so it survives re-render.
-5. Keep the Dexie offline cache (`client/src/db`, used at `collectionStore.ts:101-113`) but make it
-   per-node too, and treat it as a *hint*: paint from cache, then reconcile with the server.
-6. Delete `fetchCollectionsData` once nothing references it.
-
+* **Verified state:** `client/src/store/collectionStore.ts:36-37` holds flat `folders: Folder[]` and
+  `requests: ApiRequest[]` arrays rather than per-node maps. `openCollectionIds` already exists (`:38`,
+  `:78`), so expansion state is in the right place already.
+* **Change:** move to `foldersByCollection` / `requestsByFolder` maps whose values are
+  `Folder[] | 'loading' | undefined`, with `loadWorkspace` (collections page only),
+  `loadCollectionChildren` (once per collection, guarded on the `'loading'` state) and
+  `loadFolderChildren`. Show a skeleton row while `'loading'`. Keep the Dexie offline cache
+  (`collectionStore.ts:101-113`) but make it per-node and treat it as a **hint** — paint from cache, then
+  reconcile with the server. Delete `fetchCollectionsData` once nothing references it.
+* **Traps:** SOCK-1's reducers write into these same structures. Design the shape once, with both tasks in
+  mind, or you will rewrite it twice.
 * **Done when:** with the PERF-0 dataset, opening a workspace with 500 collections issues one request and
-  transfers under 100 KB; expanding one collection issues exactly one more.
+  transfers under 100 KB, and expanding one collection issues exactly one more.
 
 ---
 
 ## PERF-3 — Paginate everything that returns a list
 
-* **Goal:** no endpoint can return an unbounded collection.
-* **Where:** `routes/collections.ts:60-66` (collections), `:108-114` (folders), `:154-168` (requests);
-  `routes/workspaces.ts` (list); `routes/history.ts:17-33` (offset today); `routes/admin.ts:20-41` (offset)
+* **Status:** verified real · **Size:** L
+* **Verified state:**
+  * `server/src/routes/collections.ts:60` (collections), `:108` (folders), `:154` (requests) take **no**
+    pagination parameters at all.
+  * `server/src/routes/history.ts:14-32` is the only real pagination, and it is offset-based
+    (`:26 offset: (+page-1)*+limit`) with **no server-side cap** — `?limit=999999` is honoured — plus a
+    `COUNT(*)` on every page (`:30`).
+  * `server/src/routes/admin.ts:12-25` is **fake** pagination: `UserRepository.list()` loads every row, then
+    the response reports `{ total: users.length, page: 1, limit: 50 }`.
+* **Why offsets are not enough:** `skip((page-1)*limit)` on page 500 makes the database walk 25,000 rows it
+  then discards.
+* **Change:** cursor pagination everywhere. Cursor = the last item's sort key, base64url-encoded; for tree
+  nodes `(order, id)`. Fetch `limit + 1` to know whether a next page exists without a `COUNT`. Response
+  shape everywhere: `{ items, nextCursor }`. Cap `limit` server-side at 200 regardless of what the client
+  asks for.
 
-#### Technical detail — use cursors, not offsets
+  ```ts
+  const where = cursor
+    ? { collectionId, [Op.or]: [{ order: { [Op.gt]: o } }, { order: o, id: { [Op.gt]: id } }] }
+    : { collectionId };
+  const items = await SqlRequest.findAll({ where, order: [['order','ASC'], ['id','ASC']], limit: limit + 1 });
+  ```
 
-Offset paging degrades linearly: `skip((page-1)*limit)` on page 500 makes the database walk 25,000 rows
-it then discards. That is exactly what `history.ts:28` and `admin.ts:35` do now.
-
-```ts
-// Cursor = the last item's sort key, base64-encoded. For tree nodes: (order, _id).
-function encodeCursor(order: number, id: string) {
-  return Buffer.from(JSON.stringify([order, id])).toString('base64url');
-}
-
-const items = await Request.find(q).sort({ order: 1, _id: 1 }).limit(limit + 1).lean();
-
-// SQL (Sequelize)
-const where = cursor
-  ? { collectionId, [Op.or]: [{ order: { [Op.gt]: o } }, { order: o, id: { [Op.gt]: id } }] }
-  : { collectionId };
-const items = await SqlRequest.findAll({ where, order: [['order','ASC'], ['id','ASC']], limit: limit + 1 });
-```
-
-* Fetch `limit + 1` to know whether there is a next page without a `COUNT`.
-* Response shape everywhere: `{ items, nextCursor }`.
-* Cap `limit` server-side at 200 regardless of what the client asks for.
-* The compound indexes this needs are in FIX-3: `(collectionId, folderId, order)` and `(userId, workspaceId)`.
-* `history.ts` sorts by `executedAt` — its cursor is `(executedAt, _id)` and it needs an index
-  `{ userId: 1, workspaceId: 1, executedAt: -1 }`.
-
+* **Traps:**
+  1. The previous revision specified the history cursor as `(executedAt, _id)` and an index on
+     `executedAt`. **That column does not exist** — the model and route use `createdAt` (see FIX-4). Use
+     `(createdAt, id)`.
+  2. The compound indexes for tree nodes already shipped in migration `001-indexes.ts`
+     (`idx_requests_collection_folder_order`, `idx_collections_workspace_order`). The history one did
+     **not**: `idx_history_user_workspace` is `(userId, workspaceId)` only. A `(userId, workspaceId,
+     createdAt)` index is part of this task — add it as a new migration, never by editing `001`.
 * **Done when:** `measure.ts` shows every list endpoint answering in constant time at 100k rows, and no
   response carries more than 200 items.
 
@@ -1500,370 +982,211 @@ const items = await SqlRequest.findAll({ where, order: [['order','ASC'], ['id','
 
 ## PERF-4 — Kill the N+1 queries
 
-Each row is a confirmed round-trip multiplier. Fix with a batched query, never a loop.
+* **Status:** verified real — all seven sites confirmed · **Size:** L · Fix with a batched query, never a
+  loop.
 
-| # | Where | What it does now | Fix |
+| # | Where (verified) | What it does now | Fix |
 |---|---|---|---|
-| 1 | `routes/collections.ts:266-303` `PUT /reorder` | `resolveWorkspaceId(type, it.id)` **per item** (1–2 reads each), then one `repo.update` per item | One query to load all items; one bulk write |
-| 2 | `routes/collections.ts:40-54` `checkPermission` | request → collection → workspace resolution on **every** mutating call (2 reads) | Denormalise `workspaceId` onto folders and requests; or cache (PERF-5) |
-| 3 | `routes/history.ts:143-149` GC loop | `findOne().sort()` + `findByIdAndDelete` in a `while` loop until under quota | One ranged delete with a computed cutoff |
-| 4 | `routes/history.ts:72-75` workspace clear | Loads **every** matching row into memory to sum bytes, then deletes | Aggregate the sum in the DB |
-| 5 | `routes/admin.ts:32-39` | `find` + `countDocuments` on every page | Cursor paging (PERF-3); drop the count or cache it |
-| 6 | `middleware/rbac.ts:18-29` | `WorkspaceRepository.findById` loads the whole workspace **including its full `members` array** to read one role | Project the matching member only; cache (PERF-5) |
-| 7 | `RequestRepository.searchInWorkspace:131` | Takes `collectionIds: string[]` — at 100k collections this is a 100k-element `$in` | Query by `workspaceId` via a denormalised column, or search per page of collections |
+| 1 | `routes/collections.ts:266-300` `PUT /reorder` | Sequential `for` loop calling `resolveWorkspaceId` **per item** (1-2 reads each), then `Promise.all` of N updates. **No cap on `items.length`.** | One query to load all items, one bulk write, and a length cap |
+| 2 | `routes/collections.ts:40-54` `checkPermission` → `resolveWorkspaceId:17-32` | 2 sequential reads on every mutating call for a folder or request | Denormalise `workspaceId` onto folders and requests, or cache (PERF-5) |
+| 3 | `routes/history.ts:159-165` GC loop | `while` loop doing `findOne(order ASC)` + `destroy` one row at a time | One ranged delete with a computed cutoff |
+| 4 | `routes/history.ts:77-80` workspace clear | `findAll` loads **every** matching row into memory to `reduce` byte sums, then deletes | Aggregate the sum in the database |
+| 5 | `routes/admin.ts:12-24` user list | Full table load, then `users.length` as the "total" | Cursor paging (PERF-3) |
+| 6 | `middleware/rbac.ts:18` | `WorkspaceRepository.findById` loads the whole workspace **including the full `members` array** to read one role | Project the matching member only, or cache (PERF-5) |
+| 7 | `repositories/RequestRepository.ts:101` `searchInWorkspace` | Takes `collectionIds: string[]` → at 100k collections that is a 100k-element `Op.in` | Denormalised `workspaceId`, or search per page of collections — **but see SEC-6: this method is dead code.** Decide whether to delete it instead |
 
-#### Technical detail — #1, the reorder endpoint
-
-```ts
-router.put('/reorder', async (req: AuthRequest, res: Response) => {
-  const { type, items } = req.body as { type: ItemKind; items: Array<{ id: string; order: number }> };
-  if (!items?.length) return res.json({ message: 'Reordered' });
-  if (items.length > 1000) return res.status(400).json({ message: 'Too many items' });
-
-  // ONE query to load them all, instead of resolveWorkspaceId() per item.
-  const ids = items.map((i) => i.id);
-  const workspaceIds = await repoFor(type).findWorkspaceIdsByIds(ids);   // new, returns Set<string>
-  if (workspaceIds.size === 0) return res.status(400).json({ message: 'Unknown items' });
-
-  if (!req.user!.isSuperAdmin) {
-    for (const wsId of workspaceIds) {
-      const role = await getUserWorkspaceRole(String(req.user!._id), wsId);   // cached — PERF-5
-      if (!role || role === 'viewer') return res.status(403).json({ message: 'Editor role required' });
-    }
-  }
-
-  // ONE bulk write instead of N updates.
-  await repoFor(type).bulkUpdateOrder(items);
-  for (const wsId of workspaceIds) emitToWorkspace(wsId, 'workspace:reordered', { type, items });
-  return res.json({ message: 'Reordered' });
-});
-```
-
-```ts
-
-// SQL — one statement, not N
-await sq.query(
-  `UPDATE requests SET "order" = CASE id ${items.map(() => 'WHEN ? THEN ?').join(' ')} END
-   WHERE id IN (${items.map(() => '?').join(',')})`,
-  { replacements: [...items.flatMap((i) => [i.id, i.order]), ...items.map((i) => i.id)] },
-);
-```
-
-#### Technical detail — #3, the history GC loop
-
-```ts
-// Before: one query per deleted row, on the request path.
-// After: find the cutoff in one aggregate, delete in one statement.
-const rows = await History.find({ userId }).sort({ executedAt: 1 })
-  .select({ executedAt: 1, 'responseSnapshot.body': 1 }).lean();
-let freed = 0, cutoff: Date | null = null;
-for (const r of rows) {
-  if (usedBytes + bodySize - freed <= maxTotalMB) break;
-  freed += Buffer.byteLength(r.responseSnapshot?.body ?? '', 'utf8');
-  cutoff = r.executedAt;
-}
-if (cutoff) await History.deleteMany({ userId, executedAt: { $lte: cutoff } });
-```
-
-Better still: store `bodySize` as a column on the history row at write time so the sum is a
-`SUM(bodySize)` aggregate instead of loading bodies. Do that.
-
-#### Technical detail — #2 and #6, the resolution cost
-
-Denormalising `workspaceId` onto `folders` and `requests` removes two reads from **every** mutating call:
-
-```ts
-// db/sql-models/index.ts — add to both models
-workspaceId: { type: DataTypes.STRING(36), allowNull: false },
-// and to the indexes array:
-indexes: [{ fields: ['workspaceId'] }, { fields: ['collectionId'] }, /* … */]
-```
-
-Backfill in a migration (FIX-3, migration 002). Then `checkPermission` reads the item once and has the
-workspace id directly — no chain. This also fixes FIX-1's export queries for free and makes
-`searchInWorkspace` (#7) a single indexed query instead of a 100k-element `$in`.
-
-* **Done when:** `measure.ts` reports: reorder of 500 items ≤ 3 queries (from ~1,500); no endpoint above
-  5 queries; history clear O(1) queries.
+* **Traps:**
+  1. The previous revision's reorder snippet used a `CASE` expression with double-quoted `"order"`. That is
+     Postgres/sqlite syntax and **fails on MySQL**, which needs backticks — and `DB_TYPE` supports both.
+     Use `bulkCreate(rows, { updateOnDuplicate: ['order'] })`, or switch the quoting on the dialect. Note
+     `order` is a reserved word in every dialect, so it always needs quoting of some form.
+  2. Item 5's description in the previous revision mentioned a `countDocuments` call. There isn't one — the
+     defect is a full table load, which is worse.
+* **Done when:** `measure.ts` reports a reorder of 500 items in ≤ 3 queries (from ~1,500), and no endpoint
+  above issues a query per row.
 
 ---
 
 ## PERF-5 — Cache RBAC and system config
 
-* **Where:** `server/src/middleware/rbac.ts:18`, `server/src/repositories/SystemConfigRepository.ts`
-* **Why:** `middleware/auth.ts:89` calls `SystemConfigRepository.getConfig()` on **every authenticated
-  request** — one DB read per API call before anything else happens. `getUserWorkspaceRole` loads a whole
-  workspace document per permission check, and `checkPermission` can call it twice in one request.
-
-#### Technical detail
-
-```ts
-// server/src/utils/cache.ts
-type Entry<T> = { value: T; expires: number };
-
-export class TtlCache<T> {
-  private map = new Map<string, Entry<T>>();
-  constructor(private ttlMs: number, private max = 10_000) {}
-
-  get(key: string): T | undefined {
-    const e = this.map.get(key);
-    if (!e) return undefined;
-    if (Date.now() > e.expires) { this.map.delete(key); return undefined; }
-    return e.value;
-  }
-  set(key: string, value: T) {
-    if (this.map.size >= this.max) this.map.delete(this.map.keys().next().value);  // crude LRU
-    this.map.set(key, { value, expires: Date.now() + this.ttlMs });
-  }
-  invalidate(prefix: string) {
-    for (const k of this.map.keys()) if (k.startsWith(prefix)) this.map.delete(k);
-  }
-}
-
-export const configCache = new TtlCache<SystemConfigRecord>(30_000, 1);
-export const roleCache   = new TtlCache<UserRole | null>(30_000, 50_000);
-```
-
-Invalidation points — get these right or the cache becomes a permissions bug:
-
-| Event | Invalidate |
-|---|---|
-| `PUT /api/admin/config` | `configCache` |
-| Member added / removed / role changed (`routes/workspaces.ts`) | `roleCache.invalidate(\`${workspaceId}:\`)` |
-| Workspace `isPublic` toggled | `roleCache.invalidate(\`${workspaceId}:\`)` |
-| User suspended / deleted | `roleCache.invalidate(\`\`)` for that user's keys |
-
-With multiple replicas the invalidation must be broadcast — publish it over the socket adapter / Redis
-pub-sub (SOCK-3) so every node drops the entry. Until then, the 30 s TTL bounds the staleness. **Write
-the TTL into the code comment** so nobody assumes it is instant.
-
+* **Status:** verified real · **Size:** M
+* **Verified state:** `server/src/middleware/auth.ts:89` calls `SystemConfigRepository.getConfig()` on
+  **every authenticated request**, which is a `SqlSystemConfig.findOne()`
+  (`server/src/repositories/SystemConfigRepository.ts:82-85`). `server/src/middleware/rbac.ts:18` loads a
+  full workspace row per permission check. `server/src/utils/cache.ts` does not exist.
+* **Change:** a small TTL cache in `server/src/utils/cache.ts`; wrap the system config (30 s is ample — it
+  changes only from the admin screen, which can invalidate explicitly) and the (user, workspace) role
+  decision. SOCK-4 needs the same role cache, and SEC-10's limiter store has the same multi-replica
+  problem — design once.
+* **Traps:** the previously proposed `TtlCache.set` did
+  `this.map.delete(this.map.keys().next().value)`, where the argument is `string | undefined` and **will not
+  typecheck** under this project's `strict` settings. Narrow it before calling `delete`.
 * **Done when:** `measure.ts` shows one `SystemConfig` read per 30 s under sustained load instead of one
-  per request, and an API test proves a revoked member loses access within the TTL.
+  per request, and an admin config save takes effect immediately (proving invalidation works).
 
 ---
 
 ## PERF-6 — Trim what the wire carries
 
-* **Where:** every list endpoint; `routes/auth.ts:130-143` (`GET /me` returns `clientCertificates`
-  including key material — also SEC-8)
-* **Why:** `RequestRepository.findByCollection` returns the **full** record — `params`, `headers`, `auth`,
-  `body`, `preRequestScript`, `testScript`, `comments` — for every request in the tree, just to render a
-  sidebar row that shows a name and a method. On a 500-request collection that is megabytes for a list
-  that needs kilobytes.
-
-#### Technical detail
-
-1. Add a summary projection (see `findByCollections` in PERF-1): `_id, collectionId, folderId, name,
-   method, order`. Use it for every tree listing.
-2. Full documents are fetched by `GET /api/requests/:id` when a tab opens — that route already exists
-   (`collections.ts:196-203`).
-3. Add compression — it is not installed today:
-
-```ts
-import compression from 'compression';
-app.use(compression());          // before the routes
-```
-
-4. `GET /me` returns certificate metadata only.
-
+* **Status:** verified real · **Size:** M
+* **Verified state:** `RequestRepository.findByCollection` (`server/src/repositories/RequestRepository.ts:51-53`)
+  has **no `attributes` projection**, so every sidebar row carries `params`, `headers`, `auth`, `body`,
+  both scripts and `comments`. `GET /api/auth/me` returns the full `clientCertificates` array (see SEC-8).
+  `compression` is neither in `server/package.json` nor used in `index.ts`.
+* **Change:** a `summaryOnly` projection for tree/list reads (`id`, `collectionId`, `folderId`, `name`,
+  `method`, `order`) — PERF-1 part 1 already needs it — and gzip via `compression` on the API.
 * **Done when:** the tree payload for a 500-request collection is under 50 KB, asserted in a test.
 
 ---
 
 ## PERF-7 — Client bundle weight
 
-* **Where:** `client/package.json`
-* **Why:** `moment` (^2.30) **and** `date-fns` (^4.4) are both bundled; `lodash` is imported whole;
-  `chai` and `crypto-js` ship to every user for the script sandbox; Monaco is loaded eagerly.
-
-| Action | Detail |
-|---|---|
-| Drop `moment` | `grep -rn "from 'moment'" client/src` → migrate each to `date-fns`. `moment` is also injected into user scripts — keep it there via the lazy chunk below |
-| `lodash` → per-function | `import debounce from 'lodash/debounce'` instead of `import _ from 'lodash'` |
-| Lazy-load the script runtime | `const { default: chai } = await import('chai')` inside the sandbox worker, not at module top level |
-| Lazy-load Monaco | `React.lazy` around the editor components; the sidebar and response headers do not need it |
-| Self-host Handlebars | SEC-3 step 5 |
-| Check `dexie` | It **is** used (`collectionStore.ts:101`) — keep it |
-| Add a size budget to CI | `vite build` + a script that fails if the initial chunk exceeds 500 KB gzipped |
-
-* **Done when:** the initial chunk is under 500 KB gzipped and CI fails on regression.
+* **Status:** verified real — **except the Monaco claim, which was backwards** · **Size:** M
+* **Verified state:** `client/package.json` ships **both** `moment ^2.30.1` (imported in 2 files) and
+  `date-fns ^4.4.0`; `lodash ^4.18.1` is whole-imported in 2 files; `chai ^6.2.2` and `crypto-js ^4.2.0`
+  are runtime dependencies. `@types/chai`, `@types/js-yaml` and `@types/uuid` sit in `dependencies` rather
+  than `devDependencies`. The current build emits a single ~985 KB JS chunk (289 KB gzipped).
+* **Correction:** the previous revision said "Monaco is loaded eagerly". It is not bundled **at all** —
+  `monaco-editor` is not a dependency, and `@monaco-editor/react` fetches it from jsDelivr at runtime. The
+  action is therefore the **opposite** of trimming: SEC-10 blocker 2 requires bundling it locally, which
+  makes the bundle substantially bigger. Sequence PERF-7 **after** SEC-10 and set the budget with the real
+  Monaco payload included, or the budget will be wrong the day CSP lands.
+* **Change:** drop `moment` in favour of `date-fns` (or the reverse — pick one), import `lodash` per
+  function or replace the few uses outright, move the `@types/*` packages to `devDependencies`, lazy-load
+  the editors and the runner modal, and set a CI budget on the initial chunk.
+* **Done when:** the initial chunk is under the agreed budget with Monaco bundled, and CI fails on a
+  regression.
 
 ---
 
 # SOCK — Realtime
 
+## SOCK-0 — Environment events never reach the client
+
+* **Status:** verified real · **Size:** XS (a one-word fix) · **Not in the previous revision of this file.**
+* **Goal:** an environment created, renamed or deleted in one browser shows up in the other.
+* **Verified state:** the server emits hyphenated names and the client listens for colons, so no handler
+  ever fires:
+
+| Server emits | Client listens for |
+|---|---|
+| `server/src/routes/environments.ts:39` `'environment-created'` | `client/src/components/common/SocketSync.tsx:46` `'environment:created'` |
+| `:49` `'environment-updated'` | `:50` `'environment:updated'` |
+| `:58` `'environment-deleted'` | `:47` `'environment:deleted'` |
+
+  Every other event in the app uses the colon form (`collection:created`, `request:updated`, …), so the
+  hyphens are the typo, not the convention.
+* **Why:** environment edits are exactly the case where two people diverge silently — B keeps sending
+  requests against a variable value A already changed. It looks like a caching bug and is unfindable from
+  the UI.
+* **Change:** rename the three server emits to the colon form. Do **not** change the client, so the naming
+  stays consistent with the other ten emit sites.
+* **Traps:** `tests/e2e/socket-advanced.spec.ts` contains a test named for global-variable sync that
+  currently passes. Determine *why* before changing anything — if it passes by refetching on focus rather
+  than on the event, the test is not proving what its name claims and should be tightened in the same
+  commit.
+* **Done when:** a two-context test renames an environment in A and asserts the name changes in B's
+  selector **without** B reloading or refocusing.
+
+---
+
 ## SOCK-1 — Apply deltas instead of refetching the tree
 
-* **Where:** `client/src/components/common/SocketSync.tsx`
-* **Why:** every structural event — and every window focus — calls `fetchCollectionsData`, which is the
-  1 + 2×N storm from PERF-1. With 20 collaborators in a workspace of 200 collections, **one rename
-  triggers 20 × 401 = 8,020 HTTP requests**.
-
-#### Technical detail
-
-```tsx
-useEffect(() => {
-  const s = socket;
-  s.on('collection:updated', (c) => store.patchCollection(c._id, c));
-  s.on('collection:deleted', (id) => store.removeCollection(id));
-  s.on('folder:created',     (f) => store.addFolder(f));       // only if its collection is loaded
-  s.on('folder:updated',     (f) => store.patchFolder(f._id, f));
-  s.on('folder:deleted',     (id) => store.removeFolder(id));
-  s.on('request:created',    (r) => store.addRequest(r));
-  s.on('request:updated',    (r) => store.patchRequest(r._id, r));
-  s.on('request:deleted',    (id) => store.removeRequest(id));
-  s.on('workspace:reordered',({ type, items }) => store.applyOrder(type, items));
-  return () => { /* off() every one */ };
-}, [socket]);
-```
-
-Rules:
-
-1. **Zero HTTP requests** in any handler. The payload is the update.
-2. If the event's parent is not loaded (lazy loading, PERF-2), **drop the event** — do not fetch.
-3. Replace the focus refetch with a cheap version check:
-   `GET /api/workspaces/:id/version` → `{ version }` (a counter bumped on any structural change).
-   Refetch only on mismatch.
-4. Socket URL: replace `api.defaults.baseURL?.replace('/api','')` with an explicit
-   `import.meta.env.VITE_SOCKET_URL ?? window.location.origin` — the current derivation breaks on a
-   versioned base URL like `http://host/api/v1`.
-5. Reconcile the local optimistic update with the echoed event: apply by `_id`, last-write-wins on
-   `updatedAt`, so the actor does not see its own change flicker.
-
+* **Status:** verified real · **Size:** L · Blocked behind nothing, but PERF-1 makes the cost smaller.
+* **Goal:** a socket event mutates the client's store in place. No HTTP.
+* **Verified state:** `client/src/components/common/SocketSync.tsx:30-33` — `handleUpdate` is
+  `fetchCollectionsData(...)`, wired to **nine** structural events at `:35-43`. It also refetches on
+  window focus (`:104-112`) and on every reconnect (`:25`). There is no delta application anywhere in the
+  client.
+* **Why:** `fetchCollectionsData` is the 1 + 2N request storm described in PERF-1. One rename by one
+  collaborator therefore costs every other viewer a full tree refetch — 401 HTTP requests in a
+  200-collection workspace. At the target scale this is the single most expensive thing the app does, and
+  it is triggered by other people.
+* **Change:** each event carries the changed entity; apply it to the store directly. Add reducers to
+  `collectionStore` (`applyCollectionUpserted`, `applyCollectionDeleted`, `applyFolder*`, `applyRequest*`)
+  and have `SocketSync` call those instead of `handleUpdate`. Keep the refetch as an explicit
+  "resync" path for reconnect only, where missed events make the local state genuinely unknown.
+* **Traps:**
+  1. The previous revision's event list was incomplete — it omitted `collection:created` and the three
+     environment events. Enumerate the emit sites from the source before wiring reducers: **11 in
+     `server/src/routes/collections.ts`** (folders at `:127,140,148`; requests at `:191,213,219`; reorder
+     at `:300`) and **3 in `routes/environments.ts`** (and fix SOCK-0 first, or three of your reducers will
+     look broken).
+  2. `request:updated` already has last-write-wins conflict handling at `SocketSync.tsx:71-97`. **Preserve
+     it.** Replacing that branch with a naive upsert reintroduces the conflict bug that
+     `tests/e2e/socket-sync.spec.ts` covers.
+  3. The socket URL is derived at `:16` as `api.defaults.baseURL?.replace('/api','')` — fragile, and worth
+     replacing with an explicit value while you are in the file.
 * **Done when:** a two-client test asserts the observer issues **zero** HTTP requests on receiving a
-  rename and its sidebar shows the new name within 2 seconds.
+  rename, and its sidebar still shows the new name.
 
 ---
 
 ## SOCK-2 — Cover every emit site with a two-client test
 
-* **Where:** `tests/socket-realtime.spec.ts` covers `collection:updated` / `:deleted` only
-* **Why:** coverage of one event in a family proves nothing about the others when they obtain their
-  routing key differently — that is exactly how the original bug survived.
-
-#### Technical detail
-
-```bash
-grep -n "emitToWorkspace" server/src/routes/*.ts     # derive the list from source, not from features
-```
-
-| Event | Route | Covered |
-|---|---|---|
-| `collection:created` | `POST /workspaces/:workspaceId/collections` | ✅ |
-| `collection:updated` / `:deleted` | `PUT` / `DELETE /collections/:id` | ✅ |
-| `folder:created` / `:updated` / `:deleted` | `collections.ts:127,140,148` | ❌ |
-| `request:created` / `:updated` / `:deleted` | `collections.ts:191,213,219` | ❌ |
-| `workspace:reordered` | `collections.ts:300` | ❌ |
-| environment events | `routes/environments.ts` | ❌ |
-
-Test shape — the observer must be a **separate connected client**, not a second tab:
-
-```ts
-const observed: any[] = [];
-socketB.on('request:updated', (r) => observed.push(r));
-await request.put(`${base}/api/requests/${requestId}`, {
-  headers: { cookie: owner.cookie }, data: { name: 'renamed' },
-});
-await expect.poll(() => observed.length, { timeout: 3000 }).toBeGreaterThan(0);
-expect(observed[0].name).toBe('renamed');
-```
-
-Clean up while you are there: `tests/socket-realtime.spec.ts:2` imports socket.io-client through
-`../client/node_modules/...` (fragile), and its `once(socket, event)` helper ignores `event` and always
-waits for `connect`. Move both to `tests/helpers/socket.ts` and fix them.
-
-Add a CI guard so a new emit site cannot ship untested:
-
-```bash
-# every emitToWorkspace event name must appear in tests/
-for ev in $(grep -ho "emitToWorkspace([^,]*, '[^']*'" server/src/routes/*.ts | sed "s/.*'\(.*\)'/\1/" | sort -u); do
-  grep -rq "$ev" tests/ || { echo "No test for socket event: $ev"; exit 1; }
-done
-```
-
-* **Done when:** every call site has a named test and the guard passes in CI.
+* **Status:** verified real — **and the previous revision's coverage table was false** · **Size:** M
+* **Goal:** every `emitToWorkspace` call site has a test where the *observer* is the assertion subject.
+* **Verified state:** `grep -rl` for each of the 13 event names across `tests/` returns **zero files**.
+  The three events previously marked "✅ Covered" are not covered at event level by anything.
+  `tests/socket-realtime.spec.ts`, which the previous revision cited, **does not exist**. What exists is
+  two two-context UI tests: `tests/e2e/socket-sync.spec.ts` (one test, conflict-on-edit) and
+  `tests/e2e/socket-advanced.spec.ts` (one test, folder rename + globals). Neither imports
+  `socket.io-client` — `grep -rn "socket.io-client" tests/` returns nothing.
+* **Why:** coverage of one event in a family proves nothing about the others, because each one obtains its
+  payload differently. SOCK-1 turns all 13 into reducers, and a reducer with no test is a silent data-loss
+  bug — the observer's tree just quietly drifts from the server's.
+* **Change:** one spec per event family, asserting on the observer. Prefer a direct `socket.io-client`
+  connection over a second browser context where the assertion is about the payload rather than the UI —
+  it is faster and the failure message is readable.
+* **Traps:** the CI guard the previous revision proposed (fail if an event name does not appear under
+  `tests/`) fails immediately for **all 13** names. Land the guard *after* the tests exist, in its own
+  commit, or CI goes red on an unrelated change.
+* **Done when:** every emit site has a named test and the guard passes in CI.
 
 ---
 
 ## SOCK-3 — Redis adapter and horizontal scaling
 
-* **Where:** `server/src/index.ts:47-57`, `k8s/deployment.yaml`, `k8s/ingress.yaml`
-* **Why:** k8s runs `replicas: 2` + HPA. Without a shared adapter, a user on pod A never sees an event
-  raised on pod B — and without sticky sessions, socket.io's handshake breaks across pods.
-
-#### Technical detail
-
-```ts
-import { createAdapter } from '@socket.io/redis-adapter';
-import { createClient } from 'redis';
-
-if (process.env.REDIS_URL) {
-  const pub = createClient({ url: process.env.REDIS_URL });
-  const sub = pub.duplicate();
-  await Promise.all([pub.connect(), sub.connect()]);
-  io.adapter(createAdapter(pub, sub));
-  console.log('🔴 Socket.io Redis adapter attached (horizontal scaling enabled)');
-} else {
-  console.log('⚪ Socket.io single-node mode (set REDIS_URL to scale out)');
-}
-```
-
-Sticky sessions on the Ingress:
-
-```yaml
-metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/affinity: "cookie"
-    nginx.ingress.kubernetes.io/session-cookie-name: "reqspace-affinity"
-    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
-    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
-```
-
-Then move onto the same Redis: the rate limiter (SEC-10) and the caches (PERF-5, including cross-node
-invalidation via pub-sub). Add an Active/Inactive indicator to the Admin Dashboard.
-
-* **Done when:** a CI test boots two server processes against one Redis (service container), connects a
-  client to each, raises an event on node A and asserts it arrives at the client on node B. Until this
-  test exists, single-node socket tests are necessary but **explicitly insufficient** — say so in a
-  comment on the spec.
+* **Status:** verified real · **Size:** M · Needed the moment there is more than one pod.
+* **Goal:** an event emitted on pod A reaches a socket held by pod B.
+* **Verified state:** `k8s/deployment.yaml:6` sets `replicas: 2` and `k8s/hpa.yaml:10-11` scales 2→10.
+  There is no Redis package in `server/package.json` and no adapter in the code — only comments
+  acknowledging the gap (`server/src/middleware/rateLimit.ts:14`, `server/src/utils/socketUtils.ts:8,13`).
+  `k8s/ingress.yaml` has **no `annotations:` block at all**, so there are no sticky sessions either.
+* **Why:** with two replicas and no shared adapter, roughly half of all realtime events are lost — whichever
+  pod did not receive the write never emits to its own sockets. The feature appears intermittently broken,
+  which is worse than being absent.
+* **Change:** `@socket.io/redis-adapter` + `ioredis`, wired in `server/src/index.ts` next to the
+  `SocketIOServer` construction. Gate on `REDIS_URL` so a single-node deployment keeps working unchanged.
+  Add the Redis service to `k8s/`. The in-memory rate limiter (SEC-10) has the same problem and should move
+  to the same store in the same pass.
+* **Traps:** Socket.IO's HTTP long-polling fallback needs sticky sessions even *with* the Redis adapter;
+  either add the ingress annotation or force `transports: ['websocket']`. Decide explicitly — this is the
+  classic half-fix.
+* **Done when:** a CI test boots two server processes against one Redis, connects a client to each, and
+  asserts an event emitted through process A arrives at the client on process B.
 
 ---
 
 ## SOCK-4 — Connection hygiene at 10k sockets
 
-* **Where:** `server/src/index.ts:77-103`
-* **Why:** `join:workspace` currently issues **two DB reads per join** — `getUserWorkspaceRole` plus
-  `UserRepository.findById` for the superadmin check (`index.ts:83-84`). 10,000 clients joining 5
-  workspaces each is 100,000 reads.
-
-#### Technical detail
-
-1. Use the `roleCache` from PERF-5 for the role.
-2. Carry `isSuperAdmin` in the JWT so the second read disappears:
-   `jwt.sign({ sub: userId, sa: user.isSuperAdmin }, …)` in `middleware/auth.ts:18-22`. Keep the TTL
-   short enough that a revoked superadmin loses it quickly, and invalidate on revoke.
-3. Cap rooms per socket (say 20) and sockets per user (say 10); reject beyond it with a reason.
-4. **Re-check membership on role change** and force-leave revoked users — today a removed member keeps
-   receiving broadcasts until they disconnect:
-
-```ts
-// when a member is removed or downgraded:
-const room = 'workspace:' + workspaceId;
-const sockets = await io.in(room).fetchSockets();
-for (const s of sockets) {
-  if (String(s.data.userId) === String(removedUserId)) {
-    s.leave(room);
-    s.emit('workspace:access_revoked', { workspaceId });
-  }
-}
-```
-
-5. Handle token expiry on a live socket: verify periodically and disconnect with a reason the client can
-   act on.
-6. Load test: 10,000 concurrent connections, 100 joins/s. Record memory and p95 event latency.
-
-* **Done when:** the load test holds 10k sockets under a documented memory ceiling with p95 delivery
-  under 200 ms, and a test proves a revoked member stops receiving events immediately.
+* **Status:** verified real · **Size:** M
+* **Goal:** 10,000 concurrent sockets within a documented memory ceiling, without a DB read per join.
+* **Verified state:** `server/src/index.ts:84-85` — `join:workspace` issues **two** DB reads every time
+  (`getUserWorkspaceRole` then `UserRepository.findById` for the superadmin check). `signToken`
+  (`server/src/middleware/auth.ts:18-22`) signs `{ sub: userId }` only, so there is no `isSuperAdmin` claim
+  to read instead. There are no caps on rooms per socket or sockets per user, and no periodic re-check of
+  the token on a long-lived connection.
+* **Why:** at 10k sockets joining a handful of workspaces each, that is tens of thousands of DB reads in a
+  reconnect storm — and a reconnect storm is exactly what a deploy causes. A revoked member also keeps
+  receiving events for as long as the socket lives, because authorization is checked once at join.
+* **Change:** cache the role decision per (user, workspace) with a short TTL (share the PERF-5 cache),
+  cap rooms per socket, and re-verify the token periodically, disconnecting on failure.
+* **Traps:** the previous revision's snippet read `s.data.userId`, but `grep -n "socket.data"
+  server/src/index.ts` returns nothing — `userId` is a closure const at `index.ts:79`. Assign
+  `socket.data.userId = userId` first, or the code compiles and silently authorizes nobody.
+* **Done when:** a load test holds 10k sockets under a documented memory ceiling with p95 delivery inside
+  the budget, and a test proves a member removed mid-session stops receiving events.
 
 ---
 
@@ -1871,657 +1194,456 @@ for (const s of sockets) {
 
 ## Rules every new test must follow
 
-1. **Two browser contexts, always, for anything realtime.** A single-browser test cannot detect a dead
-   broadcast — the client updates its own tree optimistically, so the actor sees the change whether or not
-   the server emitted anything. The **observer** is the subject of the assertion.
-2. **The UI cannot test authorization.** The UI hides buttons a role may not use, so a UI test confirms the
-   button is hidden and **never sends the request**. A route that wrongly accepts that request is invisible
-   to every UI test that will ever be written. *If the UI can do it, test it through the UI; if the UI
-   refuses to do it, that is exactly what the API test is for.*
-3. **The database is a matrix axis, not a config edit.** `getDbConfig()` reads `process.env.DB_TYPE` ahead
-   of any config file, so a leg is just a server process with different env vars. Each leg gets its own
-   env, a **clean** database created and dropped by the harness, its own `DB_CONFIG_FILE`, and its own port.
-4. **Tier the matrix.** Smoke (register → login → **first authenticated call** → workspace → collection →
-   request → send) on all three backends every push; full suite on sqlite every push; full matrix nightly
-   and before release. The first authenticated request is the single most valuable assertion in the matrix —
-   it is where SQL paths fail.
-5. **A test that passes before the fix is asserting on the wrong thing.** Write it, run it against
-   unpatched code, watch it fail, then fix. Never commit a passing placeholder — use `test.fixme`.
+1. **Assert the effect, not the click.** A test that clicks Save and asserts the modal closed proves
+   nothing about persistence. Reload and assert the value.
+2. **Authorization is API-level.** A UI test cannot prove a permission check, because the UI hides the
+   control. Use `request.*` and assert the status code.
+3. **The observer is the subject.** In a realtime test, assert on the client that did *not* act.
+4. **Use `getByTestId`.** The existing specs already do this widely; do not reintroduce
+   `page.locator('input[type="text"]')`.
+5. **Every test must fail against the pre-fix code.** Watch it fail before you fix anything.
 
-## TEST-1 — Run the UI suite in CI
+## TEST-1 — Run the Playwright suite in CI
 
-* **Where:** `.github/workflows/test.yml` — runs build + jest + `scripts/smoke-core.sh` only
-* **Why:** ~800 Playwright tests exist and CI runs **none** of them. `docker-publish.yml` is gated on this
-  workflow, so an image ships having never rendered the app once.
-
-```yaml
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Playwright (sqlite)
-        run: npx playwright test --project=chromium
-        env:
-          CI: 'true'
-
-      - name: Upload report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
-```
-
-Keep `retries: 2` on CI, but track every test that needed a retry — a flaky test is a bug to file, not
-noise to absorb.
-
-* **Done when:** deliberately breaking a selector makes CI red.
-
----
+* **Status:** verified real · **Size:** M · **Highest-leverage item in this section.**
+* **Goal:** the browser suite runs on every push and a broken selector turns CI red.
+* **Verified state:** `.github/workflows/test.yml` runs: build server → build client → boot a sqlite-backed
+  `node server/dist/index.js` on 3005 → `npm test --prefix server` (jest) → `scripts/smoke-core.sh`.
+  **No Playwright step exists.** `docker-publish.yml:10-40` duplicates the same steps inline as a `test`
+  job that `build-and-push` depends on, so image publishing is gated on a suite that never opens a browser.
+* **Why:** 25 spec files covering auth, RBAC, share, runner, scripts, sockets and more exist and run only
+  when somebody remembers to run them locally. Every UI regression ships.
+* **Correction to the previous revision:** it claimed "~800 Playwright tests". The real number is **36
+  `test()` calls across 25 files** (148 `expect()` calls). The 800 figure came from a stale comment in
+  `playwright.config.ts:27`. This changes the cost of TEST-1 and TEST-3 completely — the suite is thin, not
+  vast, and the work is mostly *writing* tests (TEST-3), not making an existing suite pass.
+* **Change:** add a Playwright job. `playwright.config.ts` already has a working `webServer` block (two
+  entries: server on 3005, client on 5173) and `baseURL`, so the job is roughly
+  `npx playwright install --with-deps chromium` then `npx playwright test`. Fix the stale 800 comment while
+  you are there. Then make `docker-publish.yml` depend on the new job rather than duplicating steps.
+* **Traps:**
+  1. `globalSetup` is **commented out** at `playwright.config.ts:21` while its own comment says it is
+     required to walk the seeded superadmin through the forced password change. Un-commenting it may be
+     necessary for a clean CI run — and may break local runs that rely on an already-initialised database.
+     Resolve this before adding the CI job, not after.
+  2. `workers: 1` and `retries: 2` on CI: 36 tests each doing real round-trips will still take minutes.
+     Budget for it rather than discovering it in a PR.
+* **Done when:** deliberately breaking a selector makes CI red, and `docker-publish.yml` cannot publish an
+  image whose UI suite failed.
 
 ## TEST-2 — The database matrix
 
-* **Where:** `playwright.config.ts:36` (`baseURL` commented out), `:85-89` (`webServer` commented out);
-  every spec hardcodes `http://localhost:3005` (`grep -rn "localhost:3005" tests/ client/e2e/`)
+* **Status:** partially real — **two of its three "Where" claims were false** · **Size:** M
+* **Goal:** the whole suite runs against sqlite, postgres and mysql.
+* **Verified state:**
+  * ❌ `baseURL` is **not** commented out — `playwright.config.ts` sets `http://localhost:5173`.
+  * ❌ `webServer` is **not** commented out — it is active with two entries.
+  * ❌ The API-URL refactor it asks for is **already done**: `grep -rn "localhost:3005" tests/` returns
+    nothing; specs use relative paths (e.g. `tests/e2e/auth-api.spec.ts:6`
+    `request.get('/api/admin/config')`).
+  * ✅ **Eleven** spec files still hardcode `page.goto('http://localhost:5173/...')`: collection,
+    concurrency, conflict, edgecases, environments, requests, scripts-scope, scripts, socket-advanced,
+    socket-sync, tabs.
+  * ✅ There is no per-backend harness and no per-DB Playwright project — only `chromium`.
+    `test-all-dbs.ps1` still sits at the repo root as the manual substitute.
+  * Server-side: `db.repositories.test.ts` and `db.sqlmodels.test.ts` run against **sqlite only** (via
+    `server/src/tests/__mocks__/connect.ts`). `db.config.test.ts` covers postgres/mysql/mssql *config
+    resolution* with no connection. CI is sqlite-only end to end.
+* **Why:** the three backends differ in exactly the places this app is fragile — `LIKE` escaping (SEC-6),
+  index creation (FIX-3's migrations), `JSON` column behaviour, and `Op.in` limits. A bug that only appears
+  on mysql currently ships.
+* **Change:** replace the 11 hardcoded `page.goto` URLs with `baseURL`-relative paths; add a Playwright
+  project per `DB_TYPE` with the backend supplied as a service container; keep sqlite as the default local
+  project so nobody needs Docker to run tests.
+* **Done when:** `npx playwright test --project=postgres` runs the whole suite against a fresh Postgres and
+  CI runs all three.
 
-#### Steps
+## TEST-3 — Journey coverage, per feature area
 
-1. **Mechanical URL refactor, one commit:** replace every hardcoded base with `baseURL`. For API calls in
-   specs, use the `request` fixture's relative paths; Playwright resolves them against `baseURL`.
-2. **Per-backend harness** — `tests/harness/server.ts`:
+* **Status:** real, and much larger than it looks · **Size:** XL · Do it area by area, one commit each.
+* **Verified state:** 36 tests across 25 files. **No area is uncovered, and no area is complete** — every
+  one is partial, and three are placeholders that assert almost nothing:
 
-```ts
-export async function startBackend(db: 'sqlite'|'postgres'|'mysql', port: number) {
-  const dbName = `reqspace_test_${db}_${Date.now()}`;
-  await createDatabase(db, dbName);                    // drop + create, clean every run
-  const proc = spawn('node', ['server/dist/index.js'], {
-    env: {
-      ...process.env,
-      DB_TYPE: db,
-      PORT: String(port),
-      DB_CONFIG_FILE: `/tmp/db-config-${db}.json`,      // its own file — no cross-leg leakage
-      ...connectionEnvFor(db, dbName),
-    },
-  });
-  await waitForHealth(`http://localhost:${port}/api/health`);
-  return { proc, async stop() { proc.kill(); await dropDatabase(db, dbName); } };
-}
-```
+| # | Area | Verdict | Covering spec | Biggest gap |
+|---|---|---|---|---|
+| 1 | Auth | partial | `auth.spec.ts` (3), `auth-api.spec.ts` (2) | forced first-login change, expired session, SSO |
+| 2 | Workspace | partial | `workspace.spec.ts`, `rbac.spec.ts` | removing a member does not assert lost access |
+| 3 | Collection tree | partial | `collection.spec.ts` (4), `crud-rename.spec.ts` | duplicate, move between folders, reorder survives reload |
+| 4 | Request editing | partial | `requests.spec.ts` (3), `edgecases.spec.ts` | body-mode and auth-type matrix, dirty state, undo/redo |
+| 5 | Sending | partial | `response.spec.ts` | per-mode viewer, image/PDF, timeout and error paths |
+| 6 | Environments | partial | `environments.spec.ts` (2) | secret masking, globals-vs-env precedence, import/export |
+| 7 | Scripts | partial | `scripts.spec.ts`, `scripts-scope.spec.ts` | failing assertions, `pm.sendRequest`, isolation (SEC-3) |
+| 8 | History | partial | `history.spec.ts` | search, save-to-collection, quota behaviour |
+| 9 | Runner | partial | `runner.spec.ts` | iterations, CSV/JSON data files, stop mid-run |
+| 10 | Import / Export | **placeholder** | `import-export.spec.ts` | only asserts buttons exist on AdminPage |
+| 11 | Share | **placeholder** | `share.spec.ts` | only generates a link — never opens it anonymously (SEC-0.6) |
+| 12 | Admin | **placeholder** | `admin.spec.ts` | login + dashboard render only |
+| 13 | Tabs | partial | `tabs.spec.ts`, `concurrency.spec.ts` | drag-reorder only |
+| 14 | Multi-user realtime | partial | `socket-sync.spec.ts`, `socket-advanced.spec.ts` | 2 tests for 13 events (SOCK-2) |
 
-3. **Projects:**
-
-```ts
-projects: [
-  { name: 'sqlite',   use: { baseURL: 'http://localhost:3011' } },
-  { name: 'postgres', use: { baseURL: 'http://localhost:3012' } },
-  { name: 'mysql',    use: { baseURL: 'http://localhost:3013' } },
-]
-```
-
-4. Skip a leg locally when its connection string is absent; **fail** in CI if a leg was skipped:
-
-```ts
-if (process.env.CI && !process.env.TEST_DB_POSTGRES_URL) {
-  throw new Error('CI must run every backend — TEST_DB_POSTGRES_URL is missing');
-}
-```
-
-5. **Delete `test-all-dbs.ps1`.** It rewrites the real `server/.env`, depends on a running pm2 daemon,
-   leaves the file rewritten if a run throws, and only ever exercised public routes — which is why it
-   printed "ALL DATABASES TESTED SUCCESSFULLY" while the app was broken one request after login.
-
-* **Done when:** `npx playwright test --project=postgres` runs the whole suite against a fresh Postgres,
-  and CI runs all four nightly.
-
----
-
-## TEST-3 — UI journey tests, per feature area
-
-Each drives the real UI and asserts on what the user sees. One spec per area, all through `baseURL`, all
-runnable on any backend. For each: the happy path, one permission-denied path, and one error path.
-
-| # | Area | Must cover |
-|---|---|---|
-| 1 | **Auth** | Register; forced first-login password change; login; **logout asserting the cookie is cleared** (nothing tests this today); expired session redirect; Google SSO with a stubbed token endpoint |
-| 2 | **Workspace** | Create, rename, settings, make public; invite a member at each role; change a role; remove a member (and assert they lose access); delete |
-| 3 | **Collection tree** | Create / rename / duplicate / delete a collection; nested folders; move a request between folders; drag-reorder and assert the order survives a reload |
-| 4 | **Request editing** | Method, URL, params ⇄ URL sync, headers, every body mode, every auth type, settings; dirty indicator; unsaved-close warning; undo/redo |
-| 5 | **Sending** | Send; response in each mode (pretty / raw / preview / visualize); image and PDF responses; save to file; timing and size; error, timeout and CORS paths (SEC-0.2) |
-| 6 | **Environments** | Create, duplicate, activate, edit; secret variables masked; `{{var}}` resolution in URL, headers and body; globals vs environment precedence; import / export |
-| 7 | **Scripts** | Pre-request sets a variable the request uses; test assertions pass and fail; console output; `pm.sendRequest`; **a script cannot read `localStorage`** (SEC-3) |
-| 8 | **History** | Entry appears after a send; search filters it; restore into a tab; save to a collection; delete one; clear workspace history; quota behaviour |
-| 9 | **Runner** | Run a collection; iterations; CSV and JSON data files; per-request pass/fail; stop mid-run |
-| 10 | **Import / Export** | cURL, raw HTTP, OpenAPI, Reqspace v2.1, environment; export then re-import and assert the tree matches |
-| 11 | **Share** | Create a link; open it anonymously; **assert no auth, token or script is present** (SEC-0.6); revoke; assert 404 |
-| 12 | **Admin** | User CRUD; promote / revoke / suspend; config save with masked secrets; audit log; workspace export and import (FIX-1) |
-| 13 | **Tabs** | Open many; reorder; close with unsaved changes; restore closed tab (FEAT-8); split pane (FEAT-7) |
-| 14 | **Multi-user realtime** | Two browser contexts: a rename in A appears in B's sidebar; a delete in A removes it from B's tree |
-
-Selector guidance: after UI-4 adds `aria-label`s, prefer `getByRole('button', { name: 'Send' })` over
-`text=` and CSS. The current specs are full of `page.locator('input[type="text"]')`, which breaks on any
-layout change.
-
-* **Done when:** every area has a spec and `npx playwright test` passes on all three backends.
-
----
+* **Why rows 10-12 matter most:** each one is a green tick that proves nothing. `share.spec.ts` in
+  particular gave false confidence while the public share route was returning 401 to anonymous viewers
+  because of a router mount-order bug — the test never opened the link.
+* **Done when:** every area has real assertions and the suite passes on all three backends.
 
 ## TEST-4 — The API-authorization layer
 
-* **Where:** `tests/api-authorization.spec.ts` (2 tests today)
-* **Do:** for every mutating route, send the request four ways — anonymous, non-member, `viewer`,
-  legitimate `editor` — and assert 401 / 403 / 403 / 2xx.
-
-Table-driven, so adding a route is one line:
-
-```ts
-const CASES = [
-  { name: 'update collection', method: 'put',    path: (c) => `/api/collections/${c.collectionId}`, body: { name: 'x' }, min: 'editor' },
-  { name: 'delete request',    method: 'delete', path: (c) => `/api/requests/${c.requestId}`,       min: 'editor' },
-  { name: 'save history',      method: 'post',   path: (c) => `/api/history/${c.historyId}/save`,   body: (c) => ({ collectionId: c.foreignCollectionId }), min: 'editor' },
-  { name: 'wsdl import',       method: 'post',   path: () => `/api/import/wsdl`,                    body: (c) => ({ url: 'http://x', workspaceId: c.foreignWorkspaceId }), min: 'editor' },
-  { name: 'admin import',      method: 'post',   path: (c) => `/api/admin/import/${c.workspaceId}`, min: 'superadmin' },
-  { name: 'admin export',      method: 'get',    path: (c) => `/api/admin/export/${c.workspaceId}`, min: 'superadmin' },
-  { name: 'delete comment',    method: 'delete', path: (c) => `/api/requests/${c.requestId}/comments/${c.otherUsersCommentId}`, min: 'author-or-editor' },
-];
-```
-
-Also assert **mass assignment** explicitly: `PUT /api/collections/:id` with
-`{ name: 'x', workspaceId: '<someone elses>' }` must leave `workspaceId` unchanged.
-
-Add a CI guard: fail when a new route appears in `server/src/routes` with no matching entry in `CASES`.
-
-* **Done when:** every case is covered and each one fails against the pre-fix code.
-
----
+* **Status:** verified real · **Size:** L · **Pairs with SEC-2 — write these tests first, as SEC-2's proof.**
+* **Verified state:** `tests/api-authorization.spec.ts` **does not exist** (the previous revision's "2 tests
+  today" was wrong). The closest thing is `tests/e2e/rbac.spec.ts` — one *UI* test ("Viewer cannot edit,
+  Editor can edit"), which by this section's own Rule 2 cannot prove an authorization check. There is no
+  anonymous/non-member matrix and no mass-assignment test anywhere in the repo.
+* **Why:** every authorization hole found so far (SEC-2's four, and the share-route regression) was
+  invisible to the UI suite by construction, because the UI does not offer the control that the API
+  accepts.
+* **Change:** one spec that, for each mutating endpoint, asserts the status code for: anonymous,
+  authenticated non-member, viewer, editor, owner, superadmin. Table-driven, using `request.*` with no
+  browser. Include a mass-assignment row per endpoint (post a foreign `workspaceId` / `collectionId` and
+  assert 400 or 403, never 200).
+* **Done when:** every case is covered and each one fails against the pre-SEC-2 code.
 
 ## TEST-5 — Client unit tests
 
-* **Where:** `client/` has **no test runner at all**
-* **Do:** add vitest (`npm i -D vitest @testing-library/react jsdom`), script `"test": "vitest run"`.
-
-Cover the pure logic — fast, no browser:
-
-| Module | Cases |
-|---|---|
-| `utils/variables.ts` | `{{var}}` resolution; precedence local > data > environment > collection > global; `$guid` / `$timestamp` / `$randomInt`; unresolved variables; nested and malformed braces |
-| `utils/scripts.ts` (post-SEC-3) | Variable writes per scope; test result collection; console capture; error handling in a bad script |
-| cURL parser (`routes/importExport.ts` logic, mirrored client-side) | Quoted headers; `--data-raw`; methods inferred from `-d`; multi-line with `\` |
-| Raw HTTP parser | Request line; headers; blank-line body split; relative URL + `Host` |
-| `CodeGenModal` generators | One snapshot per language |
-| `requestStore` | openTab, closeTab with dirty, reorder, undo/redo, `partialize` strips secrets (SEC-4) |
-| Response content-type detection | JSON, XML, HTML, image, PDF, octet-stream |
-
+* **Status:** verified real, exactly as previously written · **Size:** M
+* **Verified state:** `client/package.json` scripts are `dev`, `build`, `lint`, `preview` only; devDeps
+  include `@playwright/test` but no vitest, jest, `@testing-library/*` or jsdom. There are **zero**
+  `*.test.*` / `*.spec.*` files under `client/src`. The root `package.json` has no `test` script either.
+* **Why:** the highest-risk pure logic in the product is client-side and completely untested — variable
+  resolution and precedence (`client/src/utils/variables.ts`), the script runner
+  (`client/src/utils/scripts.ts`), and the SEC-4 `stripSecrets` persistence filter in
+  `client/src/store/requestStore.ts`, where a regression silently writes credentials back to
+  `localStorage`.
+* **Change:** add vitest + jsdom, a `test` script, and start with those three modules. They are pure
+  functions — no component rendering needed for the first pass.
 * **Done when:** `npm test --prefix client` runs in CI with a coverage floor on `client/src/utils` and
   `client/src/store`.
 
----
-
 ## TEST-6 — Scale and performance budgets
 
-* **Where:** new `tests/perf/`, using the PERF-0 dataset
-* **Do:** assert budgets, don't eyeball graphs. A budget that fails the build is the only kind that holds.
-
-| Scenario | Budget |
-|---|---|
-| Open a workspace with 200 collections | 1 HTTP request, ≤ 3 DB queries, < 100 KB |
-| Expand a collection with 500 requests | 1 HTTP request, < 50 KB, < 100 DOM rows |
-| Reorder 500 items | ≤ 3 DB queries |
-| List 50,000 history rows, page 500 | < 200 ms (cursor paging) |
-| Global search across 100k requests | < 500 ms, ≤ 2 queries |
-| 10,000 concurrent sockets | documented memory ceiling, p95 event delivery < 200 ms |
-| Initial JS chunk | < 500 KB gzipped |
-
+* **Status:** verified real · **Size:** M · **Blocked on PERF-0** (there is no realistic dataset to measure).
+* **Verified state:** `tests/perf/` does not exist. `tests/e2e/api-perf.spec.ts` asserts exactly **one**
+  budget — `GET /api/workspaces` under `PERF_TIMEOUT` (100 ms, set at `playwright.config.ts:17`) — and it
+  does so for a freshly registered user with **zero workspaces**, so it measures an empty query and can
+  never catch a scale regression. It also logs registration time without asserting on it.
+* **Change:** budgets that run against the PERF-0 dataset, asserting query counts as well as milliseconds
+  (a query count is stable across machines; a millisecond figure is not — that is why the current 100 ms
+  assertion is the wrong shape as well as the wrong scope).
 * **Done when:** the budgets run in CI and reintroducing a deliberate N+1 turns it red.
 
 ---
 
 # UI — Client experience
 
-## UI-1 — Replace native `prompt()` / `confirm()` with the app's own modals
+## UI-1 — Replace native `prompt()` / `confirm()` / `alert()` with the app's own modals
 
-* **Where (10 sites):** `Sidebar.tsx:58` (new workspace), `EnvironmentSidebar.tsx:19,44,55`,
-  `AdminPage.tsx:68,462,555`, `HistorySidebar.tsx:141`, `UrlBar.tsx:367`, `RequestTabBar.tsx:83` —
-  while `components/common/PromptModal.tsx` and `ConfirmModal.tsx` exist and are used elsewhere
-* **Why:** unstyled, unthemeable, ignore the dark mode the rest of the app implements, block the Electron
-  renderer, and cannot be labelled for accessibility. `tests/reqspace.spec.ts:32` has to install a native
-  `dialog` handler to create a workspace, while the collection step immediately after drives the real modal.
-* **Note:** `UrlBar.tsx:367` (the "a newer version exists — overwrite?" confirm) is replaced wholesale by
-  the conflict UI in FEAT-5.6. Convert it to `ConfirmModal` now; replace it properly later.
-* **Done when:** `grep -rn "window.prompt\|window.confirm\|[^.]\bconfirm(" client/src` returns nothing and
-  the affected specs no longer register dialog handlers.
+* **Status:** verified real — **22 sites, not 10** · **Size:** M
+* **Verified state:** the previous revision listed 10 `prompt`/`confirm` sites and **missed all 12
+  `alert()` calls.** Every line number had drifted. Current, verified:
+
+| Kind | Sites |
+|---|---|
+| `prompt` / `confirm` (10) | `Sidebar.tsx:60`, `EnvironmentSidebar.tsx:19,44,55`, `HistorySidebar.tsx:141`, `RequestTabBar.tsx:83`, `AdminPage.tsx:68,465,558`, `UrlBar.tsx:387` |
+| `alert` (12) | `EnvironmentTabEditor.tsx:76,98,102`, `Sidebar.tsx:70`, `AdminPage.tsx:77,79,265,267,443,459,468,471` |
+
+  `PromptModal.tsx` and `ConfirmModal.tsx` already exist, so this is migration work, not new components.
+* **Why:** unstyled and unthemeable, they ignore the dark mode the rest of the app implements, and they
+  block the Electron window rather than the page.
+* **Change:** migrate all 22. The `alert()` calls are the ones that should become toasts (UI-2) rather than
+  modals — a dismissible notification, not a dialog that demands a click. Do UI-2 first and this becomes
+  mostly mechanical.
+* **Traps:**
+  1. The "Done when" grep must include `alert(` — the previous revision's did not, so it would have passed
+     with 12 sites remaining.
+  2. Playwright specs install dialog handlers to get past these today: `tests/e2e/collection.spec.ts:17`,
+     `conflict.spec.ts:33,59,86`, `crud-rename.spec.ts:25,55`. Those handlers must be replaced with modal
+     interactions in the same commit, or the tests will hang waiting for a dialog that never appears.
+* **Done when:** `grep -rn "window.prompt\|window.confirm\|[^.]\balert(\|[^.]\bconfirm(" client/src` returns
+  nothing, and the specs above drive the real modals.
 
 ## UI-2 — One global feedback surface
 
-* **Where:** ~32 components each hold their own `setError`; there is no toast anywhere
-* **Do:** add `client/src/store/toastStore.ts` + a `<ToastHost/>` in `MainLayout`. Route API failures
-  through it (from the axios interceptor, UI-3). Show success for save / delete / import, and a persistent
-  banner while the socket is disconnected.
+* **Status:** verified real · **Size:** M · Do this before UI-1.
+* **Verified state:** `client/src/store/toastStore.ts` does not exist and there is no toast anywhere. ~32
+  components each hold their own `setError` state.
+* **Why:** an error raised by a request that finishes after its modal closed has nowhere to go, so it is
+  swallowed entirely.
 * **Done when:** a save that fails inside a modal that has already closed still surfaces a message.
 
 ## UI-3 — Handle 403 distinctly from 401
 
-* **Where:** `client/src/api/axios.ts:8-17` — 401 only
-* **Why:** a permission failure currently looks like a bug: the action simply does not happen.
-
-```ts
-api.interceptors.response.use(undefined, (error) => {
-  const status = error.response?.status;
-  if (status === 401) window.dispatchEvent(new CustomEvent('unauthorized'));
-  if (status === 403) toast.error(error.response?.data?.message ?? "You don't have permission to do that in this workspace.");
-  return Promise.reject(error);
-});
-```
-
-Also remove the double `AuthGuard` on `/admin` (`App.tsx:228` wraps the route parent, `:230` wraps it again).
+* **Status:** verified real · **Size:** S · **One instruction in the previous revision was dangerous —
+  read the trap.**
+* **Verified state:** `client/src/api/axios.ts:8-17` handles **401 only**. A 403 falls through, so the
+  action simply does not happen and the UI says nothing.
+* **Change:** on 403, surface a permission message through UI-2's toast; keep the 401 redirect as is.
+* **Traps:** the previous revision also said to "remove the double `AuthGuard` on /admin". **Do not.**
+  `client/src/App.tsx:227` is the authentication gate on `MainLayout`; `:229` is
+  `<AuthGuard requireSuperAdmin>` on `AdminPage`, and **the inner one carries the superadmin check**.
+  Removing it removes the privilege gate and hands the admin page to any logged-in user.
+* **Done when:** a viewer attempting an editor-only action sees an explicit permission message, and a
+  non-superadmin still cannot reach `/admin`.
 
 ## UI-4 — Accessibility
 
-* **Where:** the whole client — **zero** `aria-label` and **zero** `role=` attributes
-  (`grep -rn "aria-label\|role=" client/src` → nothing but SVG assets)
-* **Steps:**
-  1. Every icon-only button gets an `aria-label` (the sidebar and tab bar are full of them).
-  2. Modals: `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, a focus trap, `Escape` to close,
-     focus restored to the trigger on close.
-  3. The collection tree: `role="tree"` / `role="treeitem"`, arrow-key navigation, Enter to open, Space to
-     expand.
-  4. Visible focus rings (Tailwind `focus-visible:ring-2`), never `outline: none` without a replacement.
-  5. Check contrast in **both** themes.
-* **Bonus:** this is what lets Playwright use `getByRole(...)` instead of brittle `text=` selectors (TEST-3).
-* **Done when:** an axe scan of the main screen, one modal and the admin page reports no critical violations.
+* **Status:** verified real, **worse than stated** · **Size:** L
+* **Verified state:** across `client/src/**/*.tsx` there are **zero** `aria-label`, `aria-modal` and
+  `role=` attributes — confirmed exactly as claimed. Additionally there are **73** occurrences of
+  `outline-none` / `focus:outline-none` and **zero** `focus-visible`: focus rings are actively stripped
+  app-wide with nothing put back, so the app cannot be navigated by keyboard at all.
+* **Change:** restore a visible `focus-visible` ring as a global style **first** — it is one rule and it is
+  the difference between "unusable by keyboard" and "usable" — then label controls, add `role`/`aria-modal`
+  to the modals, and trap focus inside them.
+* **Traps:** `@axe-core/playwright` is in neither `package.json`, so the "Done when" needs it added first.
+* **Done when:** an axe scan of the main screen, one modal and the admin page reports no critical
+  violations, and every interactive control shows a focus ring when tabbed to.
 
 ## UI-5 — Style consistency
 
-* **Where:** `client/src/App.tsx` uses inline `style={{}}` in ~20 places (lines 22-99, 193-198) where
-  Tailwind is the convention
-* **Do:** convert to Tailwind; extract the DB-error screen into `components/common/DbErrorScreen.tsx`.
+* **Status:** verified real · **Size:** S
+* **Verified state:** **21** `style={{` occurrences in `client/src/App.tsx` where the rest of the app uses
+  Tailwind — principally `DbErrorScreen` and the loading screen. Both render before the app shell, which is
+  presumably why they were written that way; confirm whether Tailwind is available at that point before
+  converting.
+* **Done when:** the inline blocks are Tailwind, or a comment explains why they cannot be.
 
 ## UI-6 — Fix stale copy
 
-* **Where:** `client/src/pages/AdminPage.tsx:462` still warns that import will "overwrite system
-  configuration"
-* **Why:** the server stopped doing that; the warning now describes behaviour that no longer exists.
+* **Status:** verified real · **Size:** XS
+* **Verified state:** `client/src/pages/AdminPage.tsx:465` still warns that import will "overwrite system
+  configuration". `POST /api/admin/import/:workspaceId` inserts collections, folders, requests and
+  environments only — it never touches config. Also `client/src/pages/AdminPage.tsx:391` still describes the
+  setting as affecting "every user's Send / share-link / **capture** requests", and capture no longer
+  exists (see CLEAN).
+* **Done when:** both strings describe what the code does.
 
 ---
 
 # FEAT — Features to build
 
-Only these. Everything else from the parity list is in [`IGNORE.md`](IGNORE.md).
+Everything here was explicitly selected by the owner. Anything *not* here and not already built is in
+`IGNORE.md` and must not be proposed.
 
 ## FEAT-1 — WebSocket (ws / wss) client
 
-* **Goal:** connect to a WebSocket endpoint, send and receive messages, read the transcript.
-* **Transport note:** a browser **can** open a cross-origin WebSocket without CORS, so this works in the
-  web build with no extension — unlike HTTP sending. Custom handshake headers are **not** possible from a
-  page; Electron and the extension can add them. Disable that field in the plain-browser case with an
-  explanation rather than silently dropping the headers.
-
-#### Steps
-
-1. **Tab type.** `requestStore` already has `tabType` (`'request' | 'environment'`). Add `'websocket'`, so
-   the whole tab machinery — open, close, dirty, reorder, persistence — comes for free.
-2. **Data model.** Store it as a request-like document so it lives in a collection and is shareable:
-   `{ type: 'ws', url, subprotocols: string[], headers: KeyValue[], settings: { autoReconnect, maxRetries, pingIntervalMs } }`.
-3. **Connection panel.** URL with `{{variable}}` resolution, subprotocols, headers, Connect / Disconnect,
-   auto-reconnect toggle, and a status pill: `connecting` / `open` / `closing` / `closed(code, reason)` / `error`.
-4. **Message composer.** Text / JSON / binary(base64); JSON gets Monaco with validation; `{{variable}}`
-   resolution; a send-history dropdown (last 20).
-5. **Transcript pane.** Columns: direction (`↑`/`↓`), timestamp, size, preview. Expand a row for the full
-   payload with JSON pretty-print. Filter by direction and substring. Clear. Export as JSON.
-   **Virtualise it** — a chatty socket produces thousands of rows in seconds (PERF-3).
-6. **Lifecycle correctness.** Close codes matter: show `1000` (normal) differently from `1006` (abnormal).
-   On auto-reconnect use exponential backoff with a cap and a visible retry count.
-7. **Cleanup.** Close the socket when the tab closes and when the app unmounts. A leaked WebSocket per
-   closed tab is the classic bug here.
-
-* **Done when:** a Playwright test starts a local echo server, connects, sends `hello`, asserts the echo
-  appears in the transcript, disconnects, and asserts the status shows a clean `1000` close.
-
----
+* **Status:** greenfield · **Size:** L
+* **Verified state:** `grep -rln "WebSocket\|EventSource\|kafka" client/src` returns **zero files**. The
+  `tabType` union is `'request' | 'environment'` (`client/src/store/requestStore.ts:33`), so adding a
+  connection tab type is genuinely step 1.
+* **Done when:** a Playwright test starts a local echo server, connects, sends `hello`, and asserts the echo
+  appears in the transcript.
 
 ## FEAT-2 — Socket.IO client
 
-* **Goal:** the same, with Socket.IO semantics.
-
-#### Steps
-
-1. Reuse FEAT-1's tab type and transcript. Add Socket.IO-specific fields: `path` (default `/socket.io`),
-   `transports` (`polling`, `websocket`), `auth` payload object, `namespace`, reconnection options.
-2. **Named events** — this is the substance of the feature:
-   * *Listeners*: a user-managed list of event names to subscribe to, plus a catch-all via `onAny` so
-     unexpected events are still visible.
-   * *Emit*: event name + JSON payload.
-   * *Acknowledgements*: if the user requests an ack, pass a callback and render the ack payload as a
-     paired row in the transcript.
-3. Show the engine.io transport upgrade (polling → websocket) as a transcript entry — it is the first
-   thing anyone debugs.
-4. Surface connection errors distinctly: `connect_error` with the server's message, auth rejection,
-   namespace not found.
-
+* **Status:** greenfield · **Size:** M (smaller than FEAT-1 once the connection tab exists)
+* **Verified state:** `socket.io-client@^4.8.3` is already a client dependency
+  (`client/package.json:33`), and the app's own socket is at `client/src/components/common/SocketSync.tsx:19`
+  with `path: '/ws'` (server side `server/src/index.ts:57`) — so the "Done when" below is testable against
+  the app itself.
 * **Done when:** a test connects to the app's own `/ws` path, emits `join:workspace`, and asserts a
-  subsequent `collection:created` broadcast appears in the transcript.
-
----
+  broadcast arrives.
 
 ## FEAT-3 — Server-Sent Events (SSE)
 
-* **Goal:** subscribe to a `text/event-stream` endpoint and watch events arrive.
-
-#### Steps
-
-1. Tab type `sse`. URL + headers (Electron/extension only — a page's `EventSource` supports **no** custom
-   headers at all; say so in the UI).
-2. Stream pane: one row per event with `event`, `id`, `data`, `retry`; JSON pretty-print; auto-scroll with
-   a pause toggle; virtualised.
-3. Honour `Last-Event-ID` on reconnect and show reconnect attempts with the server-advertised `retry`
-   interval.
-4. Stop / resume; export the stream as JSON or NDJSON.
-5. Handle the non-obvious failure: a server that returns `text/event-stream` but never flushes. Show
-   "connected, no events yet" rather than a spinner that looks hung.
-
+* **Status:** greenfield · **Size:** M
 * **Done when:** a test subscribes to a local SSE endpoint emitting three named events and asserts all
-  three render with their event names and ids.
-
----
+  three arrive in order.
 
 ## FEAT-4 — Kafka events
 
-* ⚠️ **Constraint — decide and record before coding.** Kafka speaks a binary protocol over raw TCP.
-  Neither a page nor a Chrome extension can open a TCP socket (`chrome.sockets` is ChromeOS-app only), so
-  SEC-0.7's extension does **not** cover this. The options are the Electron main process, a local agent, or
-  a server-side bridge — and a server-side bridge contradicts SEC-0. **Recommended: Electron only for v1**,
-  with the local agent as the later web answer.
-
-#### Steps
-
-1. **Connection profile.** Brokers (list), client id, SASL mechanism (`plain`, `scram-sha-256`,
-   `scram-sha-512`), username/password, SSL on/off + CA, consumer group id. Credentials follow SEC-4 —
-   never in `localStorage`; use the OS keychain in Electron.
-2. **Produce.** Topic, key, value (text / JSON / raw), headers, explicit partition or `null` for the
-   partitioner. Show the broker's ack: partition, offset, timestamp.
-3. **Consume.** Subscribe to one or more topics; `fromBeginning` vs latest; a live list showing topic,
-   partition, offset, key, headers, timestamp and value; JSON pretty-print; filter by key or value
-   substring; **virtualised** (a busy topic produces thousands of rows per second); pause / resume;
-   explicit commit-offset control with the current committed offset visible.
-4. **Topic browser.** List topics, partition count, and per-partition high/low watermarks.
-5. **Persistence.** Save the connection profile into a collection like any other request so it is
-   shareable — with credentials stripped from any export or share (SEC-0.6).
-6. **Error surfaces.** Broker unreachable, SASL failure, unknown topic, group rebalance in progress,
-   deserialisation failure. Each needs a distinct message; "connection failed" is useless for Kafka.
-7. Library: `kafkajs` in the Electron main process. Never bundle it into the renderer.
-
-* **Done when:** a test against a containerised Kafka produces a message to a test topic and consumes it
-  back through the UI, with the correct partition and offset shown.
-
----
+* **Status:** greenfield · **Size:** L · Needs a containerised broker in CI.
+* **Done when:** a test against a containerised Kafka produces to a test topic and consumes the message
+  back.
 
 ## FEAT-5 — Collaboration
 
-Build in this order. Each step is usable on its own; each later step depends on the earlier ones.
-
 ### FEAT-5.1 — Collection-level RBAC *(parity item 28)*
 
+* **Status:** greenfield · **Size:** L · **Do this before 5.3-5.6** — they all assume per-collection access.
+* **Verified state:** `server/src/middleware/rbac.ts` is workspace-granularity only: `UserRole` at `:3`,
+  `ROLE_RANK` at `:7`, `getUserWorkspaceRole` at `:14`, `requireWorkspaceRole` at `:36`, and
+  `canSave`/`canRun`/`canManageMembers` at `:72-81`. There is no collection ACL anywhere.
 * **Goal:** a member's workspace role can be **narrowed** (never widened) on a specific collection.
-
-```ts
-interface CollectionAcl { collectionId: string; userId: string; role: UserRole; }
-// indexes: (collectionId), (userId, collectionId) unique
-```
-
-* **The rule, in one place, used everywhere:**
-  `effectiveRole = min(workspaceRole, collectionRole ?? workspaceRole)` by `ROLE_RANK`.
-  A collection ACL can only reduce access. Write it once in `middleware/rbac.ts` and call it from
-  `checkPermission` (`routes/collections.ts:40-54`) so folders and requests inherit it automatically.
-* **UI:** a "Permissions" entry in the collection context menu listing workspace members with a role
-  dropdown limited to their workspace role or lower.
-* **Cache** with PERF-5; invalidate on any ACL change.
-* **Done when:** API tests prove a workspace `editor` narrowed to `viewer` on one collection gets 403
-  there and 2xx on a sibling collection.
+* **Done when:** API tests prove a workspace `editor` narrowed to `viewer` on one collection gets 403 on
+  that collection and 200 on another.
 
 ### FEAT-5.2 — `@` mentions in comments *(parity item 33)*
 
-* **Where:** `components/common/UserAutocomplete.tsx` exists but is used **only** in
-  `WorkspaceSettingsModal.tsx:165` (the invite field); `components/request/CommentsEditor.tsx` has no
-  mention support.
-* **Steps:** trigger the autocomplete on `@` inside the comment editor; restrict candidates to workspace
-  members; store mentions **structurally** (`mentions: [{ userId, offset, length }]`), not by parsing text
-  later; render as chips that link to the member; create a notification row for the mentioned user.
-* **Done when:** a test mentions a member and asserts that member sees it in their notifications, and that
-  a non-member cannot be mentioned.
+* **Status:** partial prior art · **Size:** M
+* **Verified state:** `client/src/components/common/UserAutocomplete.tsx` exists but is used **only** at
+  `WorkspaceSettingsModal.tsx:167`. `CommentsEditor.tsx` has zero mention handling.
+* **Done when:** a test mentions a member, asserts that member sees a notification, and asserts a non-member
+  cannot be mentioned.
 
-### FEAT-5.3 — Fork a collection *(parity item 29)*
+### FEAT-5.3 — Fork a collection *(parity item 29)* · greenfield · **Size:** L
+### FEAT-5.4 — Collection versioning *(prerequisite for merge)* · greenfield · **Size:** L
+### FEAT-5.5 — Pull requests *(parity item 30)* · greenfield · **Size:** XL
+### FEAT-5.6 — Merge and conflict resolution *(parity item 31)* · greenfield · **Size:** XL
+### FEAT-5.7 — Partner workspaces *(parity item 27)* · greenfield · **Size:** L
 
-* **Steps:** deep-copy a collection — folders (preserving nesting), requests, variables, scripts — into a
-  workspace the actor may write to. Record `forkedFrom: { collectionId, versionId, forkedAt }`. Show a
-  "forked from X" badge linking to the origin. Forbid forking a collection the actor cannot read
-  (FEAT-5.1). Copy in batches; a 5,000-request collection must not be 5,000 inserts.
-* **Done when:** a test forks a collection, edits the fork, and asserts the origin is byte-for-byte unchanged.
-
-### FEAT-5.4 — Collection versioning *(prerequisite for merge)*
-
-* **Steps:** an append-only `CollectionVersion { collectionId, contentHash, snapshot, authorId, createdAt,
-  message? }`. Write a version on save **only when `contentHash` changes**, so repeated saves don't create
-  noise. A version list in the collection panel; "restore this version" writes a *new* version rather than
-  rewriting history. Prune to the last N per collection (configurable) so 100k collections don't become
-  millions of snapshots.
-* **Done when:** a test makes three edits, restores the first version, and asserts the content matches
-  exactly and a fourth version was created.
-
-### FEAT-5.5 — Pull requests *(parity item 30)*
-
-```ts
-interface PullRequest {
-  id: string;
-  sourceCollectionId: string;     // the fork
-  targetCollectionId: string;     // the origin
-  baseVersionId: string;          // the version the fork branched from
-  status: 'open' | 'merged' | 'closed';
-  title: string; description: string;
-  authorId: string; reviewers: string[]; approvals: string[];
-  createdAt: Date; mergedAt?: Date;
-}
-```
-
-* **Diff view:** added / removed / changed folders and requests; for a changed request, a field-level diff
-  (method, URL, headers, body, scripts) with the script diff rendered in Monaco's diff editor.
-* Only a **target-workspace `editor`** may merge. The author may close their own PR.
-* **Done when:** a test opens a PR from a fork, asserts a non-empty diff, merges it, and asserts the target
-  collection now contains the change.
-
-### FEAT-5.6 — Merge and conflict resolution *(parity item 31)*
-
-* **Algorithm:** three-way merge against `baseVersionId`.
-  * Changed on one side only → take it.
-  * Changed identically on both → take it.
-  * Changed differently on both → **conflict**.
-  * Deleted on one side, edited on the other → **conflict** (never silently drop an edit).
-* **UI:** a list of conflicting items; per item, *mine* / *theirs* / *edit manually* in a diff editor.
-  Merge stays blocked while any conflict is unresolved.
-* This also replaces the blunt `window.confirm('A newer version of this request exists… overwrite?')` at
-  `UrlBar.tsx:367` with real conflict handling.
-* **Done when:** a test creates a genuine conflict (both sides edit the same request's URL differently),
-  resolves it by choosing one side, and asserts the merged result — and a second test asserts an
-  unresolved conflict blocks the merge.
-
-### FEAT-5.7 — Partner workspaces *(parity item 27)*
-
-* **Goal:** a visibility tier between private and public — named external users or organisations get
-  read-or-comment access to **selected collections only**.
-* **Depends on FEAT-5.1** (collection-level ACL is the mechanism).
-* Every partner grant is explicit, time-boundable, and audit-logged. A partner sees only granted
-  collections and 403s on everything else in the workspace — including the workspace member list.
-* **Done when:** a test grants a partner one collection and asserts they can read it, cannot read a
-  sibling, and cannot enumerate members.
-
----
+* All five have **no prior art** in the repo. They are a single programme, not five independent tasks:
+  5.4 must precede 5.5, which must precede 5.6. Do not start 5.5 before 5.3 and 5.4 are shipped and
+  tested.
+* Line-number correction for 5.6: the `confirm()` it cites in `UrlBar.tsx` is now at **`:387`**.
 
 ## FEAT-6 — Scope resolution visualizer *(parity item 56)*
 
-* **Goal:** show which scope a `{{variable}}` resolved from.
-* **Where:** `client/src/utils/variables.ts`, `client/src/components/common/VariableInput.tsx:12-20`
-* **Why it needs a refactor first:** resolution currently merges arrays and returns a **string**
-  (`VariableInput.tsx:20` spreads `globalEnvironment?.variables` into a flat list). The origin is lost at
-  the moment of resolution, so there is nothing to visualise until the return type changes.
-
-```ts
-export type VariableScope = 'local' | 'data' | 'environment' | 'collection' | 'global' | 'dynamic';
-
-export interface Resolution {
-  key: string;
-  value: string | undefined;
-  scope: VariableScope | 'unresolved';
-  definedIn?: string;                  // environment or collection name
-  shadowed: Array<{ scope: VariableScope; value: string; definedIn?: string }>;
-  isSecret: boolean;
-}
-
-export function resolveWithProvenance(text: string, ctx: VariableContext): {
-  result: string;
-  resolutions: Resolution[];
-}
-```
-
-Precedence, highest first: `local` (`pm.variables.set`) → `data` (runner data file) → `environment` →
-`collection` → `global` → `dynamic` (`$guid` etc.). Document it in the code, because the UI must match it.
-
-**UI:**
-1. Hover a `{{var}}` chip → popover with the resolved value (masked when `isSecret`), the winning scope,
-   and the shadowed definitions in precedence order.
-2. Colour-code the chip by scope; render **unresolved** variables in red — today they pass through as
-   literal text, which is the single most common user confusion.
-3. A "Variables" tab on the response showing every resolution used for that send.
-
-* **Done when:** a test defines `token` in both global and environment scope, asserts the popover names
-  the environment as the winner and lists the global as shadowed, and asserts an undefined `{{nope}}`
-  renders as unresolved.
-
----
+* **Status:** real, and it needs a refactor before any UI · **Size:** L
+* **Verified state:** `client/src/utils/variables.ts:46` — `resolveAllVariables(...)` returns a **string**,
+  so provenance is destroyed at the moment of resolution. `client/src/components/common/VariableInput.tsx:19-22`
+  flattens `globalEnvironment` and the active environment into one list.
+* **Change:** change the return type first — `resolveWithProvenance(text, ctx)` returning
+  `{ result, resolutions }` where each `Resolution` carries `scope`, `definedIn`, `shadowed[]` and
+  `isSecret`. Precedence, highest first: `local` (`pm.variables.set`) → `data` (runner file) →
+  `environment` → `collection` → `global` → `dynamic`. Document it in the code, because the UI must match.
+  Then: hover popover naming the winning scope and listing shadowed definitions, colour-coding by scope,
+  unresolved variables in red, and a "Variables" tab on the response.
+* **Traps:** two things to reconcile first — `VariableInput` already computes its own `exists` flag
+  (~`:30`), which will be redundant once resolutions carry provenance; and `variables.ts` supports only
+  **three** dynamic variables (`$guid`, `$timestamp`, `$randomInt`) while the UI copy implies a larger set.
+  Decide whether FEAT-6 also expands that set, and say so, rather than shipping a visualizer that shows
+  most `$`-variables as unresolved.
+* **Done when:** a test defines `token` in both global and environment scope, asserts the popover names the
+  environment as the winner and lists the global as shadowed, and asserts `{{nope}}` renders as unresolved.
 
 ## FEAT-7 — Split pane *(parity item 65)*
 
-* **Goal:** two tabs visible side by side.
-
-```ts
-interface PaneState { id: string; tabIds: string[]; activeTabId: string | null; }
-interface LayoutState { panes: PaneState[]; layout: 'single' | 'vertical' | 'horizontal'; ratio: number; }
-```
-
-#### Steps
-
-1. Move tab ownership from a flat `tabs` array into panes. Keep a single `tabsById` map so nothing else
-   has to change — `requestStore.ts:101-102` currently holds `tabs` + `activeTabId`, so this is the
-   invasive part; do it first and separately.
-2. Max two panes. Drag a tab onto the other pane to move it; drag to the window edge to split.
-3. Draggable divider, ratio persisted; collapse back to `single` when a pane empties.
-4. Keyboard: focus-follows-pane, a shortcut to toggle split, a shortcut to move the active tab across.
-5. **Each pane keeps its own scroll position and response state.** Sending in one pane must not touch the
-   other — `activeRequest` is currently a single global (`requestStore.ts:185-211`), so it has to become
-   per-pane.
-6. Persist the layout (structure only — SEC-4).
-
+* **Status:** greenfield · **Size:** XL · The store refactor is the whole cost.
+* **Verified state:** no prior art (`react-resizable`, `SplitPane`, `panes` all return nothing). Corrected
+  citations: `tabs` and `activeTabId` are declared at `client/src/store/requestStore.ts:70-71` and
+  initialised at `:117-119`; the global `activeRequest` is `:72`/`:119` and is what undo/redo operates on at
+  `:141-161`.
+* **Change:** move tab ownership into panes with a single `tabsById` map, max two panes, draggable divider
+  with a persisted ratio, and **per-pane `activeRequest` and response state** — that last part is the
+  invasive one and should land as its own commit before any UI. Persist layout structure only (SEC-4).
 * **Done when:** a test opens two requests side by side, sends in the left pane, and asserts the right
-  pane's response and scroll position are unchanged.
-
----
+  pane's response and scroll position are untouched.
 
 ## FEAT-8 — Restore closed tabs *(parity item 69)*
 
-* **Goal:** `Ctrl/Cmd+Shift+T` reopens the tab you just closed, with unsaved edits intact.
-
-#### Steps
-
-1. A bounded stack (25) of closed-tab snapshots in `requestStore`, pushed in `closeTab`
-   (`requestStore.ts:83`).
-2. Shortcut registered alongside the existing shortcuts in `settingsStore`.
-3. A "Recently closed" list in the tab bar's overflow menu, showing name and method.
-4. Restore puts the tab back **at its original index**, not at the end.
-5. Survives reload — but per SEC-4 the persisted snapshot carries structure only, so a restored tab marks
-   credential fields as needing re-entry.
-6. Clear the stack on logout.
-
+* **Status:** real; partial prior art that is **not** what it looks like · **Size:** M
+* **Verified state:** `closeTab` is at `client/src/store/requestStore.ts:83`. There is an existing
+  `historyMap` undo/redo mechanism (`:96`, `:140`, `:152`) — but that is **per-tab field history**, not
+  closed-tab restore, and there is no closed-tab stack. `settingsStore.ts:18,57` registers only
+  `search`/`save`/`send` shortcuts.
+* **Change:** a bounded stack (25) of closed-tab snapshots pushed in `closeTab`; a shortcut registered
+  alongside the existing three; a "Recently closed" list in the tab bar overflow; restore at the tab's
+  **original index**; cleared on logout.
+* **Traps:** per SEC-4 the persisted snapshot carries no credentials, so a tab restored after a reload must
+  mark credential fields as needing re-entry rather than silently restoring blanks.
 * **Done when:** a test edits a request without saving, closes the tab, presses the shortcut, and asserts
-  the edit and the tab position are both restored.
-
----
+  both the edit and the tab position are restored.
 
 ## FEAT-9 — Response size limits *(parity item 88)*
 
-* **Goal:** a huge response never takes the app down.
-* **Why now:** the old server proxy read the entire body into memory with `arrayBuffer()`
-  (`proxy.ts:125`) before any size check. The new transport must not repeat that.
-
-#### Steps
-
-1. **Setting:** global default (50 MB) in `settingsStore`, per-request override in `RequestSettings.tsx`,
-   and an admin-enforced ceiling in `SystemConfig` that a user override cannot exceed.
-2. **Enforce while streaming**, in every transport:
-
-```ts
-async function readCapped(stream: ReadableStream<Uint8Array>, cap: number) {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0, truncated = false;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > cap) { truncated = true; await reader.cancel(); break; }   // stop pulling bytes
-    chunks.push(value);
-  }
-  return { bytes: concat(chunks), total, truncated };
-}
-```
-
-3. **Viewer:** render the truncated body with a clear banner ("showing the first 50 MB of N MB") and a
-   "download full response" action that streams to disk instead of into memory.
-4. Never call `arrayBuffer()` / `text()` on an unbounded body anywhere.
-5. Apply the same cap to the history write (SEC-0.3) — the existing per-user quota already truncates, but
-   it must never receive a 200 MB string in the first place.
-
+* **Status:** verified real · **Size:** M
+* **Verified state:** `server/src/routes/proxy.ts:124` does `await response.arrayBuffer()` on an **unbounded**
+  body. The only existing cap is `500 * 1024` at `:148`, and that gates **history persistence**, not the
+  response itself. There is no response cap anywhere, client or server.
+* **Change:** a global default (50 MB) in `settingsStore`, a per-request override, and an admin-enforced
+  ceiling in `SystemConfig` that a user override cannot exceed. **Enforce while streaming** — read the body
+  chunk by chunk, stop pulling and `reader.cancel()` once the cap is exceeded, and never call
+  `arrayBuffer()` / `text()` on an unbounded body anywhere. Render the truncated body with a banner
+  ("showing the first 50 MB of N MB") and a download action that streams to disk. Apply the same cap to the
+  history write (SEC-0.3).
 * **Done when:** a test requests a 200 MB response with a 10 MB cap and asserts the UI stays responsive,
   shows the truncation banner, and the tab's memory does not grow by 200 MB.
 
----
-
 ## FEAT-10 — Server-side collection export/import (v2.1) *(parity item 59)*
 
-* **Goal:** export and import work from the API, not only from the client's in-memory tree.
-* **Where:** `server/src/routes/importExport.ts:15-18` returns `{ info: { name }, item: [] }` — a
-  placeholder; `:20-22` returns `'Import successful (stub)'`. The **working** implementation is
-  client-side at `client/src/components/collection/CollectionExplorer.tsx:720+` (`exportCollection`,
-  which builds real v2.1 output).
-
-#### Steps
-
-1. Move the v2.1 serialiser into code both sides can import (e.g. `shared/collectionFormat.ts`, or
-   duplicate deliberately with a shared test fixture if there is no shared build).
-2. `GET /api/collections/:id/export` with `requireWorkspaceRole('viewer')` (SEC-2). **Stream** the JSON
-   (`res.write` per item) rather than building the whole string — a 5,000-request collection must not be
-   serialised into one buffer.
-3. `POST /api/collections/import` with `requireWorkspaceRole('editor')`, Zod validation (SEC-9), a size
-   cap, and the same id-remapping logic as FIX-1.
-4. **Strip secrets by default** on export: request `auth` blocks and headers matching the SEC-0.6 denylist
-   are replaced with placeholders. An explicit `?includeSecrets=true` is allowed for an `owner` and is
-   **audit-logged**.
-5. Delete the client-side duplicate once the server path is proven, so there is one implementation.
-
+* **Status:** verified real; line numbers exact · **Size:** L · Shares its id-remapping with FIX-1 — do
+  FIX-1 first and reuse it.
+* **Verified state:** `server/src/routes/importExport.ts:15-18` returns a `{info:{name}, item:[]}`
+  placeholder and `:20-22` returns `'Import successful (stub)'`. The **working** implementation is
+  client-side at `client/src/components/collection/CollectionExplorer.tsx:726` (`exportCollection`), with the
+  v2.1 shape built at `:835`.
+* **Change:** move the serialiser somewhere both sides can import; `GET /api/collections/:id/export` with
+  `requireWorkspaceRole('viewer')` (SEC-2), **streaming** the JSON per item rather than building one buffer;
+  `POST /api/collections/import` with `requireWorkspaceRole('editor')`, Zod validation (SEC-9), a size cap
+  and FIX-1's remapping. **Strip secrets by default** — `auth` blocks and denylisted headers become
+  placeholders; `?includeSecrets=true` is allowed for an `owner` and is audit-logged. Delete the client
+  duplicate once the server path is proven.
+* **Traps:** the existing client serialiser writes a **fabricated schema URL** —
+  `https://schema.getreqSpace.com/json/collection/v2.1.0/collection.json`. That domain does not exist, and
+  the value is what other tools read to identify the format. Decide what it should be (Postman's real v2.1
+  schema URL, if interop is the goal) and fix it while moving the code.
 * **Done when:** an API round-trip test exports a collection containing folders, scripts and variables,
-  re-imports it into a different workspace, and asserts the tree matches — plus a test asserting a bearer
+  re-imports it into a different workspace and asserts the tree matches; plus a test asserting a bearer
   token is absent from a default export and present with `includeSecrets=true` as an owner.
 
 ---
 
 # CLEAN — Cleanup
 
-| Item | Where | Action |
+| # | Item | Verified state | Action |
+|---|---|---|---|
+| 1 | Empty runner route | `server/src/routes/runner.ts` is 12 lines returning `'Run started (stub)'`, mounted at `index.ts:176`. It also carries a prefix-less `router.use(authenticate)`, making it one of the blanket-`/api` routers implicated in the share-route bug | Delete the file and the mount. The collection runner is a client feature |
+| 2 | PM2 restart storm | `ecosystem.config.js` sets no `max_restarts` and no `restart_delay`, so a build error becomes an unbounded crash loop (this has already happened twice) | Add both, and a `min_uptime` |
+| 3 | Inconsistent naming | `package.json:14` `appId: com.reqspaceclone.app`; `server/src/db/dbConfig.ts:78` default DB `postman_clone`; repo folder `postman`; product Reqspace; also `server/src/tests/db.connection.manual.ts:9-10` | Pick one name and apply it |
+| 4 | Dead dependencies | Zero usages in `server/src` for `multer` (1.4.5-lts.1 is end-of-life), `archiver`, `postman-collection`, `http-proxy-middleware`, `ajv` — **all droppable now.** Also `@types/archiver`, `@types/multer`. `undici` has **3** live usages and must stay until SEC-0.4. `soap@^1.12.0` is live in `importExport.ts` — do not touch | Drop the five plus the two `@types` |
+| 5 | Stale capture copy | `server/src/utils/ssrf.ts:6` says "share-proxy, capture, and WSDL-import routes"; `client/src/pages/AdminPage.tsx:391` says "every user's Send / share-link / capture requests". Capture was deleted in `36b3331` | Fix both strings (the second is also UI-6) |
+| 6 | Stale doc references | `scripts/smoke-core.sh:4` points at `TESTING.md` and `server/src/tests/ssrf.test.ts:5` at `CODE_REVIEW.md`; **neither document exists** in the repo | Repoint both at this file |
+| 7 | `IGNORE.md` drift | Its section B cites `server/src/models/AuditLog.ts`, `server/src/routes/capture.ts` and `CaptureTrafficModal.tsx`, all deleted | Repoint or drop those rows |
+---
+
+# Removed on 2026-09-25
+
+Deleted from this file during the verification pass. Recorded once so nobody re-adds them from an old
+diff, a stale review or a memory of "there was a task for that".
+
+## Shipped
+
+| Was | What shipped | Evidence |
 |---|---|---|
-| Empty runner route | `server/src/routes/runner.ts`, mounted at `index.ts:171` | Delete both. The collection runner is a client feature |
-| Duplicate admin bootstrap | `ensureDefaultAdmin` in `server/src/models/User.ts` vs `index.ts:220-249` | Keep the one in `index.ts`; delete the other |
-| Broken emoji comments | `server/src/routes/share.ts:11,37` (`// ?? GET …`) | Fix or remove |
-| Inconsistent naming | Repo folder `postman`, product Reqspace, Electron `appId: com.reqspaceclone.app`, default DB `postman_clone` | Pick one name and apply it |
-| Dead dependencies | `server/package.json` | Check and drop: `multer` (1.4.5-lts.1 is end-of-life), `archiver`, `postman-collection`, `http-proxy-middleware` + `undici` (SEC-0.4), `ajv` (SEC-9) |
-| Test husks | `tests/socket-sync.spec.ts`, `tests/massive-permissions.spec.ts` | Comment-only files kept because an earlier session could not delete files. Delete them |
-| Stale doc references | `scripts/smoke-core.sh:5`, `tests/api-authorization.spec.ts:8` → removed `TESTING.md`; `server/src/tests/ssrf.test.ts:5` → removed `CODE_REVIEW.md` | Repoint at this file (or delete with SEC-0.4) |
+| **SEC-4** — stop persisting credentials to `localStorage` | `stripSecrets()` strips auth secrets and sensitive header values before every persist; `version: 1` + `migrate` wipes what was already in users' browsers; the fake `sess_default_123` seed cookie is gone | `client/src/store/requestStore.ts`, `cookieStore.ts`, commit `ff0d60f` |
+| **FIX-2** | Shipped before this pass; the section was already deleted. Its only trace was a dangling "see FIX-2 step 4" cross-reference, now removed | — |
+| **FIX-3** — add real migrations | `umzug` wired into `connect.ts` with four migrations: `001-indexes` (all 13 indexes), `002-user-settings-columns`, `002-shared-link-columns`, `003-sync-missing-columns` (generic add-only column backfill), plus `npm run migrate` | `server/src/db/connect.ts`, `server/src/db/migrations/` |
 
+Two corrections that outlived FIX-3 and now live in the tasks that need them:
 
+* FIX-3's own text said to wire `umzug.up()` **before** `sq.sync()`. The shipped code deliberately runs it
+  **after**, so a fresh install's tables are created complete by `sync()` and migrations only backfill older
+  databases. It also computes the migration glob from `__filename`'s extension rather than hardcoding
+  `dist/`. Do not "fix" this backwards.
+* `idx_history_user_workspace` is `(userId, workspaceId)` only. PERF-3's history cursor needs
+  `(userId, workspaceId, createdAt)`, which does **not** exist — adding it is part of PERF-3, in a new
+  migration, never by editing `001`.
 
+## No longer applicable
 
+| Was | Why it is gone |
+|---|---|
+| **SEC-5** — stop exporting unmasked secrets | `GET /api/admin/export/:workspaceId` (`admin.ts:55-66`) no longer includes `config` in its dump, so there is no instance-wide secret to leak. The masking helper `maskConfigSecrets` (`:28-35`) still guards `GET`/`PUT /config`, which is correct |
+| **SEC-0.5** — decide the fate of traffic capture | `server/src/routes/capture.ts` and `client/src/components/layout/CaptureTrafficModal.tsx` were deleted in `36b3331`. Only two stale strings remain, now CLEAN row 5 |
+| **SEC-6's ReDoS vulnerability** | `grep -rn "new RegExp" server/src` returns nothing — the Mongo removal deleted every `$regex` path. SEC-6 survives as a much smaller `LIKE`-escaping task |
+| **CLEAN — duplicate admin bootstrap** | `ensureDefaultAdmin` lived in `server/src/models/User.ts`; `server/src/models/` no longer exists. The `index.ts` bootstrap is the only one |
+| **CLEAN — broken emoji comments in `share.ts`** | The file contains no `//` comments at all now |
+| **CLEAN — test husks** | `tests/socket-sync.spec.ts` and `tests/massive-permissions.spec.ts` at the repo root do not exist. `tests/e2e/socket-sync.spec.ts` is 86 lines with two real tests — not a husk, do not delete it |
+| **Rule 6's `server/src/models/` ban** | The directory is gone. The rule now names the repositories instead |
+
+## Claims that were simply wrong
+
+Corrected in place, listed here because each one would have sent an implementer in the wrong direction:
+
+| Claim | Reality |
+|---|---|
+| "~800 Playwright tests exist" | **36** `test()` calls across 25 files (148 `expect()`s). The figure came from a stale comment at `playwright.config.ts:27` |
+| `playwright.config.ts` — `baseURL` and `webServer` are commented out | Both are **active**. `globalSetup` is the one that is commented out (`:21`) |
+| Specs hardcode `localhost:3005` | `grep -rn "localhost:3005" tests/` returns nothing; API calls are already relative. Eleven specs do still hardcode `localhost:5173` |
+| SOCK-2's table marks three `collection:*` events "✅ Covered" | Zero of the 13 event names appear anywhere under `tests/` |
+| `tests/socket-realtime.spec.ts`, `tests/api-authorization.spec.ts` ("2 tests today"), `tests/reqspace.spec.ts` | None of these files exist |
+| Admin export "always returns `[]`" | It **throws a 500** — `SqlFolder`/`SqlRequest` have no `workspaceId` column (FIX-1) |
+| `routes/admin.ts` sends SMTP mail | Nothing does. `grep -rn "nodemailer\|createTransport\|sendMail" server/src` returns nothing; only the config fields exist |
+| PERF-4 #5 does `find` + `countDocuments` | There is no count query; it loads the whole users table and reports `users.length`. Worse than described |
+| History sorts by `executedAt` | That column does not exist. The model and route use `createdAt` (see FIX-4) |
+| "Monaco is loaded eagerly" (PERF-7) | `monaco-editor` is not bundled at all — `@monaco-editor/react` fetches it from jsDelivr at runtime. The fix is the opposite: bundle it (SEC-10 blocker 2) |
+| UI-1 covers 10 native dialog sites | 22 — the 12 `alert()` calls were missed entirely |
+| UI-3: "remove the double `AuthGuard` on /admin" | **Dangerous.** The inner guard at `App.tsx:229` carries the superadmin check. Removing it exposes the admin page to any logged-in user |
+| SEC-9: add `params: Record<string, string>` to `AuthRequest` | Already present at `middleware/auth.ts:15` |
+| SEC-2 has four authorization holes | Six candidates; four are real, and two (`/requests/import/curl`, `/requests/import/raw-http`) never write anything and are not holes |
+
+## Working-tree state
+
+At the time of this pass, `git status` showed four files modified and uncommitted, belonging to a parallel
+session — `server/src/routes/auth.ts` (the `if (false)` → real `allowSelfRegistration` check, which is half
+of FIX-5) and three `tests/e2e/*.spec.ts` files swapping the `uuid` import for `crypto.randomUUID`. Check
+`git status` before editing those files, and do not revert or commit them as part of an unrelated task.
