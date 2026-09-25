@@ -95,6 +95,22 @@ interface RequestStore {
 
 const historyMap: Record<string, { undo: ActiveRequest[], redo: ActiveRequest[], lastPush: number }> = {};
 
+// SEC-4: never let credentials sit in localStorage. Auth secrets (bearer
+// token, basic password, apikey value, ntlm password, oauth2 secrets) and
+// sensitive header values are stripped before every persist — only the auth
+// TYPE survives, so the tab reopens on the right auth tab with fields empty.
+const SENSITIVE_HEADER_KEYS = /^(authorization|proxy-authorization|cookie|x-api-key|api-key|x-auth-token)$/i;
+
+function stripSecrets(tab: ActiveRequest): ActiveRequest {
+  return {
+    ...tab,
+    auth: tab.auth ? { type: tab.auth.type } : tab.auth,
+    headers: (tab.headers ?? []).map(h =>
+      SENSITIVE_HEADER_KEYS.test(h.key) ? { ...h, value: '' } : h
+    ),
+  };
+}
+
 export const useRequestStore = create<RequestStore>()(
   persist(
     (set, get) => ({
@@ -325,7 +341,14 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
-      partialize: (state) => ({ tabs: state.tabs, activeTabId: state.activeTabId }),
+      version: 1,
+      // Wipes secrets already sitting in existing users' browsers from before
+      // this fix, not just new writes going forward.
+      migrate: (persisted: any) => ({
+        ...persisted,
+        tabs: (persisted?.tabs ?? []).map(stripSecrets),
+      }),
+      partialize: (state) => ({ tabs: state.tabs.map(stripSecrets), activeTabId: state.activeTabId }),
       onRehydrateStorage: () => (state) => {
         if (state && state.activeTabId && state.tabs) {
           state.activeRequest = state.tabs.find(t => t.tabId === state.activeTabId) || null;
