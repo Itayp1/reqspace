@@ -82,7 +82,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       <div className="bg-background rounded-lg shadow-xl w-[600px] h-[500px] flex flex-col border border-border">
         <div className="flex items-center justify-between p-4 border-b border-border bg-surface">
           <h2 className="text-lg font-bold">Workspace Settings</h2>
-          <button onClick={onClose} className="p-1 hover:bg-border rounded"><X className="w-5 h-5" /></button>
+          <button data-testid="close-workspace-modal" onClick={onClose} className="p-1 hover:bg-border rounded"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="flex border-b border-border">
@@ -120,6 +120,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
               <div>
                 <label className="block text-sm font-medium mb-1">Workspace Name</label>
                 <input 
+                  data-testid="workspace-name-input"
                   type="text" 
                   value={name} 
                   onChange={e => setName(e.target.value)} 
@@ -148,6 +149,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
               </div>
               {isOwner && (
                 <button 
+                  data-testid="workspace-save-btn"
                   onClick={handleUpdate}
                   className="bg-primary text-white px-4 py-2 rounded hover:bg-orange-600 transition"
                 >
@@ -169,6 +171,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                     />
                   </div>
                   <select 
+                    data-testid="workspace-invite-role"
                     value={inviteRole} 
                     onChange={e => setInviteRole(e.target.value)}
                     className="p-2 border border-border rounded bg-surface"
@@ -177,6 +180,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                     <option value="editor">Editor</option>
                   </select>
                   <button 
+                    data-testid="workspace-invite-btn"
                     type="submit" 
                     disabled={!inviteEmail}
                     className="bg-primary text-white px-4 py-2 rounded hover:bg-orange-600 disabled:opacity-50 flex items-center gap-2"
@@ -198,12 +202,13 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                   </thead>
                   <tbody>
                     {members.map(m => (
-                      <tr key={m.userId?._id || Math.random()} className="border-b border-border last:border-0 hover:bg-surface">
-                        <td className="p-2">{m.userId?.name || "Deleted User"}</td>
-                        <td className="p-2 text-text-muted">{m.userId?.email || "N/A"}</td>
+                      <tr key={m.userId?._id || Math.random()} data-testid="member-row" className="border-b border-border last:border-0 hover:bg-surface">
+                        <td className="p-2" data-testid="member-name">{m.userId?.name || "Deleted User"}</td>
+                        <td className="p-2 text-text-muted" data-testid="member-email">{m.userId?.email || "N/A"}</td>
                         <td className="p-2 capitalize">
                           {isOwner && m.role !== 'owner' ? (
                             <select 
+                              data-testid="member-role-select"
                               value={m.role}
                               onChange={async (e) => {
                                 try {
@@ -219,13 +224,13 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                               <option value="editor">Editor</option>
                             </select>
                           ) : (
-                            <span className="p-1">{m.role}</span>
+                            <span className="p-1" data-testid="member-role-text">{m.role}</span>
                           )}
                         </td>
                         {isOwner && (
                           <td className="p-2">
                             {m.role !== 'owner' && (
-                              <button onClick={() => handleRemove(m.userId?._id)} className="text-text-muted hover:text-red-500 p-1">
+                              <button data-testid="member-remove-btn" onClick={() => handleRemove(m.userId?._id)} className="text-text-muted hover:text-red-500 p-1">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}

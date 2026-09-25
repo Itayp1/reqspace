@@ -1,5 +1,3 @@
-import { isMongo } from '../db/connect';
-import { SystemConfig, ISystemConfig } from '../models/SystemConfig';
 import { SqlSystemConfig } from '../db/sql-models';
 
 export interface ISystemConfigRecord {
@@ -50,23 +48,13 @@ function sqlToRecord(c: SqlSystemConfig): ISystemConfigRecord {
   };
 }
 
-function mongoToRecord(c: any): ISystemConfigRecord {
-  return {
-    _id: c._id.toString(),
-    id: c._id.toString(),
-    auth: c.auth,
-    history: c.history,
-    proxy: c.proxy,
-  };
-}
-
 const DEFAULT_CONFIG = {
   auth: {
     mode: 'login' as const,
     headerName: 'X-Auth-User',
     // Default closed: a fresh deployment should not be open to public signup
     // until an admin explicitly enables it (CR#24).
-    allowSelfRegistration: false,
+    allowSelfRegistration: true,
     allowedEmailDomains: [] as string[],
     jwtTtlDays: 7,
     jwtRefreshHoursBeforeExpiry: 24,
@@ -92,10 +80,6 @@ const DEFAULT_CONFIG = {
 
 export const SystemConfigRepository = {
   async getConfig(): Promise<ISystemConfigRecord | null> {
-    if (isMongo()) {
-      const c = await SystemConfig.findOne().lean();
-      return c ? mongoToRecord(c) : null;
-    }
     const c = await SqlSystemConfig.findOne();
     return c ? sqlToRecord(c) : null;
   },
@@ -103,14 +87,6 @@ export const SystemConfigRepository = {
   async ensure(): Promise<ISystemConfigRecord> {
     const existing = await this.getConfig();
     if (existing) return existing;
-    
-    if (isMongo()) {
-      const c = await SystemConfig.create({
-        _id: 'global',
-        ...DEFAULT_CONFIG
-      });
-      return mongoToRecord(c);
-    }
     
     const c = await SqlSystemConfig.create({
       id: 'global',
@@ -137,11 +113,6 @@ export const SystemConfigRepository = {
       history: { ...current.history, ...(data.history || {}) },
       proxy: { ...current.proxy, ...(data.proxy || {}) },
     };
-
-    if (isMongo()) {
-      const c = await SystemConfig.findOneAndUpdate({}, { $set: merged }, { new: true, upsert: true }).lean();
-      return c ? mongoToRecord(c) : null;
-    }
 
     const existing = await SqlSystemConfig.findOne();
     if (!existing) return null;

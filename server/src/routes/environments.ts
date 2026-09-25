@@ -1,8 +1,7 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
-import { Environment } from '../models/Environment';
-
+import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { NextFunction } from "express";
 import { emitToWorkspace } from '../socketUtils';
 const router = Router();
@@ -11,7 +10,7 @@ function checkEnvPermission(minRole: 'viewer' | 'editor') {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (req.user?.isSuperAdmin) return next();
     try {
-      const item = await Environment.findById(req.params.id);
+      const item = await EnvironmentRepository.findById(req.params.id);
       if (!item) return res.status(404).json({ message: 'Environment not found' });
       req.params.workspaceId = String(item.workspaceId);
       return requireWorkspaceRole(minRole)(req, res, next);
@@ -21,111 +20,44 @@ function checkEnvPermission(minRole: 'viewer' | 'editor') {
 
 router.use(authenticate);
 
-// ── GET /api/workspaces/:workspaceId/environments ───────────────────────────
 router.get('/workspaces/:workspaceId/environments',
   requireWorkspaceRole('viewer'),
   async (req: AuthRequest, res: Response) => {
-    const envs = await Environment.find({
-      workspaceId: req.params.workspaceId,
-    }).sort({ isGlobal: -1, order: 1, createdAt: 1 }).lean();
+    const envs = await EnvironmentRepository.findByWorkspace(req.params.workspaceId);
     return res.json(envs);
   }
 );
 
-// ── POST /api/workspaces/:workspaceId/environments ──────────────────────────
 router.post('/workspaces/:workspaceId/environments',
   requireWorkspaceRole('editor'),
   async (req: AuthRequest, res: Response) => {
-    const { name, isGlobal, variables } = req.body;
-    if (!name) return res.status(400).json({ message: 'name required' });
-
-    const env = await Environment.create({
+    const env = await EnvironmentRepository.create({
+      ...req.body,
       workspaceId: req.params.workspaceId,
-      name, isGlobal: isGlobal ?? false,
-      variables: variables ?? [],
-      createdBy: req.user!._id,
+      createdBy: req.user!._id
     });
-    emitToWorkspace(req.params.workspaceId, 'environment:created', env);
+    emitToWorkspace(req.params.workspaceId, 'environment-created', env);
     return res.status(201).json(env);
   }
 );
 
-// ── PUT /api/environments/reorder ──────────────────────────────────────────────
-router.put('/environments/reorder', async (req: AuthRequest, res: Response) => {
-  const { items } = req.body;
-  if (!items || !Array.isArray(items)) return res.status(400).json({ message: 'Invalid items array' });
-  if (items.length === 0) return res.json({ success: true });
-
-  const sample = await Environment.findById(items[0].id);
-  if (!sample) return res.status(404).json({ message: 'Environment not found' });
-  const workspaceId = String(sample.workspaceId);
-
-  if (!req.user?.isSuperAdmin) {
-    const Workspace = require('../models/Workspace').Workspace;
-    const ws = await Workspace.findById(workspaceId);
-    if (!ws) return res.status(404).json({ message: 'Workspace not found' });
-    const member = ws.members.find((m: any) => String(m.userId) === String(req.user!._id));
-    if (!member || member.role === 'viewer') return res.status(403).json({ message: 'Forbidden' });
+router.put('/environments/:id',
+  checkEnvPermission('editor'),
+  async (req: AuthRequest, res: Response) => {
+    const env = await EnvironmentRepository.update(req.params.id, req.body);
+    if (!env) return res.status(404).json({ message: 'Not found' });
+    emitToWorkspace(req.params.workspaceId, 'environment-updated', env);
+    return res.json(env);
   }
+);
 
-  for (const item of items) {
-    await Environment.findByIdAndUpdate(item.id, { order: item.order });
+router.delete('/environments/:id',
+  checkEnvPermission('editor'),
+  async (req: AuthRequest, res: Response) => {
+    await EnvironmentRepository.delete(req.params.id);
+    emitToWorkspace(req.params.workspaceId, 'environment-deleted', req.params.id);
+    return res.status(204).end();
   }
-  emitToWorkspace(workspaceId, 'environment:updated', undefined);
-  return res.json({ success: true });
-});
-
-// ── GET /api/environments/:id ───────────────────────────────────────────────
-router.get('/environments/:id', checkEnvPermission('viewer'), async (req: AuthRequest, res: Response) => {
-  const env = await Environment.findById(req.params.id).lean();
-  if (!env) return res.status(404).json({ message: 'Environment not found' });
-  return res.json(env);
-});
-
-// ── PUT /api/environments/:id ───────────────────────────────────────────────
-router.put('/environments/:id', checkEnvPermission('editor'), async (req: AuthRequest, res: Response) => {
-  const env = await Environment.findByIdAndUpdate(req.params.id, req.body, { new: true });
-  if (!env) return res.status(404).json({ message: 'Environment not found' });
-  emitToWorkspace(req.params.workspaceId, 'environment:updated', env);
-  return res.json(env);
-});
-
-// ── DELETE /api/environments/:id ────────────────────────────────────────────
-router.delete('/environments/:id', checkEnvPermission('editor'), async (req: AuthRequest, res: Response) => {
-  await Environment.findByIdAndDelete(req.params.id);
-  emitToWorkspace(req.params.workspaceId, 'environment:deleted', req.params.id);
-  return res.json({ message: 'Environment deleted' });
-});
-
-// ── POST /api/environments/:id/duplicate ────────────────────────────────────
-router.post('/environments/:id/duplicate', checkEnvPermission('viewer'), async (req: AuthRequest, res: Response) => {
-  const env = await Environment.findById(req.params.id).lean();
-  if (!env) return res.status(404).json({ message: 'Environment not found' });
-
-  // If a target workspace is provided, verify the user has access to it
-  const targetWorkspaceId = req.body.workspaceId || env.workspaceId;
-  if (req.body.workspaceId && req.body.workspaceId !== String(env.workspaceId)) {
-    const Workspace = require('../models/Workspace').Workspace;
-    const targetWs = await Workspace.findById(targetWorkspaceId);
-    if (!targetWs) return res.status(404).json({ message: 'Target workspace not found' });
-    const member = targetWs.members.find((m: any) => String(m.userId) === String(req.user!._id));
-    if (!member && !req.user!.isSuperAdmin) {
-      return res.status(403).json({ message: 'No access to target workspace' });
-    }
-    if (member && member.role === 'viewer') {
-      return res.status(403).json({ message: 'Viewers cannot create environments in the target workspace' });
-    }
-  }
-
-  const { _id, ...data } = env;
-  const duplicate = await Environment.create({
-    ...data,
-    workspaceId: targetWorkspaceId,
-    name: `${env.name} (copy)`,
-    createdBy: req.user!._id,
-  });
-  emitToWorkspace(targetWorkspaceId, 'environment:created', duplicate);
-  return res.status(201).json(duplicate);
-});
+);
 
 export default router;

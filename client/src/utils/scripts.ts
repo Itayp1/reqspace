@@ -91,7 +91,10 @@ export function runPreRequestScript(script?: string, collectionId?: string, iter
           if (localVariables.has(key)) return localVariables.get(key);
           if (iterationData && key in iterationData) return iterationData[key];
           
-          const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore.getState();
+          const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars } = useEnvironmentStore.getState();
+          const storeLocalVal = storeLocalVars?.find(v => v.key === key);
+          if (storeLocalVal !== undefined && storeLocalVal.enabled) return storeLocalVal.value !== undefined ? storeLocalVal.value : storeLocalVal.currentValue;
+
           const activeEnv = environments.find(e => e._id === activeEnvironmentId);
           const envVal = activeEnv?.variables.find(v => v.key === key)?.currentValue;
           if (envVal !== undefined) return envVal;
@@ -265,7 +268,10 @@ export function runTestScript(
           if (localVariables.has(key)) return localVariables.get(key);
           if (iterationData && key in iterationData) return iterationData[key];
           
-          const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore.getState();
+          const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars } = useEnvironmentStore.getState();
+          const storeLocalVal = storeLocalVars?.find(v => v.key === key);
+          if (storeLocalVal !== undefined && storeLocalVal.enabled) return storeLocalVal.value !== undefined ? storeLocalVal.value : storeLocalVal.currentValue;
+
           const activeEnv = environments.find(e => e._id === activeEnvironmentId);
           const envVal = activeEnv?.variables.find(v => v.key === key)?.currentValue;
           if (envVal !== undefined) return envVal;

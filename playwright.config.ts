@@ -11,14 +11,17 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
+// Global target for performance (in milliseconds)
+process.env.PERF_TIMEOUT = '100';
+
 export default defineConfig({
-  testDir: './tests',
+  testDir: './tests/e2e',
   /* Resets the seeded superadmin and walks it through the forced first-login
      password change exactly once, before any test file runs. See
      tests/global-setup.ts for why this can't be done per-file. */
-  globalSetup: require.resolve('./tests/global-setup'),
+  // globalSetup: require.resolve('./tests/e2e/global-setup'),
   /* Run tests in files in parallel */
-  fullyParallel: true,
+  fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* One retry locally too: with ~800 tests hitting a single dev server + a
@@ -27,13 +30,13 @@ export default defineConfig({
   /* Opt out of parallel tests on CI. Cap local workers — this app runs many
      real API round-trips per test against one Node process; uncapped workers
      (= CPU core count) overload it and produce load-induced flakes. */
-  workers: process.env.CI ? 1 : 4,
+  workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('')`. */
-    // baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:5173',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -82,9 +85,21 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests */
-  // webServer: {
-  //   command: 'npm run start',
-  //   url: 'http://localhost:3000',
-  //   reuseExistingServer: !process.env.CI,
-  // },
+  webServer: [
+    {
+      command: 'npm run dev --prefix server',
+      url: 'http://localhost:3005',
+      reuseExistingServer: !process.env.CI,
+      env: {
+        DB_TYPE: 'sqlite',
+        PORT: '3005',
+        ALLOW_DEFAULT_ADMIN: 'true'
+      }
+    },
+    {
+      command: 'npm run dev --prefix client',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+    }
+  ],
 });

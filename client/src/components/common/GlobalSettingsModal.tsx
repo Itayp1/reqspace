@@ -207,6 +207,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
             <div className="space-y-3 bg-surface p-4 rounded border border-border">
               <div className="flex items-center gap-2 mb-2">
                 <input
+                  data-testid="proxy-enable-checkbox"
                   type="checkbox"
                   id="proxyEnabled"
                   checked={settings.proxyEnabled}
@@ -220,6 +221,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                   <div>
                     <label className="block text-xs font-medium mb-1">Proxy URL (e.g. http://127.0.0.1:8080)</label>
                     <input
+                      data-testid="proxy-url-input"
                       type="text"
                       value={settings.proxyUrl}
                       onChange={(e) => updateSettings({ proxyUrl: e.target.value })}
@@ -230,6 +232,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                   
                   <div className="flex items-center gap-2 pt-2">
                     <input
+                      data-testid="proxy-auth-checkbox"
                       type="checkbox"
                       id="proxyAuthEnabled"
                       checked={settings.proxyAuthEnabled}
@@ -243,6 +246,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                       <div>
                         <label className="block text-xs font-medium mb-1">Username</label>
                         <input
+                          data-testid="proxy-username-input"
                           type="text"
                           value={settings.proxyUsername || ''}
                           onChange={(e) => updateSettings({ proxyUsername: e.target.value })}
@@ -252,6 +256,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                       <div>
                         <label className="block text-xs font-medium mb-1">Password</label>
                         <input
+                          data-testid="proxy-password-input"
                           type="password"
                           value={settings.proxyPassword || ''}
                           onChange={(e) => updateSettings({ proxyPassword: e.target.value })}

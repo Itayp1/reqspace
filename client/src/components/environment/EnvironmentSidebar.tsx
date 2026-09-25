@@ -67,6 +67,7 @@ export default function EnvironmentSidebar() {
       <div className="p-2 flex justify-between items-center border-b border-border">
         <span className="text-xs font-semibold text-text-muted uppercase">Environments</span>
         <button
+          data-testid="new-env-btn"
           className="p-1 hover:bg-border rounded text-text-muted hover:text-text transition-colors"
           onClick={handleCreateEnv}
           title="New Environment"
@@ -83,6 +84,13 @@ export default function EnvironmentSidebar() {
             <span className="truncate flex-1 font-medium text-orange-500">Globals (Common)</span>
           </div>
         )}
+        
+        <div
+          className="p-2 text-sm rounded cursor-pointer hover:bg-border transition flex items-center"
+          onClick={() => openEnvironmentTab('local-variables', 'Local Variables')}
+        >
+          <span className="truncate flex-1 font-medium text-blue-500">Local Variables</span>
+        </div>
         
           {environments.map(env => {
             const menuOptions = [
@@ -102,7 +110,7 @@ export default function EnvironmentSidebar() {
                   showContextMenu({ x: e.clientX, y: e.clientY, items: menuOptions });
                 }}
               >
-                <span className="truncate flex-1">{env.name}</span>
+                <span data-testid={`env-node-${env.name}`} className="truncate flex-1">{env.name}</span>
                 <div className="hidden group-hover:flex items-center gap-1 shrink-0">
                   <button
                     className="p-1 text-text-muted hover:text-text rounded-md"

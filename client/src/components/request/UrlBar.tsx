@@ -19,6 +19,25 @@ import { resolveAllVariables } from '../../utils/variables';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
 import { stripJsonComments } from '../../utils/jsonComments';
 
+function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div data-testid="viewer-fork-modal" className="bg-surface rounded-lg shadow-xl w-[400px] border border-border flex flex-col overflow-hidden bg-white dark:bg-gray-800">
+        <div className="p-4 border-b border-border bg-gray-50 dark:bg-gray-900">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Permission Denied</h2>
+        </div>
+        <div className="p-4 text-sm text-gray-700 dark:text-gray-300">
+          <p>You do not have permission to edit this workspace. Would you like to copy this request to your personal workspace?</p>
+        </div>
+        <div className="p-4 border-t border-border bg-gray-50 dark:bg-gray-900 flex justify-end gap-2">
+          <button data-testid="viewer-fork-cancel" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">Cancel</button>
+          <button data-testid="viewer-fork-copy" onClick={onCopy} className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded hover:bg-blue-700">Copy to my workspace</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
 
 // ── URL ↔ Params Sync ─────────────────────────────────────────────────────────
@@ -72,6 +91,7 @@ export function UrlBar() {
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isRenamingTitle, setIsRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [isViewerForkModalOpen, setIsViewerForkModalOpen] = useState(false);
 
   const isDirty = !!activeRequest?.isDirty;
 
@@ -345,7 +365,7 @@ export function UrlBar() {
     if (!activeRequest) return;
     const canSave = !activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || useAuthStore.getState().user?.isSuperAdmin;
     if (!canSave) {
-      if (!isAutoSave) alert('You do not have permission to save requests in this workspace.');
+      if (!isAutoSave) setIsViewerForkModalOpen(true);
       return;
     }
 
@@ -461,6 +481,7 @@ export function UrlBar() {
       <div className="flex flex-col md:flex-row md:items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <div className="flex bg-gray-100 dark:bg-gray-900 rounded-md border border-gray-300 dark:border-gray-700 flex-1 overflow-hidden transition-colors focus-within:border-blue-500">
           <select
+            data-testid="method-select"
             className="bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm font-semibold outline-none border-r border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
             value={activeRequest.method}
             onChange={(e) => updateActiveRequest({ method: e.target.value })}
@@ -472,6 +493,7 @@ export function UrlBar() {
           <div className="relative flex-1 flex items-center">
             <VariableInput
               className="flex-1"
+              data-testid="request-url-input"
               value={activeRequest.url}
               onChange={(val) => handleUrlChange(val)}
               onEnter={handleSend}
@@ -491,6 +513,7 @@ export function UrlBar() {
 
         {/* Code Gen Button */}
         <button
+          data-testid="codegen-btn"
           onClick={() => setIsCodeGenOpen(true)}
           className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors"
           title="Code Snippet"
@@ -502,6 +525,7 @@ export function UrlBar() {
         {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || useAuthStore.getState().user?.isSuperAdmin) && (
           <div className={`flex flex-1 md:flex-none items-stretch rounded-md border transition-colors focus-within:ring-2 focus-within:ring-gray-200 ${isDirty ? 'border-orange-400' : 'border-gray-300 dark:border-gray-700'}`}>
             <button
+              data-testid="request-save-btn"
               onClick={() => handleSaveClick(false)}
               className={`flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium outline-none rounded-l-md ${
                 isDirty
@@ -553,6 +577,7 @@ export function UrlBar() {
                 <Activity size={16} />
               </button>
               <button
+                data-testid="request-send-btn"
                 onClick={handleSend}
                 className="flex flex-1 md:flex-none items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
               >
@@ -584,6 +609,16 @@ export function UrlBar() {
               return '';
             }
           })()}
+        />
+      )}
+      {isViewerForkModalOpen && (
+        <ViewerForkModal
+          onClose={() => setIsViewerForkModalOpen(false)}
+          onCopy={() => {
+            const event = new CustomEvent('copy-to-workspace', { detail: { type: 'request', id: activeRequest._id, name: activeRequest.name } });
+            window.dispatchEvent(event);
+            setIsViewerForkModalOpen(false);
+          }}
         />
       )}
     </>

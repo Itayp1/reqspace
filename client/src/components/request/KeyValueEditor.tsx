@@ -132,6 +132,7 @@ export function KeyValueEditor({ items = [], onChange, allowFiles = false }: Key
                   <div className="border-r border-gray-200 dark:border-gray-700 relative flex group/key">
                     <input
                       type="text"
+                      data-testid={`kv-key-${i}`}
                       placeholder="Key"
                       value={item.key}
                       onChange={(e) => updateItem(i, 'key', e.target.value)}
@@ -164,6 +165,7 @@ export function KeyValueEditor({ items = [], onChange, allowFiles = false }: Key
                       />
                     ) : (
                       <VariableInput
+                        data-testid={`kv-val-${i}`}
                         placeholder="Value"
                         value={item.value}
                         onChange={(val) => updateItem(i, 'value', val)}

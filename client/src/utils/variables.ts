@@ -47,7 +47,7 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
   if (!text) return '';
   let result = resolveDynamicVars(text);
 
-  const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore.getState();
+  const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars } = useEnvironmentStore.getState();
   const activeEnv = environments.find(e => e._id === activeEnvironmentId);
 
   const envVars = new Map<string, string>();
@@ -80,7 +80,14 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     }
   }
 
-  // Local variables override everything
+  // Store local variables override collection and environment
+  if (storeLocalVars) {
+    for (const v of storeLocalVars) {
+      if (v.enabled && v.key) envVars.set(v.key, String(v.value !== undefined ? v.value : (v.currentValue || '')));
+    }
+  }
+
+  // Runtime local variables override everything
   if (localVariables) {
     for (const [key, value] of localVariables.entries()) {
       envVars.set(key, String(value));

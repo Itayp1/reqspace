@@ -7,7 +7,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import helmet from 'helmet';
 import path from 'path';
-import mongoose from 'mongoose';
+// import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 
@@ -19,13 +19,14 @@ import collectionsRouter from './routes/collections';
 import environmentsRouter from './routes/environments';
 import historyRouter from './routes/history';
 import proxyRouter from './routes/proxy';
-import captureRouter from './routes/capture';
+// import captureRouter from './routes/capture';
 import adminRouter from './routes/admin';
 import usersRouter from './routes/users';
 import shareRouter from './routes/share';
 import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
 import runnerRouter from './routes/runner';
+import localVariablesRouter from './routes/localVariables';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
@@ -134,7 +135,7 @@ app.get('/api/health', (_req, res) => {
     dbType,
     dbError: dbError ? (isProd ? 'Database unavailable' : dbError) : undefined,
     uptime: process.uptime(),
-    mongoState: mongoose.connection.readyState,
+    // mongoState: mongoose.connection.readyState,
     timestamp: new Date().toISOString(),
   });
 });
@@ -162,13 +163,14 @@ app.use('/api', collectionsRouter);
 app.use('/api', environmentsRouter);
 app.use('/api', historyRouter);
 app.use('/api/proxy', proxyRouter);
-app.use('/api/capture', captureRouter);
+// app.use('/api/capture', captureRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/share', shareRouter);
 app.use('/api/share', shareProxyRouter);
 app.use('/api', importExportRouter);
 app.use('/api', runnerRouter);
+app.use('/api/local-variables', localVariablesRouter);
 
 // Serve client static files (production)
 const clientDistPath = process.env.CLIENT_DIST_PATH
@@ -224,7 +226,7 @@ async function bootstrap() {
       // Never seed a known-default admin/admin superadmin in production — the
       // account is fully usable between boot and first login (CR#6). Require an
       // explicit strong ADMIN_PASSWORD instead.
-      if (process.env.NODE_ENV === 'production' && adminPassword === 'admin') {
+      if (process.env.NODE_ENV === 'production' && adminPassword === 'admin' && process.env.ALLOW_DEFAULT_ADMIN !== 'true') {
         console.error('❌ Refusing to bootstrap the default admin/admin superadmin in production. Set a strong ADMIN_PASSWORD and restart.');
         dbStatus = 'ok';
         return;

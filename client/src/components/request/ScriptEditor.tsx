@@ -25,7 +25,7 @@ export function ScriptEditor({ value, onChange }: ScriptEditorProps) {
 
   return (
     <div className="flex h-full gap-4">
-      <div className="flex-1 h-full min-h-[200px] border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden bg-white dark:bg-gray-900 pt-2">
+      <div data-testid="monaco-editor-container" className="flex-1 h-full min-h-[200px] border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden bg-white dark:bg-gray-900 pt-2">
         <Editor
           height="100%"
           language="javascript"

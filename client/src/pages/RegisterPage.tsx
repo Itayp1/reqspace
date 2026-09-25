@@ -59,11 +59,12 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold text-center">Register to Reqspace</h1>
         </div>
         
-        {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
+        {error && <div data-testid="register-error" className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
 
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Name</label>
           <input
+            data-testid="register-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -75,6 +76,7 @@ export default function RegisterPage() {
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Username or Email</label>
           <input
+            data-testid="register-email"
             type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -87,6 +89,7 @@ export default function RegisterPage() {
         <div className="mb-6">
           <label className="block text-sm font-medium mb-1">Password</label>
           <input
+            data-testid="register-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -95,7 +98,7 @@ export default function RegisterPage() {
           />
         </div>
 
-        <button type="submit" className="w-full bg-primary text-white p-2 rounded hover:bg-orange-600 transition mb-4">
+        <button data-testid="register-submit" type="submit" className="w-full bg-primary text-white p-2 rounded hover:bg-orange-600 transition mb-4">
           Create Account
         </button>
 

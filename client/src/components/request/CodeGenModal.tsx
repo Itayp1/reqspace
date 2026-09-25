@@ -147,6 +147,7 @@ export const CodeGenModal: React.FC<CodeGenModalProps> = ({ onClose }) => {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200]" onClick={onClose}>
       <div
+        data-testid="codegen-modal"
         className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[80vh] overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
@@ -161,6 +162,7 @@ export const CodeGenModal: React.FC<CodeGenModalProps> = ({ onClose }) => {
           {LANGUAGES.map(lang => (
             <button
               key={lang.id}
+              data-testid={`codegen-lang-${lang.id}`}
               onClick={() => setLanguage(lang.id)}
               className={`px-3 py-1.5 text-xs rounded whitespace-nowrap transition-colors ${
                 language === lang.id
@@ -175,7 +177,7 @@ export const CodeGenModal: React.FC<CodeGenModalProps> = ({ onClose }) => {
 
         {/* Code Block */}
         <div className="flex-1 overflow-y-auto relative">
-          <pre className="p-4 text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
+          <pre data-testid="codegen-code-block" className="p-4 text-xs text-gray-200 font-mono whitespace-pre-wrap break-words leading-relaxed">
             {code}
           </pre>
         </div>

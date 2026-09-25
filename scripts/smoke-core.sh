@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Core smoke test: exercises the primary user journey end-to-end against a
 # running server, crossing the authentication boundary (register/login is not
-# enough — the SQL-vs-Mongo divergence lives on authenticated routes, see
-# TESTING.md). Intended to run in CI against a fresh server on any backend.
+# enough — see TESTING.md). Intended to run in CI against a fresh server on any backend.
 #
 # Usage: scripts/smoke-core.sh [BASE_URL]   (default http://localhost:3005)
 set -euo pipefail

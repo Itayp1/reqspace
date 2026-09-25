@@ -51,6 +51,7 @@ export default function ForcePasswordChangeModal() {
           <div>
             <label className="block text-sm font-medium mb-1">New Password</label>
             <input
+              data-testid="new-password-input"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -62,6 +63,7 @@ export default function ForcePasswordChangeModal() {
           <div>
             <label className="block text-sm font-medium mb-1">Confirm Password</label>
             <input
+              data-testid="confirm-password-input"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -74,6 +76,7 @@ export default function ForcePasswordChangeModal() {
           {error && <div className="text-red-500 text-sm text-center p-2 bg-red-500/10 rounded border border-red-500/20">{error}</div>}
 
           <button
+            data-testid="change-password-submit"
             type="submit"
             disabled={loading}
             className="w-full bg-primary text-white p-2.5 rounded font-bold hover:bg-orange-600 transition disabled:opacity-50"

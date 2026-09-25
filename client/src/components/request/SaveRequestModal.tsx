@@ -114,6 +114,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
             <label className="block text-sm font-medium text-gray-400 mb-1">Request Name</label>
             <input
               type="text"
+              data-testid="save-req-name-input"
               className="w-full p-2 border border-border rounded bg-transparent text-text focus:border-primary outline-none"
               placeholder="Request Name"
               value={name}
@@ -154,6 +155,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
             </button>
             <button 
               type="submit"
+              data-testid="save-req-submit-btn"
               disabled={!name.trim() || !selectedLocation || loading}
               className="px-4 py-2 bg-primary text-white rounded hover:bg-orange-600 disabled:opacity-50 text-sm transition"
             >

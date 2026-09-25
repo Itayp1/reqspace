@@ -42,6 +42,7 @@ export default function Sidebar() {
 
       <div className="p-2 border-b border-border flex gap-1">
         <select 
+          data-testid="workspace-select"
           className="flex-1 p-2 bg-background border border-border rounded text-sm outline-none truncate"
           value={activeWorkspace?._id || ''}
           onChange={(e) => {
@@ -54,6 +55,7 @@ export default function Sidebar() {
           ))}
         </select>
         <button
+          data-testid="new-workspace-btn"
           onClick={async () => {
             const name = window.prompt('Enter new workspace name:');
             if (name?.trim()) {
@@ -75,6 +77,7 @@ export default function Sidebar() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
         </button>
         <button 
+          data-testid="workspace-settings-btn"
           onClick={() => setShowWorkspaceModal(true)}
           className="p-2 bg-background border border-border rounded hover:bg-border text-text-muted transition flex-shrink-0"
           title="Workspace Settings"
@@ -91,12 +94,14 @@ export default function Sidebar() {
           <FolderOpen className="w-3.5 h-3.5" /> Collections
         </button>
         <button 
+          data-testid="tab-environments"
           className={`flex-1 p-2 flex items-center justify-center gap-1.5 text-xs border-b-2 ${activeTab === 'environments' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
           onClick={() => setActiveTab('environments')}
         >
           <SlidersHorizontal className="w-3.5 h-3.5" /> Envs
         </button>
         <button 
+          data-testid="tab-history"
           className={`flex-1 p-2 flex items-center justify-center gap-1.5 text-xs border-b-2 ${activeTab === 'history' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
           onClick={() => setActiveTab('history')}
         >
@@ -123,11 +128,12 @@ export default function Sidebar() {
           </div>
           <div className="flex items-center gap-1">
             {user?.isSuperAdmin && (
-              <Link to="/admin" className="p-1 hover:bg-border rounded text-text-muted hover:text-text transition-colors" title="System Settings">
+              <Link data-testid="admin-dashboard-link" to="/admin" className="p-1 hover:bg-border rounded text-text-muted hover:text-text transition-colors" title="System Settings">
                 <Settings className="w-5 h-5" />
               </Link>
             )}
             <button 
+              data-testid="logout-btn"
               onClick={handleLogout}
               className="p-1 hover:bg-red-500/10 rounded text-text-muted hover:text-red-400 transition-colors"
               title="Logout"

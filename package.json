@@ -54,6 +54,7 @@
     "concurrently": "^10.0.5",
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
+    "mysql2": "^3.24.4",
     "wait-on": "^9.1.0"
   }
 }

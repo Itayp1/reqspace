@@ -156,6 +156,7 @@ export function EnvironmentTabEditor() {
             Export
           </button>
           <button
+            data-testid="env-save-btn"
             onClick={handleSave}
             className="bg-primary text-white px-4 py-2 rounded hover:bg-orange-600 transition text-sm font-medium"
           >
@@ -185,7 +186,7 @@ export function EnvironmentTabEditor() {
                     <input type="checkbox" checked={v.enabled} onChange={e => handleUpdateVar(i, 'enabled', e.target.checked)} />
                   </td>
                   <td className="p-0 border-l border-border relative">
-                    <input type="text" value={v.key} onChange={e => handleUpdateVar(i, 'key', e.target.value)} className="w-full p-2 bg-transparent outline-none font-mono focus:bg-surface" placeholder="New key" />
+                    <input type="text" data-testid={`env-var-key-${i}`} value={v.key} onChange={e => handleUpdateVar(i, 'key', e.target.value)} className="w-full p-2 bg-transparent outline-none font-mono focus:bg-surface" placeholder="New key" />
                   </td>
                   <td className="p-1 border-l border-border text-center">
                     <button
@@ -200,6 +201,7 @@ export function EnvironmentTabEditor() {
                   </td>
                   <td className="p-0 border-l border-border relative">
                     <input
+                      data-testid={`env-var-initial-${i}`}
                       type={v.isSecret && !isRevealed ? 'password' : 'text'}
                       value={v.initialValue}
                       onChange={e => handleUpdateVar(i, 'initialValue', e.target.value)}
@@ -209,6 +211,7 @@ export function EnvironmentTabEditor() {
                   </td>
                   <td className="p-0 border-l border-border relative">
                     <input
+                      data-testid={`env-var-current-${i}`}
                       type={v.isSecret && !isRevealed ? 'password' : 'text'}
                       value={v.currentValue}
                       onChange={e => handleUpdateVar(i, 'currentValue', e.target.value)}
@@ -234,7 +237,7 @@ export function EnvironmentTabEditor() {
                 </tr>
               );
             })}
-            <tr className="hover:bg-surface cursor-pointer" onClick={handleAddVar}>
+            <tr data-testid="add-env-var-btn" className="hover:bg-surface cursor-pointer" onClick={handleAddVar}>
               <td className="p-2"></td>
               <td className="p-2 border-l border-border text-text-muted" colSpan={5}>+ Add a new variable</td>
             </tr>

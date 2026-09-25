@@ -191,7 +191,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
   const totalTime = results.reduce((acc, r) => acc + (r.time || 0), 0);
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200]" onClick={onClose}>
+    <div data-testid="collection-runner-modal" className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200]" onClick={onClose}>
       <div
         className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden"
         onClick={e => e.stopPropagation()}
@@ -287,6 +287,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           </div>
 
           <button
+            data-testid="collection-runner-run-btn"
             onClick={runAll}
             disabled={isRunning || collectionRequests.length === 0}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 transition-colors"

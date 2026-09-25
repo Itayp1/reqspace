@@ -30,6 +30,7 @@ export function RequestEditor() {
       <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900 text-gray-400 p-8 h-full">
         <p className="mb-4 text-sm">Select a request from the sidebar or start fresh</p>
         <button
+          data-testid="create-request-btn"
           onClick={() => useRequestStore.getState().newTab()}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-sm font-medium transition-colors"
         >
@@ -68,6 +69,7 @@ export function RequestEditor() {
           return (
             <button
               key={tab}
+              data-testid={`req-tab-${tab.toLowerCase().replace(/\s+/g, '-')}`}
               onClick={() => setActiveTab(tab)}
               className={`whitespace-nowrap py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
                 activeTab === tab

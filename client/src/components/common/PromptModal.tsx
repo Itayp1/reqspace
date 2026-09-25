@@ -50,6 +50,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             <input
               ref={inputRef}
               type="text"
+              data-testid="prompt-input"
               className="w-full p-2 border border-border rounded bg-transparent text-text focus:border-primary outline-none"
               placeholder={placeholder}
               value={value}
@@ -59,6 +60,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
           <div className="p-4 border-t border-border flex justify-end gap-2 bg-gray-900/50">
             <button 
               type="button"
+              data-testid="prompt-cancel"
               onClick={onCancel} 
               className="px-4 py-2 border border-border rounded hover:bg-border text-sm text-text transition"
             >
@@ -66,6 +68,7 @@ export const PromptModal: React.FC<PromptModalProps> = ({
             </button>
             <button 
               type="submit"
+              data-testid="prompt-submit"
               disabled={!value.trim()}
               className="px-4 py-2 bg-primary text-white rounded hover:bg-orange-600 disabled:opacity-50 text-sm transition"
             >

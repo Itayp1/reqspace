@@ -1,5 +1,3 @@
-import { isMongo } from '../db/connect';
-import { Workspace } from '../models/Workspace';
 import { SqlWorkspace } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -38,42 +36,13 @@ function sqlToRecord(w: SqlWorkspace): IWorkspaceRecord {
   };
 }
 
-function mongoToRecord(w: any): IWorkspaceRecord {
-  return {
-    _id: w._id.toString(),
-    id: w._id.toString(),
-    name: w.name,
-    description: w.description,
-    ownerId: w.ownerId?.toString(),
-    members: (w.members || []).map((m: any) => ({
-      userId: m.userId?.toString(),
-      role: m.role,
-      joinedAt: m.joinedAt,
-      invitedBy: m.invitedBy?.toString(),
-    })),
-    isPublic: w.isPublic,
-    createdAt: w.createdAt,
-    updatedAt: w.updatedAt,
-  };
-}
-
 export const WorkspaceRepository = {
   async findById(id: string): Promise<IWorkspaceRecord | null> {
-    if (isMongo()) {
-      const w = await Workspace.findById(id).lean();
-      return w ? mongoToRecord(w) : null;
-    }
     const w = await SqlWorkspace.findByPk(id);
     return w ? sqlToRecord(w) : null;
   },
 
   async findForUser(userId: string): Promise<IWorkspaceRecord[]> {
-    if (isMongo()) {
-      const ws = await Workspace.find({
-        $or: [{ ownerId: userId }, { 'members.userId': userId }],
-      }).lean();
-      return ws.map(mongoToRecord);
-    }
     const all = await SqlWorkspace.findAll();
     return all
       .map(sqlToRecord)
@@ -81,22 +50,11 @@ export const WorkspaceRepository = {
   },
 
   async findPublic(): Promise<IWorkspaceRecord[]> {
-    if (isMongo()) {
-      const ws = await Workspace.find({ isPublic: true }).lean();
-      return ws.map(mongoToRecord);
-    }
     const ws = await SqlWorkspace.findAll({ where: { isPublic: true } });
     return ws.map(sqlToRecord);
   },
 
   async create(data: { name: string; description?: string; ownerId: string; isPublic?: boolean }): Promise<IWorkspaceRecord> {
-    if (isMongo()) {
-      const w = await Workspace.create({
-        ...data,
-        members: [{ userId: data.ownerId, role: 'owner', joinedAt: new Date() }],
-      });
-      return mongoToRecord(w);
-    }
     const id = uuidv4();
     const members: IWorkspaceMemberRecord[] = [{ userId: data.ownerId, role: 'owner', joinedAt: new Date() }];
     const w = await SqlWorkspace.create({
@@ -111,10 +69,6 @@ export const WorkspaceRepository = {
   },
 
   async update(id: string, data: Partial<{ name: string; description: string; isPublic: boolean; members: IWorkspaceMemberRecord[] }>): Promise<IWorkspaceRecord | null> {
-    if (isMongo()) {
-      const w = await Workspace.findByIdAndUpdate(id, data, { new: true }).lean();
-      return w ? mongoToRecord(w) : null;
-    }
     const patch: any = { ...data };
     if (data.members) patch.members = JSON.stringify(data.members);
     await SqlWorkspace.update(patch, { where: { id } });
@@ -122,14 +76,10 @@ export const WorkspaceRepository = {
   },
 
   async delete(id: string): Promise<void> {
-    if (isMongo()) { await Workspace.findByIdAndDelete(id); return; }
     await SqlWorkspace.destroy({ where: { id } });
   },
 
   async list(): Promise<IWorkspaceRecord[]> {
-    if (isMongo()) {
-      return (await Workspace.find().lean()).map(mongoToRecord);
-    }
     return (await SqlWorkspace.findAll()).map(sqlToRecord);
   },
 };

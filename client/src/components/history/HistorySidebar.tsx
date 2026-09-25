@@ -168,6 +168,7 @@ export default function HistorySidebar() {
             filteredHistory.map(item => (
               <div
                 key={item._id}
+                data-testid="history-item"
                 className="px-3 py-2.5 border-b border-border hover:bg-background cursor-pointer group"
                 onClick={() => handleReplay(item)}
               >

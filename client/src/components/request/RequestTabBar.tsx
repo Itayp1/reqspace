@@ -96,8 +96,9 @@ export const RequestTabBar: React.FC = () => {
           return (
             <div
               key={tab.tabId}
-                draggable
-                onDragStart={(e) => handleDragStart(e, tab.tabId!)}
+              data-testid={`tab-${tab.tabId}`}
+              draggable
+              onDragStart={(e) => handleDragStart(e, tab.tabId!)}
                 onDragOver={(e) => handleDragOver(e, tab.tabId!)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, tab.tabId!)}
@@ -124,7 +125,7 @@ export const RequestTabBar: React.FC = () => {
               )}
               <span className="truncate flex-1 font-sans">{tab.name}</span>
               {tab.isConflicted && (
-                <div className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="Conflicted with server version" />
+                <div data-testid="conflict-indicator" className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="Conflicted with server version" />
               )}
               {tab.isDirty && !tab.isConflicted && (
                 <div className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" title="Unsaved changes" />
@@ -132,6 +133,7 @@ export const RequestTabBar: React.FC = () => {
               
               <div className="flex items-center">
                 <button
+                  data-testid="close-tab-btn"
                   onClick={(e) => handleClose(e, tab)}
                   className="opacity-50 group-hover:opacity-100 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-opacity"
                   title="Close Tab"
@@ -144,6 +146,7 @@ export const RequestTabBar: React.FC = () => {
         })}
 
         <button
+          data-testid="new-tab-btn"
           onClick={newTab}
           className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/60 dark:hover:bg-gray-800 rounded transition-colors ml-1"
           title="New Request Tab"

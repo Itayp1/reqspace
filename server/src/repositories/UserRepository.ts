@@ -1,5 +1,3 @@
-import { isMongo } from '../db/connect';
-import { User, IUser } from '../models/User';
 import { SqlUser } from '../db/sql-models';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
@@ -44,42 +42,13 @@ function sqlToRecord(u: SqlUser): IUserRecord {
   };
 }
 
-function mongoToRecord(u: any): IUserRecord {
-  return {
-    _id: u._id.toString(),
-    id: u._id.toString(),
-    name: u.name,
-    email: u.email,
-    passwordHash: u.passwordHash,
-    authType: u.authType,
-    isSuperAdmin: u.isSuperAdmin,
-    status: u.status,
-    avatar: u.avatar,
-    settings: u.settings,
-      clientCertificates: u.clientCertificates || [],
-    historyUsedBytes: u.historyUsedBytes,
-    mustChangePassword: u.mustChangePassword,
-    lastLoginAt: u.lastLoginAt,
-    createdAt: u.createdAt,
-    updatedAt: u.updatedAt,
-  };
-}
-
 export const UserRepository = {
   async findById(id: string): Promise<IUserRecord | null> {
-    if (isMongo()) {
-      const u = await User.findById(id).lean();
-      return u ? mongoToRecord(u) : null;
-    }
     const u = await SqlUser.findByPk(id);
     return u ? sqlToRecord(u) : null;
   },
 
   async findByEmail(email: string): Promise<IUserRecord | null> {
-    if (isMongo()) {
-      const u = await User.findOne({ email: email.toLowerCase() }).lean();
-      return u ? mongoToRecord(u) : null;
-    }
     const u = await SqlUser.findOne({ where: { email: email.toLowerCase() } });
     return u ? sqlToRecord(u) : null;
   },
@@ -93,15 +62,6 @@ export const UserRepository = {
     status?: string;
     mustChangePassword?: boolean;
   }): Promise<IUserRecord> {
-    if (isMongo()) {
-      const u = await User.create({
-        ...data,
-        email: data.email.toLowerCase(),
-        settings: { followRedirects: true, verifySsl: true, sendNoCacheHeader: false, encodeUrl: true, timeout: 0, proxyEnabled: false, proxyUrl: 'http://127.0.0.1:8080', proxyAuthEnabled: false, proxyUsername: '', proxyPassword: '', saveHistory: true, shortcuts: { search: 'ctrl+k', save: 'ctrl+s', send: 'ctrl+enter' } },
-        clientCertificates: [],
-      });
-      return mongoToRecord(u);
-    }
     const u = await SqlUser.create({
       id: uuidv4(),
       ...data,
@@ -113,10 +73,6 @@ export const UserRepository = {
   },
 
   async update(id: string, data: Partial<IUserRecord & { passwordHash: string }>): Promise<IUserRecord | null> {
-    if (isMongo()) {
-      const u = await User.findByIdAndUpdate(id, data, { new: true }).lean();
-      return u ? mongoToRecord(u) : null;
-    }
     await SqlUser.update({
       ...data,
       settings: data.settings ? JSON.stringify(data.settings) : undefined,
@@ -126,40 +82,20 @@ export const UserRepository = {
   },
 
   async delete(id: string): Promise<void> {
-    if (isMongo()) {
-      await User.findByIdAndDelete(id);
-      return;
-    }
     await SqlUser.destroy({ where: { id } });
   },
 
   async list(filter: Record<string, any> = {}): Promise<IUserRecord[]> {
-    if (isMongo()) {
-      const users = await User.find(filter).lean();
-      return users.map(mongoToRecord);
-    }
     const users = await SqlUser.findAll({ where: filter as any });
     return users.map(sqlToRecord);
   },
 
   async count(): Promise<number> {
-    if (isMongo()) return User.countDocuments();
     return SqlUser.count();
   },
 
   async existsByEmail(email: string): Promise<boolean> {
     const u = await this.findByEmail(email);
     return !!u;
-  },
-
-  // Returns the raw Mongoose document (for routes that still need .save())
-  async findRawMongoById(id: string): Promise<IUser | null> {
-    if (!isMongo()) return null;
-    return User.findById(id);
-  },
-
-  async findRawMongoByEmail(email: string): Promise<IUser | null> {
-    if (!isMongo()) return null;
-    return User.findOne({ email: email.toLowerCase() });
-  },
+  }
 };

@@ -35,7 +35,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div data-testid="share-link-modal" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-surface border border-border rounded-lg shadow-2xl p-6 w-[400px]">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold">Share "{collectionName}"</h2>
@@ -69,6 +69,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
                 Cancel
               </button>
               <button 
+                data-testid="share-link-generate-btn"
                 onClick={handleShare} 
                 disabled={loading}
                 className="bg-primary text-white px-4 py-2 rounded text-sm font-bold hover:bg-orange-600 disabled:opacity-50"
@@ -82,6 +83,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
             <p className="text-sm text-green-400">Link generated successfully!</p>
             <div className="flex gap-2">
               <input 
+                data-testid="share-link-result"
                 type="text" 
                 readOnly 
                 value={sharedLink} 

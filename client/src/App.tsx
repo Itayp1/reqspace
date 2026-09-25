@@ -83,7 +83,6 @@ function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string })
             <p style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: '0.5rem' }}>Common fixes:</p>
             <ul style={{ paddingLeft: '1.2rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               <li><strong>SQLite:</strong> Check that the file path is writable and the folder exists</li>
-              <li><strong>MongoDB:</strong> Make sure MongoDB is running on the configured host/port</li>
               <li><strong>MySQL/PostgreSQL:</strong> Verify host, port, credentials, and that the DB exists</li>
               <li><strong>SQL Server:</strong> Verify server name, credentials and firewall rules</li>
             </ul>

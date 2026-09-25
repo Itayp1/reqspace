@@ -69,6 +69,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
         <div className="flex border-b border-gray-700 px-4 bg-gray-800/20 pt-2">
           {type === 'collection' && (
             <button
+              data-testid="group-edit-variables-tab"
               className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === 'variables' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
               onClick={() => setActiveTab('variables')}
             >
@@ -76,12 +77,14 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
             </button>
           )}
           <button
+            data-testid="group-edit-prerequest-tab"
             className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === 'prerequest' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
             onClick={() => setActiveTab('prerequest')}
           >
             Pre-request Script
           </button>
           <button
+            data-testid="group-edit-test-tab"
             className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === 'test' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
             onClick={() => setActiveTab('test')}
           >
@@ -108,17 +111,17 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
                         <input type="checkbox" checked={v.enabled} onChange={e => handleUpdateVar(i, 'enabled', e.target.checked)} className="cursor-pointer accent-orange-500" />
                       </td>
                       <td className="p-1">
-                        <input type="text" value={v.key} onChange={e => handleUpdateVar(i, 'key', e.target.value)} className="w-full p-2 bg-transparent outline-none placeholder-gray-600" placeholder="New key" />
+                        <input type="text" data-testid={`group-var-key-${i}`} value={v.key} onChange={e => handleUpdateVar(i, 'key', e.target.value)} className="w-full p-2 bg-transparent outline-none placeholder-gray-600" placeholder="New key" />
                       </td>
                       <td className="p-1">
-                        <input type="text" value={v.value} onChange={e => handleUpdateVar(i, 'value', e.target.value)} className="w-full p-2 bg-transparent outline-none placeholder-gray-600" placeholder="Value" />
+                        <input type="text" data-testid={`group-var-val-${i}`} value={v.value} onChange={e => handleUpdateVar(i, 'value', e.target.value)} className="w-full p-2 bg-transparent outline-none placeholder-gray-600" placeholder="Value" />
                       </td>
                       <td className="p-2 text-center">
                         <button onClick={() => handleRemoveVar(i)} className="text-gray-500 hover:text-red-400"><X size={14} /></button>
                       </td>
                     </tr>
                   ))}
-                  <tr className="hover:bg-gray-800/30 cursor-pointer" onClick={handleAddVar}>
+                  <tr className="hover:bg-gray-800/30 cursor-pointer" onClick={handleAddVar} data-testid="group-add-var-btn">
                     <td className="p-2"></td>
                     <td className="p-2 text-gray-500" colSpan={3}>+ Add a new variable</td>
                   </tr>
@@ -130,7 +133,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
           {activeTab === 'prerequest' && (
             <div className="h-full flex flex-col gap-2">
               <p className="text-xs text-gray-400">Write JavaScript code to execute before sending any request in this {type}.</p>
-              <div className="flex-1 min-h-0 border border-gray-700 rounded overflow-hidden">
+              <div className="flex-1 min-h-0 border border-gray-700 rounded overflow-hidden" data-testid="group-prerequest-editor">
                 <ScriptEditor value={preRequestScript} onChange={setPreRequestScript} />
               </div>
             </div>
@@ -139,7 +142,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
           {activeTab === 'test' && (
             <div className="h-full flex flex-col gap-2">
               <p className="text-xs text-gray-400">Write JavaScript code to test the response of any request in this {type}.</p>
-              <div className="flex-1 min-h-0 border border-gray-700 rounded overflow-hidden">
+              <div className="flex-1 min-h-0 border border-gray-700 rounded overflow-hidden" data-testid="group-test-editor">
                 <ScriptEditor value={testScript} onChange={setTestScript} />
               </div>
             </div>
@@ -148,7 +151,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
 
         <div className="p-4 border-t border-gray-700 bg-gray-900 flex justify-end gap-2 shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:text-white transition">Cancel</button>
-          <button onClick={handleSave} disabled={loading} className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-500 text-white rounded font-medium disabled:opacity-50 transition">
+          <button data-testid="group-edit-save-btn" onClick={handleSave} disabled={loading} className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-500 text-white rounded font-medium disabled:opacity-50 transition">
             {loading ? 'Saving...' : 'Save'}
           </button>
         </div>

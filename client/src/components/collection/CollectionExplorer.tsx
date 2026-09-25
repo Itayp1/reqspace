@@ -63,6 +63,7 @@ const ActionMenu = ({
   return (
     <div className="relative flex items-center" ref={menuRef} onClick={(e) => e.stopPropagation()}>
       <div
+        data-testid="action-menu-btn"
         className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white cursor-pointer"
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
       >
@@ -73,6 +74,7 @@ const ActionMenu = ({
           {options.map((opt, idx) => (
             <div
               key={idx}
+              data-testid={`action-menu-${opt.label.replace(/\s+/g, '-').toLowerCase()}`}
               className={`px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${opt.danger ? 'text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300' : 'text-gray-800 dark:text-gray-200'}`}
               onClick={(e) => { e.stopPropagation(); opt.onClick(); setIsOpen(false); }}
             >
@@ -112,6 +114,7 @@ const InlineRename = ({
   return (
     <input
       ref={inputRef}
+      data-testid="inline-rename-input"
       className="flex-1 bg-gray-700 text-gray-100 text-xs px-1 py-0.5 rounded border border-blue-500 outline-none min-w-0"
       value={val}
       onChange={e => setVal(e.target.value)}
@@ -208,6 +211,7 @@ const RequestNode = ({
 
   return (
     <div
+      data-testid="node-container"
       draggable={!isRenaming}
       onDragStart={(e) => {
         e.stopPropagation();
@@ -233,7 +237,7 @@ const RequestNode = ({
           onCancel={() => setIsRenaming(false)}
         />
       ) : (
-        <span className="flex-1 truncate text-sm">{request.name}</span>
+        <span data-testid={`node-${request.name}`} className="flex-1 truncate text-sm">{request.name}</span>
       )}
       {!isRenaming && (
         <div className="opacity-30 group-hover:opacity-100 flex items-center shrink-0">
@@ -328,6 +332,7 @@ const FolderNode = ({
   return (
     <div className="select-none">
       <div
+        data-testid="node-container"
         draggable={!isRenaming}
         onDragStart={(e) => {
           e.stopPropagation();
@@ -361,7 +366,7 @@ const FolderNode = ({
             onCancel={() => setIsRenaming(false)}
           />
         ) : (
-          <span className="flex-1 truncate text-sm">{folder.name}</span>
+          <span data-testid={`node-${folder.name}`} className="flex-1 truncate text-sm">{folder.name}</span>
         )}
         {!isRenaming && (
           <div className="opacity-30 group-hover:opacity-100 flex items-center shrink-0">
@@ -514,6 +519,7 @@ const CollectionNode = ({
   return (
     <div className="select-none">
       <div
+        data-testid="node-container"
         onDragOver={handleDragOver}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); showContextMenu({ x: e.clientX, y: e.clientY, items: menuOptions }); }}
           onDragLeave={handleDragLeave}
@@ -537,7 +543,7 @@ const CollectionNode = ({
             onCancel={() => setIsRenaming(false)}
           />
         ) : (
-          <span className="flex-1 truncate text-sm font-medium text-gray-200">{collection.name}</span>
+          <span data-testid={`node-${collection.name}`} className="flex-1 truncate text-sm font-medium text-gray-200">{collection.name}</span>
         )}
         {!isRenaming && (
           <div className="opacity-30 group-hover:opacity-100 flex items-center shrink-0">
@@ -926,6 +932,7 @@ export const CollectionExplorer: React.FC = () => {
         <div className="p-3 border-b border-gray-800 font-semibold text-gray-100 flex justify-between items-center">
           <span>Collections</span>
           <button
+            data-testid="new-collection-btn"
             className="text-gray-400 hover:text-white transition-colors"
             title="New Collection"
             onClick={handleCreateCollection}
@@ -960,6 +967,7 @@ export const CollectionExplorer: React.FC = () => {
               <FolderIcon size={32} className="mx-auto text-gray-700 mb-3" />
               <p className="text-xs text-gray-500 mb-3">No collections yet.</p>
               <button
+                data-testid="new-collection-empty-btn"
                 onClick={handleCreateCollection}
                 className="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white"
               >

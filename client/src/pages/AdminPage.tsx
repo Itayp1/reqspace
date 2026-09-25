@@ -82,12 +82,13 @@ export default function AdminPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-surface p-8">
-      <h1 className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
+      <h1 data-testid="admin-dashboard-title" className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
       
       <div className="flex border-b border-border mb-6">
         {['users', 'workspaces', 'logs', 'settings'].map(tab => (
           <button 
             key={tab}
+            data-testid={`admin-tab-${tab}`}
             className={`px-6 py-3 font-medium capitalize ${activeTab === tab ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
             onClick={() => setActiveTab(tab as any)}
           >
@@ -127,7 +128,7 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {users.map(u => (
-                  <tr key={u._id} className="border-b border-border last:border-0 hover:bg-surface">
+                  <tr key={u._id} data-testid={`user-row-${u.name}`} className="border-b border-border last:border-0 hover:bg-surface">
                     <td className="p-4">{u.name}</td>
                     <td className="p-4">{u.email}</td>
                     <td className="p-4">
@@ -217,7 +218,7 @@ export default function AdminPage() {
 
         {!loading && activeTab === 'settings' && config && (
           <div className="p-8 max-w-2xl space-y-6">
-            <div>
+            <div data-testid="admin-settings-title">
               <h3 className="text-lg font-bold mb-4">User Registration & Authentication</h3>
               <div className="space-y-6">
                 
@@ -436,6 +437,7 @@ export default function AdminPage() {
               </p>
               <div className="flex gap-4">
                 <button 
+                  data-testid="export-data-btn"
                   onClick={() => {
                     const workspaceId = useAuthStore.getState().activeWorkspace?._id;
                     if (!workspaceId) return alert('No active workspace selected.');
@@ -447,6 +449,7 @@ export default function AdminPage() {
                 </button>
                 <div className="relative">
                   <input 
+                    data-testid="import-data-input"
                     type="file"
                     accept=".json"
                     onChange={async (e) => {

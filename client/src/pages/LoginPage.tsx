@@ -43,11 +43,12 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-center">Login to Reqspace</h1>
         </div>
         
-        {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
+        {error && <div data-testid="login-error" className="bg-red-100 text-red-700 p-2 rounded mb-4 text-sm">{error}</div>}
 
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Username or Email</label>
           <input
+            data-testid="login-email"
             type="text"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -60,6 +61,7 @@ export default function LoginPage() {
         <div className="mb-6">
           <label className="block text-sm font-medium mb-1">Password</label>
           <input
+            data-testid="login-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -68,7 +70,7 @@ export default function LoginPage() {
           />
         </div>
 
-        <button type="submit" className="w-full bg-primary text-white p-2 rounded hover:bg-orange-600 transition mb-4">
+        <button data-testid="login-submit" type="submit" className="w-full bg-primary text-white p-2 rounded hover:bg-orange-600 transition mb-4">
           Sign In
         </button>
 

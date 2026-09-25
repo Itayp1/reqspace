@@ -6,7 +6,7 @@ import { Request as ApiRequest } from '../models/Request';
 import { SystemConfig } from '../models/SystemConfig';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
-import mongoose from 'mongoose';
+// import mongoose from 'mongoose';
 
 const router = Router();
 router.use(authenticate);

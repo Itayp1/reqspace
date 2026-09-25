@@ -16,16 +16,14 @@ Reqspace (formerly reqSpace Clone) is a comprehensive API testing environment de
 - **🔐 Authentication:** Built-in JWT-based local authentication and **Google OAuth** integration. 
 - **👥 Role-Based Access Control (RBAC):** Admin dashboard to manage users, permissions, and system configurations directly from the UI.
 - **📜 History & Audit Logs:** Never lose a request. Everything is saved in your personal history, and system-wide changes are securely audited.
-- **📦 Multi-Database Support:** Run it on your preferred database! Out-of-the-box support for **SQLite, PostgreSQL, MySQL, and MongoDB**.
+- **📦 Multi-Database Support:** Run it on your preferred database! Out-of-the-box support for **SQLite, PostgreSQL, and MySQL**.
 - **🐳 Docker Ready:** Fully containerized with a lightweight multi-stage Docker build for easy deployment.
 
-> Multi-database support is partially delivered — the authenticated core path works on SQLite and
-> MongoDB, several routes are still Mongoose-only. See [`TODO.md`](TODO.md) 1.1.
 
 ## 🛠️ Tech Stack
 
 - **Frontend:** React, TypeScript, TailwindCSS, Zustand (State Management), Vite/Rolldown
-- **Backend:** Node.js, Express, TypeScript, Sequelize (SQL), Mongoose (NoSQL)
+- **Backend:** Node.js, Express, TypeScript, Sequelize (SQL)
 - **Containerization:** Docker, GitHub Actions
 
 ## 🐳 Quick Start (Docker)
@@ -127,11 +125,11 @@ Builds client and server inside the image and brings up the local database along
 Reqspace uses an intelligent database connector. You can easily switch your database by editing the DB_TYPE variable in your server/.env file:
 
 ```env
-# Choose between: sqlite, postgres, mysql, mongodb
+# Choose between: sqlite, postgres, mysql
 DB_TYPE=sqlite
 
-# If using postgres/mysql/mongodb, provide the URI:
-DB_URI=mongodb://localhost:27017/reqspace
+# If using postgres/mysql, provide the URI:
+DB_URI=postgres://localhost:5432/reqspace
 ```
 
 ## 🧪 Running the Tests
@@ -180,10 +178,8 @@ Set in `server/.env` locally (gitignored) and as a Kubernetes Secret in a cluste
 | `ADMIN_PASSWORD` | Bootstrap superadmin password | Defaults to `admin`; production refuses to bootstrap with that value |
 | `DB_USER` / `DB_PASSWORD` | SQL credentials | `postgres`, `mysql`, `mssql` |
 | `DB_CONNECTION_STRING` | SQL connection string | **Embeds the password** — treat the whole string as a secret |
-| `MONGODB_URI` / `MONGO_URI` | Mongo connection string | Same: credentials are inline |
 | `HEADER_AUTH_TRUSTED_IPS` | Sources allowed to use `X-Auth-User` | Defaults to loopback |
 | `GOOGLE_ALLOWED_REDIRECT_URIS` | OAuth redirect allowlist | Comma-separated |
-| `MONGO_TLS_INSECURE` | Opt in to relaxed Mongo TLS | Dev only |
 | `ALLOW_EPHEMERAL_JWT_SECRET` | Permit a generated per-process secret in production | Single-node deployments only |
 
 > ⚠️ **`JWT_SECRET` — read this before deploying.** `utils/jwtSecret.ts` rejects a short list of known placeholder values and, outside production, falls back to a random secret written to a local file (`server/.jwt-secret.local`). In production it refuses to boot without a real `JWT_SECRET` (opt out with `ALLOW_EPHEMERAL_JWT_SECRET=true` for a deliberate single-node deployment). **But `k8s/secret.yaml` ships `JWT_SECRET` as the base64 of `change_me_in_production`, and that exact string is *not* on the rejection list** — so a cluster applying this manifest boots with a signing key published in a public repository, and anyone can forge a session for any user. Never deploy that value; supply the secret from a sealed secret or an external secrets manager. Tracked in [`TODO.md`](TODO.md) 0.1.
@@ -228,7 +224,7 @@ GitHub Actions repository secrets, used by `.github/workflows/docker-publish.yml
 
 Optional. Read by `test-all-dbs.ps1`; when unset, that backend is skipped.
 
-`TEST_DB_POSTGRES_URL` · `TEST_DB_MYSQL_URL` · `TEST_DB_MONGODB_URL`
+`TEST_DB_POSTGRES_URL` · `TEST_DB_MYSQL_URL`
 
 ### Where secret material is allowed to live
 
@@ -264,8 +260,7 @@ Standing principles. The concrete work they imply is in [`TODO.md`](TODO.md).
    proxies or from the client station, not by the shared Reqspace server.
 5. **SSRF to private networks is a feature, not a bug** — local network development is the point of an
    API client. It stays gated behind an explicit admin setting (`proxy.allowPrivateTargets`).
-6. **SQL and MongoDB are both first-class.** All DB access goes through repositories; no Mongoose model
-   is imported outside one.
+6. **SQL is first-class.** All DB access goes through repositories.
 7. **The database is a test-matrix axis.** Anything that touches persistence is expected to run against
    every supported backend.
 
@@ -290,7 +285,7 @@ to build, and why. Open work is in [`TODO.md`](TODO.md).
 * **Never leave background processes running.** Kill any dev server, test runner or watcher you started
   before you finish.
 * **No DB access outside a repository.** `server/src/repositories/*` is the only place allowed to import
-  a Mongoose or Sequelize model.
+  a Sequelize model.
 * **Every change ships a test** that fails before it and passes after.
 
 ## 📝 License

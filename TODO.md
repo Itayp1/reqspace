@@ -41,8 +41,8 @@ Rules of thumb that follow from those numbers:
 
 | Term | Meaning here |
 |---|---|
-| **Repository** | `server/src/repositories/*.ts`. The only place allowed to touch Mongoose or Sequelize. Every repository branches on `isMongo()` and returns a plain record type. |
-| **The four backends** | sqlite, postgres, mysql, mongodb. Selected by `DB_TYPE`. |
+| **Repository** | `server/src/repositories/*.ts`. The only place allowed to touch Sequelize. Every repository returns a plain record type. |
+| **The three backends** | sqlite, postgres, mysql. Selected by `DB_TYPE`. |
 | **Transport** | The thing that actually sends a user's HTTP request. After SEC-0 it is never the Reqspace server. |
 | **Two-client test** | A test with two connected socket clients where the *observer* (which did not act) is the subject of the assertion. |
 
@@ -269,7 +269,6 @@ router.post(
 ```
 
 Change `saveHistoryEntry`'s signature from
-`(userId: mongoose.Types.ObjectId, workspaceId: mongoose.Types.ObjectId, …)` to `(userId: string,
 workspaceId: string, …)` — the `ObjectId` casts break on SQL UUIDs (see FIX-2 step 4).
 
 Server-side caps to enforce, regardless of what the client sends:
@@ -934,13 +933,6 @@ const MAX_QUERY_LENGTH = 100;
 async searchInWorkspace(query: string, collectionIds: string[]): Promise<IRequestRecord[]> {
   const q = String(query).slice(0, MAX_QUERY_LENGTH);
   if (!q) return [];
-  if (isMongo()) {
-    const rx = new RegExp(escapeRegex(q), 'i');
-    return (await Request.find({
-      collectionId: { $in: collectionIds },
-      $or: [{ name: rx }, { url: rx }],
-    }).limit(100).lean()).map(mongoToRecord);
-  }
   // SQL side already uses Op.like, but escape the LIKE wildcards too:
   const like = `%${q.replace(/[%_\\]/g, (c) => '\\' + c)}%`;
   // …
@@ -1212,7 +1204,6 @@ Client: call `/start`, keep `state` in memory, send it back from the callback pa
   likewise (confirmed: `grep -n workspaceId server/src/models/` lists only Collection, Environment,
   History, SharedLink). Both queries always return `[]`. The export therefore contains collections and
   environments and **zero folders and zero requests**, and the import writes a `workspaceId` field that
-  Mongoose strips. Both report success.
 
 #### Technical detail — export
 
@@ -1256,63 +1247,12 @@ for (const r of dump.requests ?? []) {
 ```
 
 Also: add `version: 1` to the export and reject an import without it. Use the repositories, not the
-Mongoose models (FIX-2). Insert in batches of 500, not one-by-one, for a large workspace.
 
 * **Done when:** a round-trip test exports a workspace containing 2 collections, 3 nested folders and 5
   requests, imports it into a fresh workspace, and asserts the resulting tree — names, nesting and
   order — matches the source exactly.
 
 ---
-
-## FIX-2 — Finish multi-database support
-
-* **Goal:** all four advertised backends work end to end.
-* **Where:** `server/src/routes/{environments,history,admin,capture,importExport,share}.ts` import
-  Mongoose models directly (confirmed: `environments.ts:4` imports `../models/Environment`,
-  `history.ts:4-8` imports five models) and fail under `DB_TYPE≠mongodb`.
-
-#### Steps
-
-1. **Extend `EnvironmentRepository`** to the full shape used by the routes. Reconcile the schema split:
-   Mongo has one `environments` collection with an `isGlobal` flag; SQL has `environments` **plus**
-   `global_environments` (`db/sql-models/index.ts:263-270`). Hide that difference inside the repository:
-
-   ```ts
-   async findByWorkspace(workspaceId: string): Promise<IEnvironmentRecord[]> {
-     if (isMongo()) return (await Environment.find({ workspaceId, isGlobal: false }).lean()).map(toRecord);
-     return (await SqlEnvironment.findAll({ where: { workspaceId } })).map(sqlToRecord);
-   }
-   async getGlobal(workspaceId: string): Promise<IEnvironmentRecord | null> {
-     if (isMongo()) return toRecordOrNull(await Environment.findOne({ workspaceId, isGlobal: true }).lean());
-     return toRecordOrNull(await SqlGlobalEnvironment.findOne({ where: { workspaceId } }));
-   }
-   ```
-
-2. **Extend `HistoryRepository`** likewise. Mongo stores `requestSnapshot` / `responseSnapshot`; SQL
-   stores `requestData` / `responseData` (`sql-models/index.ts:282-283`). Pick the Mongo names as the
-   record shape and translate on the SQL side.
-
-3. **Convert one route file per commit**, running the DB matrix (TEST-2) after each. Order:
-   `environments.ts` → `history.ts` → `share.ts` → `importExport.ts` → `admin.ts` → `capture.ts`
-   (or delete `capture.ts` per SEC-0.5).
-
-4. **Remove every `ObjectId` cast on a user-supplied id.** Known sites:
-   * `routes/proxy.ts:153-154` `new mongoose.Types.ObjectId(workspaceId)` — **throws on a SQL UUID**, and
-     because it runs inside the handler's try block a successful send is reported as a 502. Deleted with
-     SEC-0.4, but the same cast moves into SEC-0.3 if copied blindly — don't.
-   * `routes/auth.ts:301` `new mongoose.Types.ObjectId()` for a certificate id → use `uuidv4()`.
-   * `routes/importExport.ts:184-185` same.
-
-5. **Add a guard so this cannot regress:**
-
-   ```bash
-   # scripts/check-repository-boundary.sh  — run in CI
-   if grep -rn "from '\.\./models/" server/src/routes server/src/middleware; then
-     echo "Route/middleware imports a model directly. Use a repository."; exit 1
-   fi
-   ```
-
-* **Done when:** the full Playwright suite is green on all four backends, and the boundary check passes.
 
 ---
 
@@ -1322,8 +1262,7 @@ Mongoose models (FIX-2). Insert in batches of 500, not one-by-one, for a large w
 * **Why:** `sync({})` creates **missing tables**. It does not add an index or a column to a table that
   already exists. Every index declared in `server/src/db/sql-models/index.ts` (lines 199, 215, 229,
   253-257, 266, 284, 294) is therefore absent on any database created before those declarations landed —
-  which is exactly the long-lived, large database that needs them. The same applies to Mongo: Mongoose
-  only builds indexes with `autoIndex`, which should be off in production.
+  which is exactly the long-lived, large database that needs them.
 
 #### Technical detail
 
@@ -1365,16 +1304,7 @@ await umzug.up();                       // fail fast — do not swallow
 await sq.sync(process.env.NODE_ENV === 'production' ? {} : { alter: true });
 ```
 
-For MongoDB, at boot:
-
-```ts
-if (isMongo()) {
-  for (const m of [Collection, Folder, Request, Environment, History, AuditLog, Workspace, User]) {
-    const res = await m.syncIndexes();
-    if (res.length) console.log(`📇 Mongo indexes created for ${m.modelName}:`, res);
-  }
-}
-```
+``
 
 Add `"migrate": "node dist/db/migrate.js"` to `server/package.json` scripts.
 
@@ -1412,7 +1342,6 @@ Targets: 10,000 workspaces · 100,000 collections · 100,000+ requests · 200 us
 import { Sequelize } from 'sequelize';
 let queryCount = 0;
 sequelize.options.logging = () => { queryCount++; };
-mongoose.set('debug', () => { queryCount++; });
 
 async function scenario(name: string, fn: () => Promise<void>) {
   queryCount = 0;
@@ -1425,7 +1354,7 @@ async function scenario(name: string, fn: () => Promise<void>) {
 Record a baseline table in this task for: login → list workspaces → open a workspace → expand a
 collection → open a request → send → list history.
 
-* **Done when:** `npm run seed:scale && npm run measure` prints the baseline on sqlite and mongodb, and
+* **Done when:** `npm run seed:scale && npm run measure` prints the baseline on sqlite and postgres, and
   the numbers are pasted into this task.
 
 ---
@@ -1479,10 +1408,6 @@ async findByCollections(collectionIds: string[], opts?: { summaryOnly?: boolean 
   const projection = opts?.summaryOnly
     ? { _id: 1, collectionId: 1, folderId: 1, name: 1, method: 1, order: 1 }   // PERF-6
     : undefined;
-  if (isMongo()) {
-    return (await Request.find({ collectionId: { $in: collectionIds } }, projection)
-      .sort({ order: 1 }).lean()).map(mongoToRecord);
-  }
   const { Op } = await import('sequelize');
   return (await SqlRequest.findAll({
     where: { collectionId: { [Op.in]: collectionIds } },
@@ -1552,10 +1477,6 @@ function encodeCursor(order: number, id: string) {
   return Buffer.from(JSON.stringify([order, id])).toString('base64url');
 }
 
-// Mongo
-const q = cursor
-  ? { collectionId, $or: [{ order: { $gt: o } }, { order: o, _id: { $gt: id } }] }
-  : { collectionId };
 const items = await Request.find(q).sort({ order: 1, _id: 1 }).limit(limit + 1).lean();
 
 // SQL (Sequelize)
@@ -1619,10 +1540,6 @@ router.put('/reorder', async (req: AuthRequest, res: Response) => {
 ```
 
 ```ts
-// Mongo
-await Request.bulkWrite(items.map(({ id, order }) => ({
-  updateOne: { filter: { _id: id }, update: { $set: { order } } },
-})));
 
 // SQL — one statement, not N
 await sq.query(
@@ -1965,9 +1882,9 @@ for (const s of sockets) {
    of any config file, so a leg is just a server process with different env vars. Each leg gets its own
    env, a **clean** database created and dropped by the harness, its own `DB_CONFIG_FILE`, and its own port.
 4. **Tier the matrix.** Smoke (register → login → **first authenticated call** → workspace → collection →
-   request → send) on all four backends every push; full suite on sqlite every push; full matrix nightly
+   request → send) on all three backends every push; full suite on sqlite every push; full matrix nightly
    and before release. The first authenticated request is the single most valuable assertion in the matrix —
-   it is where Mongoose-only paths fail on SQL.
+   it is where SQL paths fail.
 5. **A test that passes before the fix is asserting on the wrong thing.** Write it, run it against
    unpatched code, watch it fail, then fix. Never commit a passing placeholder — use `test.fixme`.
 
@@ -2014,7 +1931,7 @@ noise to absorb.
 2. **Per-backend harness** — `tests/harness/server.ts`:
 
 ```ts
-export async function startBackend(db: 'sqlite'|'postgres'|'mysql'|'mongodb', port: number) {
+export async function startBackend(db: 'sqlite'|'postgres'|'mysql', port: number) {
   const dbName = `reqspace_test_${db}_${Date.now()}`;
   await createDatabase(db, dbName);                    // drop + create, clean every run
   const proc = spawn('node', ['server/dist/index.js'], {
@@ -2038,7 +1955,6 @@ projects: [
   { name: 'sqlite',   use: { baseURL: 'http://localhost:3011' } },
   { name: 'postgres', use: { baseURL: 'http://localhost:3012' } },
   { name: 'mysql',    use: { baseURL: 'http://localhost:3013' } },
-  { name: 'mongodb',  use: { baseURL: 'http://localhost:3014' } },
 ]
 ```
 
@@ -2085,7 +2001,7 @@ Selector guidance: after UI-4 adds `aria-label`s, prefer `getByRole('button', { 
 `text=` and CSS. The current specs are full of `page.locator('input[type="text"]')`, which breaks on any
 layout change.
 
-* **Done when:** every area has a spec and `npx playwright test` passes on all four backends.
+* **Done when:** every area has a spec and `npx playwright test` passes on all three backends.
 
 ---
 
@@ -2605,3 +2521,7 @@ async function readCapped(stream: ReadableStream<Uint8Array>, cap: number) {
 | Dead dependencies | `server/package.json` | Check and drop: `multer` (1.4.5-lts.1 is end-of-life), `archiver`, `postman-collection`, `http-proxy-middleware` + `undici` (SEC-0.4), `ajv` (SEC-9) |
 | Test husks | `tests/socket-sync.spec.ts`, `tests/massive-permissions.spec.ts` | Comment-only files kept because an earlier session could not delete files. Delete them |
 | Stale doc references | `scripts/smoke-core.sh:5`, `tests/api-authorization.spec.ts:8` → removed `TESTING.md`; `server/src/tests/ssrf.test.ts:5` → removed `CODE_REVIEW.md` | Repoint at this file (or delete with SEC-0.4) |
+
+
+
+

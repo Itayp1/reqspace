@@ -6,13 +6,13 @@ import { useSettingsStore } from '../../store/settingsStore';
 import api from '../../api/axios';
 import { useRequestStore } from '../../store/requestStore';
 import { CookieManagerModal } from '../common/CookieManagerModal';
-import { CaptureTrafficModal } from './CaptureTrafficModal';
+// import { CaptureTrafficModal } from './CaptureTrafficModal';
 import GlobalSettingsModal from '../common/GlobalSettingsModal';
 import GlobalSearchModal from '../common/GlobalSearchModal';
 
 export default function TopBar() {
   const { activeWorkspace } = useAuthStore();
-  const { environments, activeEnvironmentId, setActiveEnvironmentId, setEnvironments, setGlobalEnvironment } = useEnvironmentStore();
+  const { environments, activeEnvironmentId, setActiveEnvironmentId, setEnvironments, setGlobalEnvironment, fetchLocalVariables } = useEnvironmentStore();
   const { openEnvironmentTab } = useRequestStore();
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -68,9 +68,11 @@ export default function TopBar() {
           setEnvironments(locals);
           db.environments.bulkPut(res.data.map((e: any) => ({ ...e, workspaceId: activeWorkspace._id })));
         });
+        
+        fetchLocalVariables(activeWorkspace._id);
       });
     }
-  }, [activeWorkspace, setEnvironments, setGlobalEnvironment]);
+  }, [activeWorkspace, setEnvironments, setGlobalEnvironment, fetchLocalVariables]);
 
   const { settings } = useSettingsStore();
 
@@ -118,6 +120,7 @@ export default function TopBar() {
         <div className="flex items-center gap-1 bg-surface border border-border rounded pl-2 relative" ref={eyeRef}>
           <span className="text-xs text-text-muted font-medium">Env:</span>
           <select
+            data-testid="env-select"
             className="p-1 text-sm bg-transparent text-text max-w-[120px] truncate focus:outline-none cursor-pointer"
             value={activeEnvironmentId || ''}
             onChange={(e) => setActiveEnvironmentId(e.target.value || null)}
@@ -215,16 +218,7 @@ export default function TopBar() {
 
         <div className="h-4 w-px bg-border my-auto mx-1" />
 
-        {/* Capture Traffic Button */}
-        <button
-          className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded hover:bg-orange-500/20 transition-colors"
-          onClick={() => setIsCaptureModalOpen(true)}
-        >
-          <Radio size={14} className="animate-pulse" />
-          Capture Traffic
-        </button>
 
-        <div className="h-4 w-px bg-border my-auto mx-1" />
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-1">
@@ -236,6 +230,7 @@ export default function TopBar() {
             <Search className="w-5 h-5" />
           </button>
           <button
+            data-testid="settings-btn"
             className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text"
             title="General Settings"
             onClick={() => setIsSettingsModalOpen(true)}
@@ -246,7 +241,7 @@ export default function TopBar() {
       </div>
       
       <CookieManagerModal isOpen={isCookieModalOpen} onClose={() => setIsCookieModalOpen(false)} />
-      {isCaptureModalOpen && <CaptureTrafficModal onClose={() => setIsCaptureModalOpen(false)} />}
+
       {isSettingsModalOpen && <GlobalSettingsModal onClose={() => setIsSettingsModalOpen(false)} />}
       {isSearchModalOpen && <GlobalSearchModal onClose={() => setIsSearchModalOpen(false)} />}
     </>

@@ -228,6 +228,7 @@ export const ResponseViewer: React.FC = () => {
             return (
             <button
               key={tab}
+              data-testid={`response-tab-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={`px-3 py-1.5 border-b-2 font-medium capitalize text-xs ${
                 activeTab === tab
@@ -246,7 +247,7 @@ export const ResponseViewer: React.FC = () => {
         <div className="flex space-x-4 items-center text-xs font-mono">
           <div className="flex items-center space-x-1.5">
             <span className="text-gray-400">Status:</span>
-            <span className={`font-semibold ${getStatusColor(status || 0)}`}>
+            <span data-testid="response-status" className={`font-semibold ${getStatusColor(status || 0)}`}>
               {status} {statusText}
             </span>
           </div>
@@ -510,12 +511,12 @@ export const ResponseViewer: React.FC = () => {
                 <div className="flex-1 overflow-auto">
                   <ul className="space-y-2">
                     {testResults.map((result, idx) => (
-                      <li key={idx} className="flex flex-col p-2.5 rounded bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+                      <li key={idx} data-testid="test-result-item" className="flex flex-col p-2.5 rounded bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
                         <div className="flex items-start">
-                          <span className={`mt-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded text-white ${result.passed ? 'bg-green-500' : 'bg-red-500'}`}>
+                          <span className={`mt-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded text-white ${result.passed ? 'bg-green-500' : 'bg-red-500'}`} data-testid="test-result-status">
                             {result.passed ? 'PASS' : 'FAIL'}
                           </span>
-                          <span className="ml-2.5 text-sm text-gray-800 dark:text-gray-200 font-medium">{result.name}</span>
+                          <span className="ml-2.5 text-sm text-gray-800 dark:text-gray-200 font-medium" data-testid="test-result-name">{result.name}</span>
                         </div>
                         {!result.passed && result.error && (
                           <div className="ml-10 mt-1.5 text-xs text-red-600 bg-red-50 dark:bg-red-900/10 p-2 rounded font-mono break-all border border-red-100 dark:border-red-900/30">

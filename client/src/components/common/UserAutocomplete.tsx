@@ -48,6 +48,7 @@ export function UserAutocomplete({ onSelect, value, onChange }: Props) {
     <div className="relative w-full" ref={containerRef}>
       <div className="relative">
         <input
+          data-testid="user-autocomplete-input"
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -65,6 +66,7 @@ export function UserAutocomplete({ onSelect, value, onChange }: Props) {
           {results.map(user => (
             <div
               key={user._id}
+              data-testid="user-autocomplete-result"
               className="p-2 flex items-center gap-2 hover:bg-background cursor-pointer"
               onClick={() => {
                 onSelect(user.email);

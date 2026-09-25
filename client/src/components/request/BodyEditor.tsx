@@ -58,7 +58,7 @@ export function BodyEditor() {
     <div className="flex flex-col h-full space-y-4">
       <div className="flex items-center gap-4 text-sm flex-wrap">
         {modes.map((m) => (
-          <label key={m.value} className="flex items-center gap-1 cursor-pointer">
+          <label key={m.value} data-testid={`body-mode-${m.value}`} className="flex items-center gap-1 cursor-pointer">
             <input
               type="radio"
               name="bodyMode"
@@ -74,6 +74,7 @@ export function BodyEditor() {
         {body.mode === 'raw' && (
           <>
             <select
+              data-testid="body-raw-language-select"
               className="ml-4 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none text-sm cursor-pointer"
               value={body.rawLanguage || 'json'}
               onChange={(e) => handleRawLanguageChange(e.target.value as any)}
@@ -126,7 +127,7 @@ export function BodyEditor() {
         )}
 
         {body.mode === 'raw' && (
-          <div className="h-full pt-2">
+          <div data-testid="monaco-editor-container" className="h-full pt-2">
             <Editor
               height="100%"
               theme="vs-dark"
