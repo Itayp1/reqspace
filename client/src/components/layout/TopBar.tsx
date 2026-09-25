@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Search, Eye, Settings, Cookie, Sun, Moon, SlidersHorizontal, Radio } from 'lucide-react';
+import { Search, Eye, Settings, Cookie, Sun, Moon, SlidersHorizontal } from 'lucide-react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -16,7 +16,6 @@ export default function TopBar() {
   const { openEnvironmentTab } = useRequestStore();
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('reqspace_theme') as 'dark' | 'light') || 'dark';
