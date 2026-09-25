@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/history.schemas';
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
@@ -90,7 +92,7 @@ router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer')
 // The collectionId comes from the body, so membership on its workspace has to be
 // resolved and checked — without this the route writes a request into any
 // collection whose id the caller can guess.
-router.post('/history/:id/save', requireRoleOnCollection('editor'), async (req: AuthRequest, res: Response) => {
+router.post('/history/:id/save', validate(schemas.saveHistorySchema), requireRoleOnCollection('editor'), async (req: AuthRequest, res: Response) => {
   const item = await SqlHistory.findOne({
     where: {
       id: req.params.id,

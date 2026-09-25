@@ -1,3 +1,4 @@
+import { validate } from '../middleware/validate';
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { UserRepository } from '../repositories/UserRepository';

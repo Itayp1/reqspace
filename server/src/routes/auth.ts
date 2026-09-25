@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/auth.schemas';
 
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
@@ -15,7 +17,7 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: 'To
 const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'Too many accounts created from this address — please try again later.' });
 
 // ── POST /api/auth/register ─────────────────────────────────────────────────
-router.post('/register', registerLimiter, async (req: Request, res: Response) => {
+router.post('/register', validate(schemas.registerSchema), registerLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.ensure();
 
   if (!config?.auth?.allowSelfRegistration) {
@@ -51,7 +53,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
     name,
     email: email.toLowerCase(),
     passwordHash,
-    authType: 'password', isSuperAdmin: true,
+    authType: 'password', isSuperAdmin: false,
   });
 
   // Auto-create personal workspace
@@ -74,7 +76,7 @@ router.post('/register', registerLimiter, async (req: Request, res: Response) =>
 });
 
 // ── POST /api/auth/login ────────────────────────────────────────────────────
-router.post('/login', loginLimiter, async (req: Request, res: Response) => {
+router.post('/login', validate(schemas.loginSchema), loginLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
   const mode = config?.auth.mode ?? 'login';
 
@@ -121,7 +123,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
 });
 
 // ── POST /api/auth/logout ───────────────────────────────────────────────────
-router.post('/logout', (_req: Request, res: Response) => {
+router.post('/logout', validate(require('zod').z.any()), (_req: Request, res: Response) => {
   clearAuthCookie(res);
   return res.json({ message: 'Logged out' });
 });
@@ -129,6 +131,13 @@ router.post('/logout', (_req: Request, res: Response) => {
 // ── GET /api/auth/me ────────────────────────────────────────────────────────
 router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
   const user = req.user!;
+  
+  const safeCerts = (user.clientCertificates || []).map((c: any) => ({
+    _id: c._id,
+    hostname: c.hostname,
+    createdAt: c.createdAt
+  }));
+  
   return res.json({
     id: user._id,
     name: user.name,
@@ -137,7 +146,7 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
     mustChangePassword: user.mustChangePassword,
     avatar: user.avatar,
     settings: user.settings,
-    clientCertificates: user.clientCertificates,
+    clientCertificates: safeCerts,
     authType: user.authType,
   });
 });
@@ -157,7 +166,7 @@ router.get('/config', async (_req: Request, res: Response) => {
 });
 
 // ── POST /api/auth/change-password ──────────────────────────────────────────
-router.post('/change-password', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/change-password', validate(schemas.changePasswordSchema), authenticate, async (req: AuthRequest, res: Response) => {
   const { newPassword, currentPassword } = req.body;
   if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
     return res.status(400).json({ message: 'Password must be at least 8 characters' });
@@ -179,10 +188,36 @@ router.post('/change-password', authenticate, async (req: AuthRequest, res: Resp
   return res.json({ message: 'Password changed successfully' });
 });
 
+// ── GET /api/auth/state ────────────────────────────────────────────────────────
+router.get('/state', async (req: Request, res: Response) => { console.log('HIT STATE ROUTE!!!');
+  const crypto = await import('crypto');
+  const state = crypto.randomBytes(32).toString('hex');
+  res.cookie('oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 10 * 60 * 1000,
+  });
+  return res.json({ state });
+});
+
 // ── POST /api/auth/google ───────────────────────────────────────────────────
-router.post('/google', loginLimiter, async (req: Request, res: Response) => {
-  const { code, redirectUri } = req.body;
+router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (req: Request, res: Response) => {
+  const { code, redirectUri, state } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
+
+  const crypto = await import('crypto');
+  const cookieState = req.cookies?.oauth_state;
+  res.clearCookie('oauth_state', { path: '/' }); // clear immediately
+
+  const ok = typeof state === 'string' && typeof cookieState === 'string' &&
+    state.length === 64 && cookieState.length === 64 &&
+    crypto.timingSafeEqual(Buffer.from(state, 'hex'), Buffer.from(cookieState, 'hex'));
+    
+  if (!ok) {
+    return res.status(403).json({ message: 'Invalid or expired OAuth state' });
+  }
 
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth.googleOAuth;
@@ -274,7 +309,7 @@ const ALLOWED_SETTINGS_KEYS = [
   'saveHistory', 'shortcuts',
 ];
 
-router.put('/settings', authenticate, async (req: AuthRequest, res: Response) => {
+router.put('/settings', validate(schemas.updateSettingsSchema), authenticate, async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   try {
     // Allowlist writable settings keys — don't merge arbitrary req.body (CR#7).
@@ -291,23 +326,31 @@ router.put('/settings', authenticate, async (req: AuthRequest, res: Response) =>
 });
 
 // ── POST /api/auth/certificates ──────────────────────────────────────
-router.post('/certificates', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/certificates', validate(schemas.addCertificateSchema), authenticate, async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   const { hostname, cert, key, passphrase } = req.body;
   if (!hostname || !cert || !key) return res.status(400).json({ message: 'hostname, cert, and key are required' });
   
   try {
+    const cryptoBox = await import('../utils/cryptoBox');
     const newCert = {
       _id: require('uuid').v4(),
       hostname,
-      cert,
-      key,
-      passphrase,
+      cert, // Spec doesn't mention sealing cert, just key and passphrase
+      key: cryptoBox.seal(key),
+      passphrase: passphrase ? cryptoBox.seal(passphrase) : undefined,
       createdAt: new Date()
     };
     const updatedCerts = [...(user.clientCertificates || []), newCert];
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.status(201).json(updatedUser!.clientCertificates);
+    
+    // Return metadata only
+    const safeCerts = (updatedUser!.clientCertificates || []).map((c: any) => ({
+      _id: c._id,
+      hostname: c.hostname,
+      createdAt: c.createdAt
+    }));
+    return res.status(201).json(safeCerts);
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }

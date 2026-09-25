@@ -1,4 +1,5 @@
 // Using native Node fetch
+export {};
 const BASE_URL = 'http://localhost:3005';
 
 describe('E2E Auth - Registration and Login', () => {
@@ -36,7 +37,7 @@ describe('E2E Auth - Registration and Login', () => {
     });
   }, 35000);
 
-  it('should register a new user', async () => {
+  it('should register a new user and ensure they are not superadmin (SEC-13)', async () => {
     email = `test-${Date.now()}@example.com`;
     const regRes = await fetch(`${BASE_URL}/api/auth/register`, {
       method: 'POST',
@@ -47,6 +48,17 @@ describe('E2E Auth - Registration and Login', () => {
     const regData = await regRes.json() as any;
     expect(regRes.status).toBe(201);
     expect(regData.user.email).toBe(email);
+    expect(regData.user.isSuperAdmin).toBe(false);
+
+    // Verify in database via an admin route or /me with the cookie
+    const cookie = regRes.headers.get('set-cookie')?.split(';')[0] || '';
+    
+    // Assert 403 from an admin-only route
+    const adminRes = await fetch(`${BASE_URL}/api/admin/config`, {
+      method: 'GET',
+      headers: { cookie }
+    });
+    expect(adminRes.status).toBe(403);
   });
 
   it('should login the new user', async () => {
@@ -74,5 +86,44 @@ describe('E2E Auth - Registration and Login', () => {
     });
 
     expect(loginRes.status).toBe(401);
+  });
+
+  it('should not leak client certificates (SEC-8)', async () => {
+    const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (loginRes.status !== 200) throw new Error(await loginRes.text());
+    const cookie = loginRes.headers.get('set-cookie')?.split(';')[0] || '';
+
+    const certPayload = {
+      hostname: 'test.example.com',
+      cert: '-----BEGIN CERTIFICATE-----\nMIIB...test...cert\n-----END CERTIFICATE-----',
+      key: '-----BEGIN PRIVATE KEY-----\nMIIE...test...key\n-----END PRIVATE KEY-----',
+      passphrase: 'supersecretpassphrase123!'
+    };
+    const postRes = await fetch(`${BASE_URL}/api/auth/certificates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify(certPayload)
+    });
+    expect(postRes.status).toBe(201);
+    
+    const meRes = await fetch(`${BASE_URL}/api/auth/me`, {
+      headers: { cookie }
+    });
+    const meData = await meRes.json() as any;
+    expect(meRes.status).toBe(200);
+    const certs = meData.clientCertificates;
+    expect(certs.length).toBe(1);
+    expect(certs[0].hostname).toBe('test.example.com');
+    expect(certs[0].cert).toBeUndefined();
+    expect(certs[0].key).toBeUndefined();
+    expect(certs[0].passphrase).toBeUndefined();
+    
+    const responseText = JSON.stringify(meData);
+    expect(responseText).not.toContain('BEGIN PRIVATE KEY');
+    expect(responseText).not.toContain('supersecretpassphrase123!');
   });
 });

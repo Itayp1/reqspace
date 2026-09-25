@@ -28,11 +28,18 @@ export default function LoginPage() {
     }
   };
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
     if (!config?.googleOAuth?.clientId) return;
-    const redirectUri = window.location.origin + '/auth/google/callback';
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${config.googleOAuth.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile&access_type=offline&prompt=consent`;
-    window.location.href = googleAuthUrl;
+    try {
+      const res = await fetch('/api/auth/state');
+      if (!res.ok) throw new Error('Failed to fetch state');
+      const { state } = await res.json();
+      const redirectUri = window.location.origin + '/auth/google/callback';
+      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${config.googleOAuth.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile&access_type=offline&prompt=consent&state=${state}`;
+      window.location.href = googleAuthUrl;
+    } catch (err) {
+      setError('Failed to initiate Google login');
+    }
   };
 
   return (

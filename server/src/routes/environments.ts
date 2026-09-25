@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/environments.schemas';
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
@@ -28,7 +30,7 @@ router.get('/workspaces/:workspaceId/environments',
   }
 );
 
-router.post('/workspaces/:workspaceId/environments',
+router.post('/workspaces/:workspaceId/environments', validate(schemas.createEnvironmentSchema),
   requireWorkspaceRole('editor'),
   async (req: AuthRequest, res: Response) => {
     const env = await EnvironmentRepository.create({
@@ -41,7 +43,7 @@ router.post('/workspaces/:workspaceId/environments',
   }
 );
 
-router.put('/environments/:id',
+router.put('/environments/:id', validate(schemas.updateEnvironmentSchema),
   checkEnvPermission('editor'),
   async (req: AuthRequest, res: Response) => {
     const env = await EnvironmentRepository.update(req.params.id, req.body);

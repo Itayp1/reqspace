@@ -1,14 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UserRepository } from '../repositories/UserRepository';
+import { UserRepository, IUserRecord } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { resolveJwtSecret } from '../utils/jwtSecret';
 
 const JWT_SECRET = resolveJwtSecret();
 
+export type AuthUser = IUserRecord;
+
 export interface AuthRequest extends Request {
-  user?: any;
+  user?: AuthUser;
   // Route params are always single strings for our routes. The installed
   // express types widen these to `string | string[]`; narrow them here so the
   // (strictly-typed) repositories can be called with `req.params.x` directly.

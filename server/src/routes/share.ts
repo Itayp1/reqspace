@@ -1,12 +1,17 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/share.schemas';
 import { Router, Request, Response } from 'express';
-import { SqlSharedLink, SqlCollection, SqlRequest } from '../db/sql-models';
+import { SqlSharedLink, SqlCollection } from '../db/sql-models';
 import crypto from 'crypto';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getUserWorkspaceRole } from '../middleware/rbac';
+import { RequestRepository } from '../repositories/RequestRepository';
+import { rateLimit } from '../middleware/rateLimit';
 
 const router = Router();
+const shareGetLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: 'Too many requests' });
 
-router.get('/:shortId', async (req: Request, res: Response) => {
+router.get('/:shortId', shareGetLimiter, async (req: Request, res: Response) => {
   const link = await SqlSharedLink.findOne({ where: { shortId: req.params.shortId } });
   if (!link) {
     return res.status(404).json({ message: 'Link not found or expired' });
@@ -21,16 +26,27 @@ router.get('/:shortId', async (req: Request, res: Response) => {
     return res.status(404).json({ message: 'Collection not found' });
   }
 
-  const requests = await SqlRequest.findAll({ where: { collectionId: collection.id }, raw: true });
+  const rawRequests = await RequestRepository.findByCollection(String(collection.id));
+  const safeRequests = rawRequests.map(r => ({
+    name: r.name,
+    method: r.method,
+    url: r.url,
+    description: r.description,
+    headers: r.headers?.filter(h => !h.key?.toLowerCase().match(/auth|token|key|secret|cookie|pass/)),
+    auth: { type: r.auth?.type || 'none' }
+  }));
   
   return res.json({
-    collection,
-    requests,
+    collection: {
+      name: collection.name,
+      description: collection.description
+    },
+    requests: safeRequests,
     expiresAt: link.expiresAt
   });
 });
 
-router.post('/collection/:id', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/collection/:id', validate(schemas.createShareSchema), authenticate, async (req: AuthRequest, res: Response) => {
   const { expiresInDays } = req.body;
   const days = parseInt(expiresInDays) || 7;
   
@@ -49,9 +65,10 @@ router.post('/collection/:id', authenticate, async (req: AuthRequest, res: Respo
   const shortId = crypto.randomBytes(6).toString('hex');
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + days);
+  const token = crypto.randomBytes(32).toString('hex');
 
   const link = await SqlSharedLink.create({
-    shortId, token: crypto.randomBytes(32).toString('hex'),
+    shortId, token,
     collectionId: collection.id,
     workspaceId: collection.workspaceId,
     createdBy: req.user!._id,
@@ -59,10 +76,22 @@ router.post('/collection/:id', authenticate, async (req: AuthRequest, res: Respo
   });
 
   return res.json({ 
-    shortId: link.shortId, token: crypto.randomBytes(32).toString('hex'), 
+    shortId: link.shortId, token, 
     expiresAt: link.expiresAt,
     url: '/share/' + link.shortId
   });
+});
+
+router.delete('/:shortId', authenticate, async (req: AuthRequest, res: Response) => {
+  const link = await SqlSharedLink.findOne({ where: { shortId: req.params.shortId } });
+  if (!link) {
+    return res.status(404).json({ message: 'Link not found' });
+  }
+  if (!req.user!.isSuperAdmin && String(link.createdBy) !== String(req.user!._id)) {
+    return res.status(403).json({ message: 'Only the creator can revoke this link' });
+  }
+  await link.destroy();
+  return res.status(200).json({ message: 'Link revoked' });
 });
 
 export default router;

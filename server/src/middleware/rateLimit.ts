@@ -13,7 +13,7 @@ interface Bucket {
  * instances); fine for a single server, a horizontally-scaled deployment
  * should move this to Redis instead.
  */
-export function rateLimit(options: { windowMs: number; max: number; message?: string }) {
+export function rateLimit(options: { windowMs: number; max: number; message?: string; keyBy?: (req: Request) => string }) {
   const buckets = new Map<string, Bucket>();
 
   // Opportunistic cleanup so the map doesn't grow unboundedly across many
@@ -27,7 +27,7 @@ export function rateLimit(options: { windowMs: number; max: number; message?: st
   void sweep;
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = req.ip ?? 'unknown';
+    const key = options.keyBy ? options.keyBy(req) : (req.ip ?? 'unknown');
     const now = Date.now();
     let bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) {

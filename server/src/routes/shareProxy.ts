@@ -1,3 +1,4 @@
+import { validate } from '../middleware/validate';
 import { Router, Request, Response } from 'express';
 import { SqlSharedLink } from '../db/sql-models';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
@@ -6,7 +7,7 @@ import { createSafeLookup } from '../utils/ssrf';
 const router = Router();
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
-router.post('/:shortId/proxy', async (req: Request, res: Response) => {
+router.post('/:shortId/proxy', validate(require('zod').z.any()), async (req: Request, res: Response) => {
   const link = await SqlSharedLink.findOne({ where: { shortId: req.params.shortId } });
   if (!link || link.expiresAt && link.expiresAt < new Date()) {
     return res.status(404).json({ message: 'Link not found or expired' });

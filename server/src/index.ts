@@ -32,6 +32,7 @@ import { WorkspaceRepository } from './repositories/WorkspaceRepository';
 import { getUserWorkspaceRole } from './middleware/rbac';
 import { resolveJwtSecret } from './utils/jwtSecret';
 import { dbDownBody } from './utils/dbGate';
+import { rateLimit } from './middleware/rateLimit';
 import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = resolveJwtSecret();
@@ -112,7 +113,30 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.en
 app.use(morgan('dev'));
 // Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
 // currently need a permissive policy; tighten via a dedicated CSP later.
-app.use(helmet({ contentSecurityPolicy: false }));
+const isProd = process.env.NODE_ENV === 'production';
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      // 'unsafe-eval' is required by the script runner (client/src/utils/scripts.ts uses
+      // new Function). SEC-3 is what removes it; 'wasm-unsafe-eval' does NOT cover new Function.
+      // NOTE: We implemented SEC-3 which uses new Function inside worker.ts. So the worker needs 'unsafe-eval'.
+      // Actually, since we still use new Function in worker.ts, we need it.
+      scriptSrc: ["'self'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],          // Tailwind + inline <style> in App.tsx
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'"],
+      workerSrc: ["'self'", "blob:"],
+      childSrc: ["'self'", "blob:"],
+      frameSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: isProd ? [] : null,
+    },
+  },
+  hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+}));
 // Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
 // MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
 const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';
@@ -157,6 +181,10 @@ app.use('/api', (req, res, next) => {
 });
 
 // API Routes
+const mutationLimiter = rateLimit({ windowMs: 60_000, max: 300, message: 'Too many requests - please slow down.' });
+app.use('/api', (req, res, next) =>
+  ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? mutationLimiter(req, res, next) : next()
+);
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);
 // Mounted before the generic-'/api' routers below: their own `router.use(authenticate)`
@@ -263,7 +291,11 @@ async function bootstrap() {
   }
 }
 
-bootstrap().catch((err) => {
-  console.error('Fatal startup error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  bootstrap().catch((err) => {
+    console.error('Fatal startup error:', err);
+    process.exit(1);
+  });
+}
+
+export { app };

@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/proxy.schemas';
 import { Router, Request, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { saveHistoryEntry } from './history';
@@ -10,7 +12,7 @@ router.use(authenticate);
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
 // ── POST /api/proxy ─────────────────────────────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', validate(schemas.proxyRequestSchema), async (req: AuthRequest, res: Response) => {
   const { method, url, headers = {}, body, workspaceId, followRedirects = true, timeout = 30000, verifySsl = true, localProxy } = req.body;
 
   if (!url) return res.status(400).json({ message: 'url is required' });
@@ -74,9 +76,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     const connectOpts: any = { rejectUnauthorized: verifySsl !== false, lookup: createSafeLookup(allowPrivateTargets) };
     if (matchedCert) {
+      const { open } = await import('../utils/cryptoBox');
       connectOpts.cert = matchedCert.cert;
-      connectOpts.key = matchedCert.key;
-      if (matchedCert.passphrase) connectOpts.passphrase = matchedCert.passphrase;
+      connectOpts.key = open(matchedCert.key);
+      if (matchedCert.passphrase) connectOpts.passphrase = open(matchedCert.passphrase);
     }
 
     const { ProxyAgent, Agent, fetch: undiciFetch } = await import('undici');

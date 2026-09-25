@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/importExport.schemas';
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticate, AuthRequest } from '../middleware/auth';
@@ -21,7 +23,7 @@ router.get('/collections/:id/export',
     res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
   });
 
-router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => {
+router.post('/requests/import/curl', validate(schemas.importCurlSchema), async (req: AuthRequest, res: Response) => {
   const { curl, workspaceId } = req.body;
   if (!curl) return res.status(400).json({ message: 'curl string required' });
 
@@ -71,7 +73,7 @@ router.post('/requests/import/curl', async (req: AuthRequest, res: Response) => 
   });
 });
 
-router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response) => {
+router.post('/requests/import/raw-http', validate(schemas.importRawHttpSchema), async (req: AuthRequest, res: Response) => {
   const { raw, workspaceId } = req.body;
   if (!raw) return res.status(400).json({ message: 'raw HTTP string required' });
 
@@ -124,7 +126,7 @@ router.post('/requests/import/raw-http', async (req: AuthRequest, res: Response)
 // requireWorkspaceRole falls back to req.body.workspaceId, which is where this
 // route takes it from — without the guard it creates a collection in any
 // workspace the caller names.
-router.post('/import/wsdl', requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
+router.post('/import/wsdl', validate(schemas.importWsdlSchema), requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
   const { url, workspaceId } = req.body;
   if (!url || !workspaceId) {
     return res.status(400).json({ message: 'url and workspaceId are required' });

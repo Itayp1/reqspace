@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/workspaces.schemas';
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
@@ -43,7 +45,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // ── POST /api/workspaces ────────────────────────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', validate(schemas.createWorkspaceSchema), async (req: AuthRequest, res: Response) => {
   const { name, description, isPublic } = req.body;
   if (!name) return res.status(400).json({ message: 'name is required' });
 
@@ -83,7 +85,7 @@ router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequ
 });
 
 // ── PUT /api/workspaces/:id ─────────────────────────────────────────────────
-router.put('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
+router.put('/:id', validate(schemas.updateWorkspaceSchema), requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
   const { name, description } = req.body;
   // Allowlist writable fields — never spread req.body into the update (CR#7).
   const patch: { name?: string; description?: string } = {};
@@ -105,7 +107,8 @@ router.delete('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, re
 
 // ── POST /api/workspaces/:id/members – Invite ───────────────────────────────
 router.post(
-  '/:id/members',
+    '/:id/members',
+    validate(schemas.addWorkspaceMemberSchema),
   requireWorkspaceRole('owner'),
   async (req: AuthRequest, res: Response) => {
     const { email, role } = req.body;
@@ -151,7 +154,8 @@ router.post(
 
 // ── PUT /api/workspaces/:id/members/:userId – Change role ───────────────────
 router.put(
-  '/:id/members/:userId',
+    '/:id/members/:userId',
+    validate(schemas.updateWorkspaceMemberSchema),
   requireWorkspaceRole('owner'),
   async (req: AuthRequest, res: Response) => {
     const { role } = req.body;

@@ -152,7 +152,7 @@ export function UrlBar() {
       const localVariables = new Map<string, string>();
 
       // 1. Run combined Pre-request script
-      runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables);
+      await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables);
 
       // 2. Resolve all variables in URL, headers, and body
       const resolvedUrl = resolveAllVariables(activeRequest.url, colId, undefined, localVariables);
@@ -288,7 +288,7 @@ export function UrlBar() {
       const isBase64 = !!res.data?.isBase64;
 
       // 3. Run combined Test script
-      const scriptReturn = runTestScript(testScripts.join('\n\n'), {
+      const scriptReturn = await runTestScript(testScripts.join('\n\n'), {
         status: res.data?.status || res.status,
         statusText: res.data?.statusText || res.statusText,
         headers: res.data?.headers || res.headers || {},

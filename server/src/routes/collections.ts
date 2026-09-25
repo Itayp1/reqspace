@@ -1,3 +1,5 @@
+import { validate } from '../middleware/validate';
+import * as schemas from '../schemas/collections.schemas';
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole, getUserWorkspaceRole } from '../middleware/rbac';
@@ -65,7 +67,7 @@ router.get('/workspaces/:workspaceId/collections',
   }
 );
 
-router.post('/workspaces/:workspaceId/collections',
+router.post('/workspaces/:workspaceId/collections', validate(schemas.createCollectionSchema),
   requireWorkspaceRole('editor'),
   async (req: AuthRequest, res: Response) => {
     const { name, description, variables, preRequestScript, testScript } = req.body;
@@ -83,7 +85,7 @@ router.post('/workspaces/:workspaceId/collections',
   }
 );
 
-router.put('/collections/:id', checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
+router.put('/collections/:id', validate(schemas.updateCollectionSchema), checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
   // Allowlist writable fields — never reassign workspaceId (CR#7).
   const { name, description, variables, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
@@ -113,7 +115,7 @@ router.get('/collections/:collectionId/folders',
   }
 );
 
-router.post('/collections/:collectionId/folders',
+router.post('/collections/:collectionId/folders', validate(schemas.createFolderSchema),
   checkPermission('collection', 'editor'),
   async (req: AuthRequest, res: Response) => {
     const { name, parentFolderId, description, preRequestScript, testScript } = req.body;
@@ -129,7 +131,7 @@ router.post('/collections/:collectionId/folders',
   }
 );
 
-router.put('/folders/:id', checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
+router.put('/folders/:id', validate(schemas.updateFolderSchema), checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
   const { name, description, parentFolderId, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
   for (const [k, v] of Object.entries({ name, description, parentFolderId, preRequestScript, testScript, order })) {
@@ -167,7 +169,7 @@ router.get('/collections/:collectionId/requests',
   }
 );
 
-router.post('/collections/:collectionId/requests',
+router.post('/collections/:collectionId/requests', validate(schemas.createRequestSchema),
   checkPermission('collection', 'editor'),
   async (req: AuthRequest, res: Response) => {
     const order = await RequestRepository.countInCollection(req.params.collectionId, req.body.folderId ?? null);
@@ -202,7 +204,7 @@ router.get('/requests/:id',
   }
 );
 
-router.put('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
+router.put('/requests/:id', validate(schemas.updateRequestSchema), checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
   const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order } = req.body;
   const patch: any = {};
   for (const [k, v] of Object.entries({ name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order })) {
@@ -221,7 +223,7 @@ router.delete('/requests/:id', checkPermission('request', 'editor'), async (req:
 });
 
 // ── POST /api/requests/:id/comments ───────────────────────────────────────
-router.post('/requests/:id/comments', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
+router.post('/requests/:id/comments', validate(schemas.addCommentSchema), checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ message: 'Text is required' });
 
@@ -263,7 +265,7 @@ router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'v
 });
 
 // ── Reorder ─────────────────────────────────────────────────────────────────
-router.put('/reorder', async (req: AuthRequest, res: Response) => {
+router.put('/reorder', validate(schemas.reorderSchema), async (req: AuthRequest, res: Response) => {
   const { type, items } = req.body as {
     type: ItemKind;
     items: Array<{ id: string; order: number }>;
