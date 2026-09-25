@@ -57,7 +57,9 @@ export default function Sidebar() {
         <button
           data-testid="new-workspace-btn"
           onClick={async () => {
-            const name = window.prompt('Enter new workspace name:');
+            const { customPrompt } = await import('../../utils/dialog');
+            const { useToastStore } = await import('../../store/toastStore');
+            const name = await customPrompt('New Workspace', '', 'Enter new workspace name:', 'Create');
             if (name?.trim()) {
               try {
                 const { default: api } = await import('../../api/axios');
@@ -67,7 +69,7 @@ export default function Sidebar() {
                 setActiveWorkspace(newWs);
               } catch (err) {
                 console.error('Failed to create workspace', err);
-                alert('Failed to create workspace');
+                useToastStore.getState().addToast('error', 'Failed to create workspace');
               }
             }
           }}

@@ -84,7 +84,9 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run Playwright E2E tests
-        run: npx playwright test --project=${{ matrix.db }}
+        run: |
+          npx playwright test --project=${{ matrix.db }}
+          if [ "${{ matrix.db }}" = "sqlite" ]; then npx playwright test --project=extension; fi
         env:
           DB_TYPE: ${{ matrix.db }}
           DB_HOST: 127.0.0.1

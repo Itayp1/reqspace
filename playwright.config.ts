@@ -60,6 +60,11 @@ export default defineConfig({
       name: 'mysql',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'extension',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /.*extension\.spec\.ts/,
+    },
   ].filter(p => process.env.CI || p.name === 'sqlite' || p.name === process.env.DB_TYPE),
 
   /* Run your local dev server before starting the tests */

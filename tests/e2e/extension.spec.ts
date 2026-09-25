@@ -51,4 +51,30 @@ test('extension transport works', async ({ page }) => {
   
   expect(isInstalled).toBeTruthy();
   
-  // The actual transport logic needs the UI to sel
+  // The actual transport logic needs the UI to select it, but we can call it manually
+  const res = await page.evaluate(async () => {
+    // Assuming the app has a way to test it, or we just call the transport layer
+    return new Promise(resolve => {
+      const id = 'test-id-123';
+      const listener = (event: MessageEvent) => {
+        if (event.data?.type === 'REQSPACE_RESPONSE' && event.data.id === id) {
+          window.removeEventListener('message', listener);
+          resolve(event.data.response);
+        }
+      };
+      window.addEventListener('message', listener);
+      window.postMessage({
+        source: 'reqspace-client',
+        type: 'REQSPACE_SEND',
+        id,
+        payload: {
+          method: 'GET',
+          url: 'http://localhost:3005/api/auth/me',
+          headers: {}
+        }
+      }, '*');
+    });
+  });
+  
+  expect((res as any).status).toBeDefined();
+});

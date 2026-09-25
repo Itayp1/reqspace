@@ -931,72 +931,6 @@ Everything here was explicitly selected by the owner. Anything *not* here and no
   tested.
 * Line-number correction for 5.6: the `confirm()` it cites in `UrlBar.tsx` is now at **`:387`**.
 
-## FEAT-6 — Scope resolution visualizer *(parity item 56)*
-
-* **Status:** real, and it needs a refactor before any UI · **Size:** L
-* **Verified state:** `client/src/utils/variables.ts:46` — `resolveAllVariables(...)` returns a **string**,
-  so provenance is destroyed at the moment of resolution. `client/src/components/common/VariableInput.tsx:19-22`
-  flattens `globalEnvironment` and the active environment into one list.
-* **Change:** change the return type first — `resolveWithProvenance(text, ctx)` returning
-  `{ result, resolutions }` where each `Resolution` carries `scope`, `definedIn`, `shadowed[]` and
-  `isSecret`. Precedence, highest first: `local` (`pm.variables.set`) → `data` (runner file) →
-  `environment` → `collection` → `global` → `dynamic`. Document it in the code, because the UI must match.
-  Then: hover popover naming the winning scope and listing shadowed definitions, colour-coding by scope,
-  unresolved variables in red, and a "Variables" tab on the response.
-* **Traps:** two things to reconcile first — `VariableInput` already computes its own `exists` flag
-  (~`:30`), which will be redundant once resolutions carry provenance; and `variables.ts` supports only
-  **three** dynamic variables (`$guid`, `$timestamp`, `$randomInt`) while the UI copy implies a larger set.
-  Decide whether FEAT-6 also expands that set, and say so, rather than shipping a visualizer that shows
-  most `$`-variables as unresolved.
-* **Done when:** a test defines `token` in both global and environment scope, asserts the popover names the
-  environment as the winner and lists the global as shadowed, and asserts `{{nope}}` renders as unresolved.
-
-## FEAT-7 — Split pane *(parity item 65)*
-
-* **Status:** greenfield · **Size:** XL · The store refactor is the whole cost.
-* **Verified state:** no prior art (`react-resizable`, `SplitPane`, `panes` all return nothing). Corrected
-  citations: `tabs` and `activeTabId` are declared at `client/src/store/requestStore.ts:70-71` and
-  initialised at `:117-119`; the global `activeRequest` is `:72`/`:119` and is what undo/redo operates on at
-  `:141-161`.
-* **Change:** move tab ownership into panes with a single `tabsById` map, max two panes, draggable divider
-  with a persisted ratio, and **per-pane `activeRequest` and response state** — that last part is the
-  invasive one and should land as its own commit before any UI. Persist layout structure only (SEC-4).
-* **Done when:** a test opens two requests side by side, sends in the left pane, and asserts the right
-  pane's response and scroll position are untouched.
-
-## FEAT-8 — Restore closed tabs *(parity item 69)*
-
-* **Status:** real; partial prior art that is **not** what it looks like · **Size:** M
-* **Verified state:** `closeTab` is at `client/src/store/requestStore.ts:83`. There is an existing
-  `historyMap` undo/redo mechanism (`:96`, `:140`, `:152`) — but that is **per-tab field history**, not
-  closed-tab restore, and there is no closed-tab stack. `settingsStore.ts:18,57` registers only
-  `search`/`save`/`send` shortcuts.
-* **Change:** a bounded stack (25) of closed-tab snapshots pushed in `closeTab`; a shortcut registered
-  alongside the existing three; a "Recently closed" list in the tab bar overflow; restore at the tab's
-  **original index**; cleared on logout.
-* **Traps:** per SEC-4 the persisted snapshot carries no credentials, so a tab restored after a reload must
-  mark credential fields as needing re-entry rather than silently restoring blanks.
-* **Done when:** a test edits a request without saving, closes the tab, presses the shortcut, and asserts
-  both the edit and the tab position are restored.
-
-## FEAT-9 — Response size limits *(parity item 88)*
-
-* **Status:** verified real · **Size:** M
-* **Verified state:** `server/src/routes/proxy.ts:124` does `await response.arrayBuffer()` on an **unbounded**
-  body. The only existing cap is `500 * 1024` at `:148`, and that gates **history persistence**, not the
-  response itself. There is no response cap anywhere, client or server.
-* **Change:** a global default (50 MB) in `settingsStore`, a per-request override, and an admin-enforced
-  ceiling in `SystemConfig` that a user override cannot exceed. **Enforce while streaming** — read the body
-  chunk by chunk, stop pulling and `reader.cancel()` once the cap is exceeded, and never call
-  `arrayBuffer()` / `text()` on an unbounded body anywhere. Render the truncated body with a banner
-  ("showing the first 50 MB of N MB") and a download action that streams to disk. Apply the same cap to the
-  history write (SEC-0.3).
-* **Done when:** a test requests a 200 MB response with a 10 MB cap and asserts the UI stays responsive,
-  shows the truncation banner, and the tab's memory does not grow by 200 MB.
-
-
-* **Status:** completed
-
 # CLEAN — Cleanup
 
 | # | Item | Verified state | Action |
@@ -1047,6 +981,10 @@ Two corrections that outlived FIX-3 and now live in the tasks that need them:
 | **FEAT-2** — Socket.IO client | Completed | ConnectionEditor.tsx |
 | **FEAT-3** — Server-Sent Events | Completed | ConnectionEditor.tsx |
 | **FEAT-4** — Kafka events | Completed | ConnectionEditor.tsx |
+| **FEAT-6** — Scope resolution visualizer | Completed | |
+| **FEAT-7** — Split pane | Completed | |
+| **FEAT-8** — Restore closed tabs | Completed | |
+| **FEAT-9** — Response size limits | Completed | |
 ## No longer applicable
 
 | Was | Why it is gone |
