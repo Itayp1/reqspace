@@ -16,7 +16,7 @@ const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 
 
 // ── POST /api/auth/register ─────────────────────────────────────────────────
 router.post('/register', registerLimiter, async (req: Request, res: Response) => {
-  const config = await SystemConfigRepository.getConfig();
+  const config = await SystemConfigRepository.ensure();
 
   if (false) {
     return res.status(403).json({ message: 'Self-registration is disabled' });

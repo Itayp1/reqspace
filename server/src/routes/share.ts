@@ -12,7 +12,7 @@ router.get('/:shortId', async (req: Request, res: Response) => {
     return res.status(404).json({ message: 'Link not found or expired' });
   }
   
-  if (link.expiresAt < new Date()) {
+  if (link.expiresAt && link.expiresAt < new Date()) {
     return res.status(404).json({ message: 'Link expired' });
   }
 

@@ -405,12 +405,13 @@ describe('SqlSystemConfig table', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('SqlSharedLink table', () => {
   const colId = uuidv4();
+  const workspaceId = uuidv4();
   const userId = uuidv4();
 
   it('creates a shared link', async () => {
     const token = 'tok_abc123unique';
     const link = await SqlSharedLink.create({
-      id: uuidv4(), collectionId: colId, token,
+      id: uuidv4(), shortId: 'shortabc123', collectionId: colId, workspaceId, token,
       createdBy: userId, expiresAt: null,
     });
     expect(link.token).toBe(token);
@@ -422,10 +423,25 @@ describe('SqlSharedLink table', () => {
     expect(link!.collectionId).toBe(colId);
   });
 
+  it('finds link by shortId', async () => {
+    const link = await SqlSharedLink.findOne({ where: { shortId: 'shortabc123' } });
+    expect(link).not.toBeNull();
+    expect(link!.workspaceId).toBe(workspaceId);
+  });
+
   it('enforces unique token constraint', async () => {
     await expect(SqlSharedLink.create({
-      id: uuidv4(), collectionId: colId,
+      id: uuidv4(), shortId: 'shortdef456', collectionId: colId, workspaceId,
       token: 'tok_abc123unique', // duplicate
+      createdBy: userId, expiresAt: null,
+    })).rejects.toThrow();
+  });
+
+  it('enforces unique shortId constraint', async () => {
+    await expect(SqlSharedLink.create({
+      id: uuidv4(), shortId: 'shortabc123', // duplicate
+      collectionId: colId, workspaceId,
+      token: 'tok_xyz999unique',
       createdBy: userId, expiresAt: null,
     })).rejects.toThrow();
   });

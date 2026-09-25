@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { Collection } from '../models/Collection';
 import { Folder } from '../models/Folder';
@@ -181,8 +182,8 @@ router.post('/import/wsdl', async (req: AuthRequest, res: Response) => {
             method: 'POST',
             url: location,
             headers: [
-              { key: 'Content-Type', value: 'text/xml; charset=utf-8', enabled: true, _id: new mongoose.Types.ObjectId().toString() },
-              ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true, _id: new mongoose.Types.ObjectId().toString() }] : [])
+              { key: 'Content-Type', value: 'text/xml; charset=utf-8', enabled: true, _id: uuidv4() },
+              ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true, _id: uuidv4() }] : [])
             ],
             body: { mode: 'raw', raw: xmlBody, rawLanguage: 'xml' },
             createdBy: req.user!._id

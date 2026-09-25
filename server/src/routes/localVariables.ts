@@ -1,11 +1,11 @@
-import express from 'express';
+import express, { Response } from 'express';
 import LocalVariable from '../models/LocalVariable';
-import { authenticate } from '../middleware/auth';
+import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 
 // GET /api/local-variables/:workspaceId
-router.get('/:workspaceId', authenticate, async (req, res) => {
+router.get('/:workspaceId', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const localVariable = await LocalVariable.findOne({
       workspaceId: req.params.workspaceId,
@@ -21,7 +21,7 @@ router.get('/:workspaceId', authenticate, async (req, res) => {
 });
 
 // PUT /api/local-variables/:workspaceId
-router.put('/:workspaceId', authenticate, async (req, res) => {
+router.put('/:workspaceId', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const { variables } = req.body;
     let localVariable = await LocalVariable.findOne({

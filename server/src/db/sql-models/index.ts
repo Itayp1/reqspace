@@ -160,7 +160,9 @@ export class SqlSystemConfig extends Model {
 // ─────────────────────────────────────────────────
 export class SqlSharedLink extends Model {
   declare id: string;
+  declare shortId: string;
   declare collectionId: string;
+  declare workspaceId: string;
   declare token: string;
   declare createdBy: string;
   declare expiresAt: Date | null;
@@ -302,7 +304,9 @@ export function initSqlModels() {
 
   SqlSharedLink.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    shortId: { type: DataTypes.STRING(20), allowNull: false, unique: true },
     collectionId: { type: DataTypes.STRING(36), allowNull: false },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
     token: { type: DataTypes.STRING(64), allowNull: false, unique: true },
     createdBy: { type: DataTypes.STRING(36), allowNull: false },
     expiresAt: { type: DataTypes.DATE, allowNull: true },

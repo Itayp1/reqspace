@@ -15,7 +15,7 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
 });
 
 router.get('/workspaces', async (req: AuthRequest, res: Response) => {
-  const workspaces = await WorkspaceRepository.findAll();
+  const workspaces = await WorkspaceRepository.list();
   return res.json({ workspaces, total: workspaces.length, page: 1, limit: 50 });
 });
 
@@ -24,7 +24,7 @@ router.get('/logs', async (req: AuthRequest, res: Response) => {
   return res.json({ logs, total: logs.length });
 });
 
-const SECRET_MASK = '••••••••';
+const SECRET_MASK = 'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½';
 function maskConfigSecrets(config: any) {
   if (!config) return config;
   const masked = JSON.parse(JSON.stringify(config));

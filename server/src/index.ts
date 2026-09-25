@@ -159,6 +159,12 @@ app.use('/api', (req, res, next) => {
 // API Routes
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);
+// Mounted before the generic-'/api' routers below: their own `router.use(authenticate)`
+// has no path prefix, so it swallows every '/api/*' request that reaches it — including
+// these two routers' deliberately-public routes (anonymous share-link viewing) — unless
+// share is matched first.
+app.use('/api/share', shareRouter);
+app.use('/api/share', shareProxyRouter);
 app.use('/api', collectionsRouter);
 app.use('/api', environmentsRouter);
 app.use('/api', historyRouter);
@@ -166,8 +172,6 @@ app.use('/api/proxy', proxyRouter);
 // app.use('/api/capture', captureRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/users', usersRouter);
-app.use('/api/share', shareRouter);
-app.use('/api/share', shareProxyRouter);
 app.use('/api', importExportRouter);
 app.use('/api', runnerRouter);
 app.use('/api/local-variables', localVariablesRouter);
