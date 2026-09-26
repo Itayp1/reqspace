@@ -404,7 +404,7 @@ is the index; `TODO.md` is the detail.
 | `[ ]` | CLEAN-5 | Stale traffic-capture copy | `utils/ssrf.ts:6`, `AdminPage.tsx:391` |
 | `[ ]` | CLEAN-6 | Stale doc references | `smoke-core.sh` → `TESTING.md`, `ssrf.test.ts` → `CODE_REVIEW.md`; neither file exists |
 | `[ ]` | CLEAN-7 | `IGNORE.md` drift | Section B cites three deleted files |
-| `[ ]` | CLEAN-8 | Scratch files committed to the repo | `server/patch_*.js` (six tracked) and `collections.ts.bak`. `.gitignore` has `/patch_*.js` — the leading slash anchors it to the repo root, so anything under `server/` slips through. Drop the anchor and untrack them |
+| `[x]` | CLEAN-8 | Scratch files committed to the repo | `collections.ts.bak` was already gone by the time this was picked up. The six `server/patch_*.js` were untracked and deleted; `.gitignore`'s `/patch_*.js` anchor dropped so the pattern matches at any depth |
 
 ### ➕ Adding a task
 
