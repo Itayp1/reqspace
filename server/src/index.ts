@@ -1,4 +1,4 @@
-import 'express-async-errors';
+﻿import 'express-async-errors';
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -28,6 +28,8 @@ import shareRouter from './routes/share';
 import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
 import localVariablesRouter from './routes/localVariables';
+import userProfileVariablesRouter from './routes/userProfileVariables';
+import forksRouter from './routes/forks';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
@@ -42,7 +44,7 @@ const JWT_SECRET = resolveJwtSecret();
 const app = express();
 const server = http.createServer(app);
 
-// ── DB state (updated during bootstrap) ──────────────────────────────────────
+// ג”€ג”€ DB state (updated during bootstrap) ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 let dbStatus: 'starting' | 'ok' | 'error' = 'starting';
 let dbError: string | null = null;
 let dbType: string = 'unknown';
@@ -136,7 +138,7 @@ io.on('connection', (socket) => {
 
 // Behind an Ingress/reverse proxy, trust X-Forwarded-* so req.ip, rate limiting
 // and `secure` cookies work correctly (CR#8, CR#16). Configurable; defaults to
-// one hop (typical single proxy) — set TRUST_PROXY=false to disable.
+// one hop (typical single proxy) ג€” set TRUST_PROXY=false to disable.
 app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.env.TRUST_PROXY ?? 1));
 
 // Middleware
@@ -178,11 +180,11 @@ app.use(cors({
   credentials: true,
 }));
 
-// ── Health check — always responds, reports DB state ─────────────────────────
+// ג”€ג”€ Health check ג€” always responds, reports DB state ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 app.get('/api/health', (_req, res) => {
   const status = dbStatus === 'ok' ? 200 : (dbStatus === 'starting' ? 503 : 503);
   // Never leak the raw DB error (can contain a connection string) in
-  // production — return a generic message instead (CR#24).
+  // production ג€” return a generic message instead (CR#24).
   const isProd = process.env.NODE_ENV === 'production';
   res.status(status).json({
     status: dbStatus,
@@ -194,10 +196,10 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// ── Block API routes if DB is not ready ──────────────────────────────────────
+// ג”€ג”€ Block API routes if DB is not ready ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 app.use('/api', (req, res, next) => {
   // Always allow the health check even if the DB is down. (The previous
-  // '/admin/db-config' carve-out referenced a route that doesn't exist — CR#18.)
+  // '/admin/db-config' carve-out referenced a route that doesn't exist ג€” CR#18.)
   if (req.path === '/health') return next();
   if (dbStatus !== 'ok') {
     return res.status(503).json(dbDownBody({
@@ -218,8 +220,8 @@ app.use('/api', (req, res, next) =>
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);
 // Mounted before the generic-'/api' routers below: their own `router.use(authenticate)`
-// has no path prefix, so it swallows every '/api/*' request that reaches it — including
-// these two routers' deliberately-public routes (anonymous share-link viewing) — unless
+// has no path prefix, so it swallows every '/api/*' request that reaches it ג€” including
+// these two routers' deliberately-public routes (anonymous share-link viewing) ג€” unless
 // share is matched first.
 app.use('/api/share', shareRouter);
 app.use('/api/share', shareProxyRouter);
@@ -232,6 +234,8 @@ app.use('/api/admin', adminRouter);
 app.use('/api/users', usersRouter);
 app.use('/api', importExportRouter);
 app.use('/api/local-variables', localVariablesRouter);
+app.use('/api/user-profile-variables', userProfileVariablesRouter);
+app.use('/api', forksRouter);
 
 // Serve client static files (production)
 const clientDistPath = process.env.CLIENT_DIST_PATH
@@ -243,7 +247,7 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
-// Error handler — logs the real error server-side but never echoes internal
+// Error handler ג€” logs the real error server-side but never echoes internal
 // messages (DB connection strings, file paths, stack detail) back to the
 // client, which is publicly reachable once this is deployed as a SaaS.
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -257,38 +261,38 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(status).json({ message });
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// ג”€ג”€ Start ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 async function bootstrap() {
   const { getDbConfig } = await import('./db/dbConfig');
   const { connectDb } = await import('./db/connect');
 
   const port = parseInt(process.env.PORT ?? '3005', 10);
 
-  // Start listening first — so the client can load and show errors
+  // Start listening first ג€” so the client can load and show errors
   server.listen(port, () => {
-    console.log('🚀 Server running on http://localhost:' + port);
+    console.log('נ€ Server running on http://localhost:' + port);
   });
 
   const dbConfig = getDbConfig();
   dbType = dbConfig.type;
-  console.log(`🗄️  Connecting to DB: ${dbConfig.type}`);
+  console.log(`נ—„ן¸  Connecting to DB: ${dbConfig.type}`);
 
   try {
     await connectDb(dbConfig);
-    console.log(`✅ DB connected (${dbConfig.type})`);
+    console.log(`ג… DB connected (${dbConfig.type})`);
 
     await SystemConfigRepository.ensure();
-    console.log('✅ SystemConfig initialized');
+    console.log('ג… SystemConfig initialized');
 
     const adminCount = (await UserRepository.list({ isSuperAdmin: true })).items.length;
     if (adminCount === 0) {
       const adminEmail = process.env.ADMIN_EMAIL || 'admin';
       const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
-      // Never seed a known-default admin/admin superadmin in production — the
+      // Never seed a known-default admin/admin superadmin in production ג€” the
       // account is fully usable between boot and first login (CR#6). Require an
       // explicit strong ADMIN_PASSWORD instead.
       if (process.env.NODE_ENV === 'production' && adminPassword === 'admin' && process.env.ALLOW_DEFAULT_ADMIN !== 'true') {
-        console.error('❌ Refusing to bootstrap the default admin/admin superadmin in production. Set a strong ADMIN_PASSWORD and restart.');
+        console.error('ג Refusing to bootstrap the default admin/admin superadmin in production. Set a strong ADMIN_PASSWORD and restart.');
         dbStatus = 'ok';
         return;
       }
@@ -306,18 +310,18 @@ async function bootstrap() {
         description: 'Personal workspace',
         ownerId: adminUser.id,
       });
-      console.log(`✅ Default superadmin created (${adminEmail} / ${'*'.repeat(adminPassword.length)})`);
+      console.log(`ג… Default superadmin created (${adminEmail} / ${'*'.repeat(adminPassword.length)})`);
     } else {
-      console.log('✅ Superadmin exists');
+      console.log('ג… Superadmin exists');
     }
 
     dbStatus = 'ok';
   } catch (err: any) {
     dbStatus = 'error';
     dbError = err?.message ?? String(err);
-    console.error(`❌ DB connection failed (${dbConfig.type}):`, dbError);
+    console.error(`ג DB connection failed (${dbConfig.type}):`, dbError);
     console.error('Server is running but DB is unavailable. Check /api/health for details.');
-    // Don't exit — the UI will show the error so user can fix config via Admin panel
+    // Don't exit ג€” the UI will show the error so user can fix config via Admin panel
   }
 }
 

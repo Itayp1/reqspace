@@ -1,4 +1,4 @@
-import { validate } from '../middleware/validate';
+﻿import { validate } from '../middleware/validate';
 import * as schemas from '../schemas/collections.schemas';
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
@@ -10,6 +10,12 @@ import { logAudit } from '../repositories/AuditLogRepository';
 export type UserRole = 'viewer' | 'editor' | 'owner';
 import { emitToWorkspace } from '../socketUtils';
 import { v4 as uuidv4 } from 'uuid';
+// Lazy import to avoid circular deps: forks.ts → collections.ts
+let _syncForks: ((id: string) => Promise<void>) | null = null;
+async function syncForksAsync(collectionId: string) {
+  if (!_syncForks) { const m = await import('./forks'); _syncForks = m.syncForksOfCollection; }
+  _syncForks(collectionId).catch(() => {});
+}
 
 const router = Router();
 type ItemKind = 'collection' | 'folder' | 'request';

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+﻿import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore } from '../../store/collectionStore';
@@ -13,7 +13,7 @@ export function SocketSync() {
     if (!activeWorkspace) return;
 
     const socketUrl = window.location.origin;
-    // withCredentials is required so the auth cookie reaches the server — it
+    // withCredentials is required so the auth cookie reaches the server ג€” it
     // authenticates the socket and authorizes which workspace rooms it may join.
     const socket = io(socketUrl, { path: '/ws', withCredentials: true, transports: ['websocket'] });
     socketRef.current = socket;
@@ -28,6 +28,7 @@ export function SocketSync() {
     socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:deleted', (id) => useCollectionStore.getState().applyCollectionDeleted(id));
+    socket.on('collection:fork-synced', () => { if (activeWorkspace) useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id); });
     socket.on('folder:created', (data) => useCollectionStore.getState().applyFolderUpserted(data));
     socket.on('folder:updated', (data) => useCollectionStore.getState().applyFolderUpserted(data));
     socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));

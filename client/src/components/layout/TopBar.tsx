@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+﻿import { useEffect, useState, useRef } from 'react';
 import { Search, Eye, Settings, Cookie, Sun, Moon, SlidersHorizontal } from 'lucide-react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { useAuthStore } from '../../store/authStore';
@@ -12,7 +12,7 @@ import GlobalSearchModal from '../common/GlobalSearchModal';
 
 export default function TopBar() {
   const { activeWorkspace } = useAuthStore();
-  const { environments, activeEnvironmentId, setActiveEnvironmentId, setEnvironments, setGlobalEnvironment, fetchLocalVariables } = useEnvironmentStore();
+  const { environments, activeEnvironmentId, setActiveEnvironmentId, setEnvironments, setGlobalEnvironment, fetchLocalVariables, fetchUserProfileVariables } = useEnvironmentStore();
   const { openEnvironmentTab } = useRequestStore();
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -69,9 +69,10 @@ export default function TopBar() {
         });
         
         fetchLocalVariables(activeWorkspace._id);
+        fetchUserProfileVariables();
       });
     }
-  }, [activeWorkspace, setEnvironments, setGlobalEnvironment, fetchLocalVariables]);
+  }, [activeWorkspace, setEnvironments, setGlobalEnvironment, fetchLocalVariables, fetchUserProfileVariables]);
 
   const { settings } = useSettingsStore();
 
@@ -162,7 +163,7 @@ export default function TopBar() {
               >
                 <div className="p-3 border-b border-gray-700 font-semibold text-gray-100 flex justify-between items-center">
                   <span>Environment Variables</span>
-                  <button onClick={() => setIsQuickLookOpen(false)} className="text-gray-400 hover:text-white" aria-label="Close environment quick look">✕</button>
+                  <button onClick={() => setIsQuickLookOpen(false)} className="text-gray-400 hover:text-white" aria-label="Close environment quick look">ג•</button>
                 </div>
                 
                 <div className="max-h-64 overflow-y-auto">
@@ -188,7 +189,7 @@ export default function TopBar() {
                         {activeVars.map(v => (
                           <div key={v.key} className="flex justify-between items-center group">
                             <span className="text-gray-300 font-mono truncate w-1/3" title={v.key}>{v.key}</span>
-                            <span className="text-green-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? '••••••••' : (v.currentValue || v.initialValue)}</span>
+                            <span className="text-green-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? 'ג€¢ג€¢ג€¢ג€¢ג€¢ג€¢ג€¢ג€¢' : (v.currentValue || v.initialValue)}</span>
                           </div>
                         ))}
                       </div>
@@ -217,7 +218,7 @@ export default function TopBar() {
                         {globalVars.map(v => (
                           <div key={v.key} className="flex justify-between items-center group">
                             <span className="text-gray-300 font-mono truncate w-1/3" title={v.key}>{v.key}</span>
-                            <span className="text-blue-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? '••••••••' : (v.currentValue || v.initialValue)}</span>
+                            <span className="text-blue-400 font-mono truncate w-2/3 text-right" title={v.currentValue || v.initialValue}>{v.isSecret ? 'ג€¢ג€¢ג€¢ג€¢ג€¢ג€¢ג€¢ג€¢' : (v.currentValue || v.initialValue)}</span>
                           </div>
                         ))}
                       </div>

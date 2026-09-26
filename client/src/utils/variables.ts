@@ -1,4 +1,4 @@
-import { useEnvironmentStore } from '../store/environmentStore';
+﻿import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 
 export function resolveDynamicVars(text: string): string {

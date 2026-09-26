@@ -1,10 +1,10 @@
-import { DataTypes, Model, Optional } from 'sequelize';
+﻿import { DataTypes, Model, Optional } from 'sequelize';
 import { getSequelize } from '../sequelize';
 import { v4 as uuidv4 } from 'uuid';
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // USERS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlUser extends Model {
   declare id: string;
   declare name: string;
@@ -23,9 +23,9 @@ export class SqlUser extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // WORKSPACES
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlWorkspace extends Model {
   declare id: string;
   declare name: string;
@@ -37,9 +37,9 @@ export class SqlWorkspace extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // COLLECTIONS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlCollection extends Model {
   declare id: string;
   declare workspaceId: string;
@@ -55,9 +55,9 @@ export class SqlCollection extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // FOLDERS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlFolder extends Model {
   declare id: string;
   declare collectionId: string;
@@ -72,9 +72,9 @@ export class SqlFolder extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // REQUESTS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlRequest extends Model {
   declare id: string;
   declare collectionId: string;
@@ -96,9 +96,9 @@ export class SqlRequest extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // ENVIRONMENTS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlEnvironment extends Model {
   declare id: string;
   declare workspaceId: string;
@@ -116,9 +116,9 @@ export class SqlGlobalEnvironment extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // HISTORY
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlHistory extends Model {
   declare id: string;
   declare userId: string;
@@ -132,9 +132,9 @@ export class SqlHistory extends Model {
   declare createdAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // AUDIT LOGS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlAuditLog extends Model {
   declare id: string;
   declare userId: string;
@@ -146,9 +146,9 @@ export class SqlAuditLog extends Model {
   declare createdAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // SYSTEM CONFIG
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlSystemConfig extends Model {
   declare id: string;
   declare auth: string; // JSON
@@ -157,9 +157,9 @@ export class SqlSystemConfig extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // SHARED LINKS
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlSharedLink extends Model {
   declare id: string;
   declare shortId: string;
@@ -171,9 +171,9 @@ export class SqlSharedLink extends Model {
   declare createdAt: Date;
 }
 
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // LOCAL VARIABLES
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 export class SqlLocalVariable extends Model {
   declare id: string;
   declare workspaceId: string;
@@ -183,9 +183,43 @@ export class SqlLocalVariable extends Model {
   declare updatedAt: Date;
 }
 
-// ─────────────────────────────────────────────────
-// INIT — define all models
-// ─────────────────────────────────────────────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// INIT ג€” define all models
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+
+// -------------------------------------------------
+// USER PROFILE VARIABLES (cross-workspace, per-user)
+// -------------------------------------------------
+export class SqlUserProfileVariable extends Model {
+  declare id: string;
+  declare userId: string;
+  declare variables: string; // JSON
+  declare updatedAt: Date;
+}
+
+// -------------------------------------------------
+// COLLECTION FORKS
+// -------------------------------------------------
+export class SqlCollectionFork extends Model {
+  declare id: string;
+  declare sourceCollectionId: string;
+  declare forkedCollectionId: string;
+  declare forkedByUserId: string;
+  declare forkedAt: Date;
+  declare lastSyncAt: Date | null;
+}
+
+// -------------------------------------------------
+// FORK ITEM HASHES
+// -------------------------------------------------
+export class SqlForkItemHash extends Model {
+  declare id: string;
+  declare forkId: string;
+  declare itemType: string;
+  declare itemId: string;
+  declare sourceItemId: string;
+  declare baseHash: string;
+}
 export function initSqlModels() {
   const sq = getSequelize();
 
@@ -334,6 +368,33 @@ export function initSqlModels() {
     userId: { type: DataTypes.STRING(36), allowNull: false },
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
   }, { sequelize: sq, tableName: 'local_variables', timestamps: true, indexes: [{ fields: ['workspaceId', 'userId'], unique: true }] });
+
+  SqlUserProfileVariable.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    userId: { type: DataTypes.STRING(36), allowNull: false, unique: true },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+  }, { sequelize: sq, tableName: 'user_profile_variables', timestamps: false, updatedAt: 'updatedAt', createdAt: false });
+
+  SqlCollectionFork.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    sourceCollectionId: { type: DataTypes.STRING(36), allowNull: false },
+    forkedCollectionId: { type: DataTypes.STRING(36), allowNull: false, unique: true },
+    forkedByUserId: { type: DataTypes.STRING(36), allowNull: false },
+    forkedAt: { type: DataTypes.DATE, allowNull: false },
+    lastSyncAt: { type: DataTypes.DATE, allowNull: true },
+  }, { sequelize: sq, tableName: 'collection_forks', timestamps: false, createdAt: false, updatedAt: false,
+    indexes: [{ fields: ['sourceCollectionId'] }, { fields: ['forkedCollectionId'], unique: true }] });
+
+  SqlForkItemHash.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    forkId: { type: DataTypes.STRING(36), allowNull: false },
+    itemType: { type: DataTypes.STRING(20), allowNull: false },
+    itemId: { type: DataTypes.STRING(36), allowNull: false },
+    sourceItemId: { type: DataTypes.STRING(36), allowNull: false },
+    baseHash: { type: DataTypes.STRING(32), allowNull: false },
+  }, { sequelize: sq, tableName: 'fork_item_hashes', timestamps: false, createdAt: false, updatedAt: false,
+    indexes: [{ fields: ['forkId'] }, { fields: ['itemId'] }] });
 }
+
 
 

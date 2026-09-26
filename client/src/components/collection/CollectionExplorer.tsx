@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+﻿import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCollectionStore } from '../../store/collectionStore';
 import type { Collection, Folder, ApiRequest } from '../../store/collectionStore';
@@ -14,12 +14,13 @@ import { GroupEditModal } from './GroupEditModal';
 import { CopyToWorkspaceModal } from './CopyToWorkspaceModal';
 import { DocumentationModal } from './DocumentationModal';
 import { ShareLinkModal } from './ShareLinkModal';
+import { ForkModal } from './ForkModal';
 import { useContextMenu } from '../common/ContextMenuProvider';
 import {
   ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X
 } from 'lucide-react';
 
-// ── Shared Types ──────────────────────────────────────────────────────────────
+// ג”€ג”€ Shared Types ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 interface PromptConfig {
   isOpen: boolean;
@@ -42,7 +43,7 @@ interface MoveConfig {
   requestName: string;
 }
 
-// ── Action Menu ───────────────────────────────────────────────────────────────
+// ג”€ג”€ Action Menu ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 const ActionMenu = ({
   options,
@@ -109,7 +110,7 @@ const ActionMenu = ({
 };
 
 
-// ── Inline Rename Input ────────────────────────────────────────────────────────
+// ג”€ג”€ Inline Rename Input ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 const InlineRename = ({
   value,
@@ -147,7 +148,7 @@ const InlineRename = ({
   );
 };
 
-// ── Method Color ──────────────────────────────────────────────────────────────
+// ג”€ג”€ Method Color ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 const getMethodColor = (method: string) => {
   switch (method?.toUpperCase()) {
@@ -160,7 +161,7 @@ const getMethodColor = (method: string) => {
   }
 };
 
-// ── Request Node ──────────────────────────────────────────────────────────────
+// ג”€ג”€ Request Node ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 const RequestNode = ({
   request,
@@ -270,7 +271,7 @@ const RequestNode = ({
   );
 };
 
-// ── Folder Node ───────────────────────────────────────────────────────────────
+// ג”€ג”€ Folder Node ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 const FolderNode = ({
   folder,
@@ -433,7 +434,7 @@ const FolderNode = ({
   );
 };
 
-// ──────── Collection Node ────────
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ Collection Node ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 const CollectionNode = ({
   collection,
@@ -621,7 +622,7 @@ const CollectionNode = ({
   );
 };
 
-// ── Collection Explorer (Root) ─────────────────────────────────────────────────
+// ג”€ג”€ Collection Explorer (Root) ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
 export const CollectionExplorer: React.FC = () => {
   const {
@@ -657,6 +658,7 @@ export const CollectionExplorer: React.FC = () => {
     collectionId: '',
     collectionName: '',
   });
+  const [forkConfig, setForkConfig] = useState<{ isOpen: boolean; collectionId: string; collectionName: string }>({ isOpen: false, collectionId: '', collectionName: '' });
   const [shareConfig, setShareConfig] = useState<{ isOpen: boolean; collectionId: string; collectionName: string }>({
     isOpen: false,
     collectionId: '',
@@ -719,6 +721,10 @@ export const CollectionExplorer: React.FC = () => {
       const { id, name } = (e as CustomEvent).detail;
       setShareConfig({ isOpen: true, collectionId: id, collectionName: name });
     };
+    const handleForkCollection = (e: Event) => {
+      const { id, name } = (e as CustomEvent).detail;
+      setForkConfig({ isOpen: true, collectionId: id, collectionName: name });
+    };
 
     window.addEventListener('delete-folder', handleDeleteFolder);
     window.addEventListener('delete-request', handleDeleteRequest);
@@ -729,6 +735,7 @@ export const CollectionExplorer: React.FC = () => {
     window.addEventListener('copy-to-workspace', handleCopyToWorkspace);
     window.addEventListener('view-documentation', handleViewDocumentation);
     window.addEventListener('share-collection', handleShareCollection);
+    window.addEventListener('fork-collection', handleForkCollection);
 
     return () => {
       window.removeEventListener('delete-folder', handleDeleteFolder);
@@ -740,6 +747,7 @@ export const CollectionExplorer: React.FC = () => {
       window.removeEventListener('copy-to-workspace', handleCopyToWorkspace);
       window.removeEventListener('view-documentation', handleViewDocumentation);
       window.removeEventListener('share-collection', handleShareCollection);
+      window.removeEventListener('fork-collection', handleForkCollection);
     };
   }, [deleteFolder, deleteRequest, folders, requests, collections]);
 
@@ -1079,6 +1087,13 @@ export const CollectionExplorer: React.FC = () => {
         />
       )}
 
+      {forkConfig.isOpen && (
+        <ForkModal
+          collectionId={forkConfig.collectionId}
+          collectionName={forkConfig.collectionName}
+          onClose={() => setForkConfig(f => ({ ...f, isOpen: false }))}
+        />
+      )}
       {shareConfig.isOpen && (
         <ShareLinkModal
           collectionId={shareConfig.collectionId}

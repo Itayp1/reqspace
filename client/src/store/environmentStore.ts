@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 
 export interface EnvironmentVariable {
   key: string;
@@ -22,10 +22,13 @@ interface EnvironmentStore {
   activeEnvironmentId: string | null;
   globalEnvironment: Environment | null;
   localVariables: EnvironmentVariable[];
+  userProfileVariables: EnvironmentVariable[];
   setEnvironments: (envs: Environment[]) => void;
   setActiveEnvironmentId: (id: string | null) => void;
   setGlobalEnvironment: (env: Environment | null) => void;
   setLocalVariables: (vars: EnvironmentVariable[]) => void;
+  setUserProfileVariables: (vars: EnvironmentVariable[]) => void;
+  fetchUserProfileVariables: () => Promise<void>;
   fetchEnvironments: (workspaceId: string) => Promise<void>;
   fetchLocalVariables: (workspaceId: string) => Promise<void>;
   
@@ -39,10 +42,12 @@ export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
   activeEnvironmentId: null,
   globalEnvironment: null,
   localVariables: [],
+  userProfileVariables: [],
   setEnvironments: (environments) => set({ environments }),
   setActiveEnvironmentId: (activeEnvironmentId) => set({ activeEnvironmentId }),
   setGlobalEnvironment: (globalEnvironment) => set({ globalEnvironment }),
   setLocalVariables: (localVariables) => set({ localVariables }),
+  setUserProfileVariables: (userProfileVariables) => set({ userProfileVariables }),
   
   applyEnvironmentUpserted: (env) => set((state) => {
     if (env.isGlobal) {
@@ -66,6 +71,17 @@ export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
       const globals = res.data.filter((e: any) => e.isGlobal);
       const locals = res.data.filter((e: any) => !e.isGlobal);
       set({ globalEnvironment: globals.length > 0 ? globals[0] : null, environments: locals });
+    } catch(err) {}
+  },
+  fetchUserProfileVariables: async () => {
+    try {
+      const api = (await import('../api/axios')).default;
+      const res = await api.get('/user-profile-variables');
+      if (res.data && res.data.variables) {
+        set({ userProfileVariables: res.data.variables });
+      } else {
+        set({ userProfileVariables: [] });
+      }
     } catch(err) {}
   },
   fetchLocalVariables: async (workspaceId: string) => {
