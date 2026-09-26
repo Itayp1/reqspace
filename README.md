@@ -249,6 +249,29 @@ You can enable Google Authentication without touching the code!
 3. Toggle "Enable Google OAuth" and enter your Client ID and Secret.
 4. Save, and the "Continue with Google" button will instantly appear on the login screen.
 
+### Getting a Client ID/Secret
+
+Google has no API for creating a standard OAuth 2.0 Web application client —
+it's Console UI only ([APIs & Services → Credentials → Create Credentials →
+OAuth client ID](https://console.cloud.google.com/apis/credentials)). Add the
+app's origin(s) (dev, any tunnel, prod) to Authorized JavaScript origins, and
+`<origin>/auth/google/callback` to Authorized redirect URIs — this app uses
+the authorization-code flow (`POST /auth/google` exchanges a `code` for
+tokens server-side), not just an ID-token button, so both are required and
+`GOOGLE_ALLOWED_REDIRECT_URIS` (see Secrets Inventory above) must list every
+redirect URI you register.
+
+### Setting it headlessly (no admin login needed)
+
+Steps 1-4 above assume an interactive admin session. Since this config lives
+in `system_config.auth.googleOAuth` (see *Runtime configuration stored in the
+database* above) rather than an env var, you can set it directly against the
+database instead — useful for scripted/CI setup: read the row, JSON-merge in
+`{ enabled: true, clientId, clientSecret }`, write it back. Same effect as
+the admin form. Treat this like any other write to a production database —
+credentials belong in gitignored files or a secrets manager, never inline in
+a script or committed anywhere.
+
 ## 📋 Task Board
 
 The single place to see what is done and what is left. [`TODO.md`](TODO.md) holds the full spec for every
