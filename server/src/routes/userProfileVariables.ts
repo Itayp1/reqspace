@@ -1,7 +1,8 @@
-﻿import express, { Response } from 'express';
+import express, { Response } from 'express';
 import { z } from 'zod';
 import { SqlUserProfileVariable } from '../db/sql-models';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { validate } from '../middleware/validate';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
@@ -31,11 +32,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // PUT /api/user-profile-variables
-router.put('/', async (req: AuthRequest, res: Response) => {
+router.put('/', validate(updateSchema), async (req: AuthRequest, res: Response) => {
   try {
-    const parsed = updateSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: 'Invalid body', errors: parsed.error.errors });
-    const { variables } = parsed.data;
+    const { variables } = req.body;
     const userId = req.user?.id || req.user?._id;
 
     let row = await SqlUserProfileVariable.findOne({ where: { userId } });

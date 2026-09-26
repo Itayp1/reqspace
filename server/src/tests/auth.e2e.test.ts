@@ -1,6 +1,6 @@
 // Using native Node fetch
 export {};
-const BASE_URL = 'http://localhost:3005';
+const BASE_URL = 'http://127.0.0.1:3005';
 
 describe('E2E Auth - Registration and Login', () => {
   let email = '';
@@ -28,7 +28,7 @@ describe('E2E Auth - Registration and Login', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin', password: 'admin' }),
-    });
+    }, 35000);
     const adminCookie = adminLogin.headers.get('set-cookie')?.split(';')[0] || '';
     await fetch(`${BASE_URL}/api/admin/config`, {
       method: 'PUT',

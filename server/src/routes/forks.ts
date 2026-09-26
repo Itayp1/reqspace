@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Fork Collection Routes
  *
  * POST /collections/:id/fork
@@ -17,7 +17,9 @@
  *     - Fork owner modified  → keep in fork
  */
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { validate } from '../middleware/validate';
 import { requireWorkspaceRole, getUserWorkspaceRole } from '../middleware/rbac';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { FolderRepository } from '../repositories/FolderRepository';
@@ -74,7 +76,13 @@ function hashCollection(c: any): string {
 
 // ── POST /collections/:id/fork ───────────────────────────────────────────────
 
-router.post('/collections/:id/fork', async (req: AuthRequest, res: Response) => {
+const forkSchema = z.object({
+  targetWorkspaceId: z.string(),
+  name: z.string().optional(),
+  copyEnvironmentId: z.string().optional(),
+});
+
+router.post('/collections/:id/fork', validate(forkSchema), async (req: AuthRequest, res: Response) => {
   try {
     const sourceId = req.params.id;
     const userId = String(req.user!._id);
@@ -426,8 +434,10 @@ export async function syncForksOfCollection(sourceCollectionId: string): Promise
   }
 }
 
+const syncSchema = z.object({});
+
 // Explicit sync endpoint (admin/debug)
-router.post('/collections/:id/sync-upstream', async (req: AuthRequest, res: Response) => {
+router.post('/collections/:id/sync-upstream', validate(syncSchema), async (req: AuthRequest, res: Response) => {
   const sourceId = req.params.id;
   const sourceCol = await CollectionRepository.findById(sourceId);
   if (!sourceCol) return res.status(404).json({ message: 'Collection not found' });

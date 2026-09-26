@@ -1,9 +1,11 @@
 import request from 'supertest';
-import { app } from '../index';
-import { SqlUser, SqlWorkspace, SqlCollection } from '../db/sql-models';
-import { getSequelize } from '../db/sequelize';
+import { app, _setDbStatusForTest } from '../index';
+import { SqlUser, SqlWorkspace, SqlCollection, initSqlModels } from '../db/sql-models';
+import { getSequelize, initSequelize } from '../db/sequelize';
 import { resolveJwtSecret } from '../utils/jwtSecret';
 import { sign } from 'jsonwebtoken';
+
+import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 
 describe('FEAT-5.1 Collection-level RBAC', () => {
   let editorUser: any;
@@ -13,7 +15,11 @@ describe('FEAT-5.1 Collection-level RBAC', () => {
   let token: string;
 
   beforeAll(async () => {
+    _setDbStatusForTest('ok');
+    initSequelize({ type: 'sqlite', storagePath: ':memory:' });
+    initSqlModels();
     await getSequelize().sync();
+    await SystemConfigRepository.ensure();
 
     editorUser = await SqlUser.create({
       name: 'Editor User',
@@ -49,15 +55,15 @@ describe('FEAT-5.1 Collection-level RBAC', () => {
   });
 
   afterAll(async () => {
-    await SqlCollection.destroy({ where: { workspaceId: workspace.id } });
-    await SqlWorkspace.destroy({ where: { id: workspace.id } });
-    await SqlUser.destroy({ where: { id: editorUser.id } });
+    if (workspace?.id) await SqlCollection.destroy({ where: { workspaceId: workspace.id } });
+    if (workspace?.id) await SqlWorkspace.destroy({ where: { id: workspace.id } });
+    if (editorUser?.id) await SqlUser.destroy({ where: { id: editorUser.id } });
   });
 
   it('gets 403 on narrowed collection when trying to edit', async () => {
     const res = await request(app)
       .put(`/api/collections/${collNarrowed.id}`)
-      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', `token=${token}`)
       .send({ name: 'Renamed' });
     
     expect(res.status).toBe(403);
@@ -67,7 +73,7 @@ describe('FEAT-5.1 Collection-level RBAC', () => {
   it('gets 200 on normal collection when trying to edit', async () => {
     const res = await request(app)
       .put(`/api/collections/${collNormal.id}`)
-      .set('Authorization', `Bearer ${token}`)
+      .set('Cookie', `token=${token}`)
       .send({ name: 'Renamed Normal' });
     
     expect(res.status).toBe(200);

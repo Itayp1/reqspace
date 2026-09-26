@@ -1,5 +1,5 @@
 export {};
-const BASE_URL = 'http://localhost:3005';
+const BASE_URL = 'http://127.0.0.1:3005';
 
 describe('SEC-10: Rate limiting', () => {
   it('should rate limit POST requests after 300 attempts', async () => {

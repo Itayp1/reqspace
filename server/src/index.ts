@@ -1,4 +1,4 @@
-﻿import 'express-async-errors';
+import 'express-async-errors';
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
@@ -334,3 +334,7 @@ if (require.main === module) {
 
 export { app };
 
+// Test helper to bypass the 503 DB check in tests that don't run bootstrap()
+export const _setDbStatusForTest = (status: 'starting' | 'ok' | 'error') => {
+  dbStatus = status;
+};

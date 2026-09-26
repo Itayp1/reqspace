@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 
-const BASE_URL = 'http://localhost:3005';
+const BASE_URL = 'http://127.0.0.1:3005';
 
 describe('SEC-1: Self-registered users are not superadmins', () => {
   let cookie: string;
@@ -16,7 +16,7 @@ describe('SEC-1: Self-registered users are not superadmins', () => {
       await new Promise(r => setTimeout(r, 1000));
     }
     if (!healthy) throw new Error('Server not healthy');
-  });
+  }, 35000);
 
   it('should register a user with isSuperAdmin=false and verify they cannot access admin routes', async () => {
     const res = await fetch(`${BASE_URL}/api/auth/register`, {
