@@ -30,9 +30,10 @@ test.describe('WebSocket Sync', () => {
     await expect(pageA).toHaveURL(/.*\/$/);
 
     // 3. User A creates Workspace
-    pageA.once('dialog', async dialog => await dialog.accept(`WS_${timestamp}`));
     await pageA.getByTestId('new-workspace-btn').click();
-    
+    await pageA.getByTestId('prompt-input').fill(`WS_${timestamp}`);
+    await pageA.getByTestId('prompt-submit').click();
+
     await expect(pageA.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
 
     // 4. User A invites User B
@@ -59,8 +60,9 @@ test.describe('WebSocket Sync', () => {
     
     const createColBtn = pageA.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
-      pageA.once('dialog', async dialog => await dialog.accept('Shared Collection'));
       await createColBtn.click();
+      await pageA.getByTestId('prompt-input').fill('Shared Collection');
+      await pageA.getByTestId('prompt-submit').click();
       await expect(pageA.getByTestId('node-Shared Collection')).toBeVisible();
     }
     

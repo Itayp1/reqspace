@@ -13,11 +13,9 @@ test.describe('Request Operations', () => {
     await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
     
-    page.on('dialog', async (dialog) => {
-      await dialog.accept('Request Workspace');
-    });
-    
     await page.getByTestId('new-workspace-btn').click();
+    await page.getByTestId('prompt-input').fill('Request Workspace');
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('workspace-select')).toContainText('Request Workspace');
   });
 
@@ -52,9 +50,8 @@ test.describe('Request Operations', () => {
     const createColBtn = page.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
       await createColBtn.click();
-      page.on('dialog', async (dialog) => {
-        await dialog.accept('My Collection');
-      });
+      await page.getByTestId('prompt-input').fill('My Collection');
+      await page.getByTestId('prompt-submit').click();
       // Wait for it to appear
       await expect(page.getByTestId('node-My Collection')).toBeVisible();
     }

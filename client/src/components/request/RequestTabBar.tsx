@@ -77,12 +77,16 @@ export const RequestTabBar: React.FC = () => {
     setDragOverTabId(null);
   };
 
-  const handleClose = (e: React.MouseEvent, tab: any) => {
+  const handleClose = async (e: React.MouseEvent, tab: any) => {
     e.stopPropagation();
     if (tab.isDirty) {
-      if (!window.confirm('You have unsaved changes. Are you sure you want to close this tab without saving?')) {
-        return;
-      }
+      const { customConfirm } = await import('../../utils/dialog');
+      const ok = await customConfirm(
+        'Unsaved changes',
+        'You have unsaved changes. Are you sure you want to close this tab without saving?',
+        'Close without saving'
+      );
+      if (!ok) return;
     }
     closeTab(tab.tabId!);
   };

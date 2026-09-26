@@ -15,8 +15,9 @@ test.describe('History Logging', () => {
 
     // Create Workspace
     const wsName = `Hist WS ${timestamp}`;
-    page.on('dialog', dialog => dialog.accept(wsName));
     await page.click('[data-testid="new-workspace-btn"]');
+    await page.getByTestId('prompt-input').fill(wsName);
+    await page.getByTestId('prompt-submit').click();
 
     // Create a request and send
     await page.getByTestId('request-url-input').fill('https://httpbin.org/get');

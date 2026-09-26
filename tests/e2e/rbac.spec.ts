@@ -30,8 +30,9 @@ test.describe('RBAC Roles', () => {
 
     // User A Creates Workspace
     const wsName = `RBAC WS ${timestamp}`;
-    pageA.on('dialog', dialog => dialog.accept(wsName));
     await pageA.click('[data-testid="new-workspace-btn"]');
+    await pageA.getByTestId('prompt-input').fill(wsName);
+    await pageA.getByTestId('prompt-submit').click();
     await expect(pageA.locator('[data-testid="workspace-select"]')).toContainText(wsName);
 
     // User A creates a request to ensure there is one in the workspace

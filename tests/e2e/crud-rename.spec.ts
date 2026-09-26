@@ -21,21 +21,13 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
     
-    // Initial workspace creation prompt on first login
-    page.on('dialog', async (dialog) => {
-      // Sometimes it prompts for the first workspace
-      if (dialog.message().includes('Workspace Name')) {
-        await dialog.accept('Initial WS');
-      }
-    });
-
     // 2. Create Workspace and Rename it
     const wsName = `WS_${timestamp}`;
     const renamedWs = `${wsName}_Renamed`;
-    
+
     await page.getByTestId('new-workspace-btn').click();
-    await page.getByTestId('workspace-name-input').fill(wsName);
-    await page.getByTestId('workspace-submit-btn').click();
+    await page.getByTestId('prompt-input').fill(wsName);
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('workspace-select')).toContainText(wsName);
     
     // Select it
@@ -51,9 +43,9 @@ test.describe('Full CRUD / Rename Matrix', () => {
     // 3. Create Environment, Variable, and Rename Variable
     await page.getByTestId('tab-environments').click();
     
-    // The prompt is handled by Playwright dialog handler, but we need to reset it for the Env prompt
-    page.once('dialog', dialog => dialog.accept('Test Env'));
     await page.getByTestId('new-env-btn').click();
+    await page.getByTestId('prompt-input').fill('Test Env');
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('env-node-Test Env')).toBeVisible();
 
     // Add Variable
@@ -69,14 +61,15 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await page.getByTestId('tab-collections').click();
 
     // Create Collection
-    page.once('dialog', dialog => dialog.accept('Test Collection'));
     const createColBtn = page.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
       await createColBtn.click();
     } else {
       await page.getByTestId('new-collection-btn').click();
     }
-    
+    await page.getByTestId('prompt-input').fill('Test Collection');
+    await page.getByTestId('prompt-submit').click();
+
     const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection') });
     await expect(colNode).toBeVisible();
 
@@ -94,8 +87,9 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await renamedColNode.hover();
     await renamedColNode.getByTestId('action-menu-btn').click();
     await page.getByTestId('action-menu-new-request').click();
-    
-    page.once('dialog', dialog => dialog.accept('Initial Request'));
+
+    await page.getByTestId('prompt-input').fill('Initial Request');
+    await page.getByTestId('prompt-submit').click();
     const reqNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-New Request') });
     // Note: The UI creates it as 'New Request' and double clicking renames it, or we use action menu.
     // Wait for the new request to appear

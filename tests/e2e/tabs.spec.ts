@@ -23,13 +23,11 @@ test.describe('Tab Operations', () => {
     const createColBtn = page.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
       await createColBtn.click();
-      
-      // Dialog will appear
-      const dialogHandler = async (dialog: any) => {
-        await dialog.accept('Tab Collection');
-      };
-      page.once('dialog', dialogHandler);
-      
+
+      // Modal will appear
+      await page.getByTestId('prompt-input').fill('Tab Collection');
+      await page.getByTestId('prompt-submit').click();
+
       await expect(page.getByTestId('node-Tab Collection')).toBeVisible();
     }
     await page.getByTestId('save-req-submit-btn').click();

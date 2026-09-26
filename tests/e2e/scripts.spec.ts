@@ -16,13 +16,10 @@ test.describe('Script Execution', () => {
     // 2. Create and select Environment
     await page.getByTestId('tab-environments').click();
     
-    // Handle the prompt for environment name
-    page.once('dialog', async (dialog) => {
-      await dialog.accept('Test Env');
-    });
-    
     await page.getByTestId('new-env-btn').click();
-    
+    await page.getByTestId('prompt-input').fill('Test Env');
+    await page.getByTestId('prompt-submit').click();
+
     // Wait for the environment to be created and appear in sidebar
     await expect(page.getByTestId('env-node-Test Env')).toBeVisible();
     

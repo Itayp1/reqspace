@@ -4,6 +4,7 @@ import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
 import { Lock, Unlock, Eye, EyeOff, Trash2, Download } from 'lucide-react';
 import api from '../../api/axios';
+import { useToastStore } from '../../store/toastStore';
 import type { EnvironmentVariable } from '../../store/environmentStore';
 
 export function EnvironmentTabEditor() {
@@ -73,7 +74,7 @@ export function EnvironmentTabEditor() {
       }
     } catch (e) {
       console.error(e);
-      alert('Failed to save environment');
+      useToastStore.getState().addToast('error', 'Failed to save environment');
     }
   };
 
@@ -95,11 +96,11 @@ export function EnvironmentTabEditor() {
         name: `${env.name} (Copy)`,
         variables: localVars
       });
-      alert('Environment copied to workspace successfully!');
+      useToastStore.getState().addToast('success', 'Environment copied to workspace successfully!');
       setTargetWorkspaceId('');
     } catch (e) {
       console.error(e);
-      alert('Failed to copy environment');
+      useToastStore.getState().addToast('error', 'Failed to copy environment');
     }
   };
 

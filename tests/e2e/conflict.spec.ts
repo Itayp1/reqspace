@@ -30,8 +30,9 @@ test.describe('Conflict Resolution', () => {
     await expect(pageA).toHaveURL(/.*\/$/);
 
     // 3. User A creates Workspace
-    pageA.once('dialog', async dialog => await dialog.accept(`WS_${timestamp}`));
     await pageA.getByTestId('new-workspace-btn').click();
+    await pageA.getByTestId('prompt-input').fill(`WS_${timestamp}`);
+    await pageA.getByTestId('prompt-submit').click();
     await expect(pageA.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
 
     // 4. User A invites User B
@@ -56,8 +57,9 @@ test.describe('Conflict Resolution', () => {
     
     const createColBtn = pageA.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
-      pageA.once('dialog', async dialog => await dialog.accept('Conflict Collection'));
       await createColBtn.click();
+      await pageA.getByTestId('prompt-input').fill('Conflict Collection');
+      await pageA.getByTestId('prompt-submit').click();
       await expect(pageA.getByTestId('node-Conflict Collection')).toBeVisible();
     }
     
@@ -77,22 +79,14 @@ test.describe('Conflict Resolution', () => {
     
     // 10. User B edits their version, tries to save
     await pageB.getByTestId('request-url-input').fill('https://httpbin.org/put');
-    
-    let dialogAppeared = false;
-    let dialogMessage = '';
-    
-    pageB.once('dialog', async dialog => {
-      dialogAppeared = true;
-      dialogMessage = dialog.message();
-      // Click cancel to save as new
-      await dialog.dismiss();
-    });
 
     await pageB.getByTestId('request-save-btn').click();
-    
-    // Expect the dialog to have appeared
-    expect(dialogAppeared).toBe(true);
-    expect(dialogMessage).toContain('newer version of this request exists');
+
+    // Expect the conflict confirmation modal to have appeared with the overwrite warning
+    await expect(pageB.getByText('newer version of this request exists')).toBeVisible();
+
+    // Click cancel to save as new
+    await pageB.getByTestId('confirm-cancel-btn').click();
 
     // Clean up
     await contextA.close();

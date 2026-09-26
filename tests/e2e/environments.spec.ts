@@ -13,11 +13,9 @@ test.describe('Environments Operations', () => {
     await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
     
-    page.on('dialog', async (dialog) => {
-      await dialog.accept('Env Workspace');
-    });
-    
     await page.getByTestId('new-workspace-btn').click();
+    await page.getByTestId('prompt-input').fill('Env Workspace');
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('workspace-select')).toContainText('Env Workspace');
   });
 
@@ -28,10 +26,9 @@ test.describe('Environments Operations', () => {
     await page.getByTestId('tab-environments').click();
 
     // Click New Environment
-    page.on('dialog', async (dialog) => {
-      await dialog.accept('Staging');
-    });
     await page.getByTestId('new-env-btn').click();
+    await page.getByTestId('prompt-input').fill('Staging');
+    await page.getByTestId('prompt-submit').click();
 
     // Verify it appears in the sidebar and is selected to edit
     // When environment is created, it should open in an editor tab.

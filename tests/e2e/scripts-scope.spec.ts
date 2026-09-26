@@ -15,13 +15,15 @@ test.describe('Scripts Scope', () => {
     await expect(page).toHaveURL(/.*\/$/);
 
     // Create Workspace
-    page.once('dialog', async dialog => await dialog.accept(`WS_${timestamp}`));
     await page.getByTestId('new-workspace-btn').click();
+    await page.getByTestId('prompt-input').fill(`WS_${timestamp}`);
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
 
     // Create Collection
-    page.once('dialog', async dialog => await dialog.accept('Scope Collection'));
     await page.getByTestId('new-collection-empty-btn').click();
+    await page.getByTestId('prompt-input').fill('Scope Collection');
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('node-Scope Collection')).toBeVisible();
 
     // Add Pre-request script to Collection
@@ -39,8 +41,9 @@ test.describe('Scripts Scope', () => {
     // Create Folder
     await page.getByTestId('node-Scope Collection').hover();
     await page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Scope Collection') }).getByTestId('action-menu-btn').click();
-    page.once('dialog', async dialog => await dialog.accept('Scope Folder'));
     await page.getByTestId('action-menu-new-folder').click();
+    await page.getByTestId('prompt-input').fill('Scope Folder');
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('node-Scope Folder')).toBeVisible();
 
     // Add Pre-request script to Folder
@@ -58,8 +61,9 @@ test.describe('Scripts Scope', () => {
     // Create Request inside Folder
     await page.getByTestId('node-Scope Folder').hover();
     await page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Scope Folder') }).getByTestId('action-menu-btn').click();
-    page.once('dialog', async dialog => await dialog.accept('Scope Request'));
     await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Scope Request');
+    await page.getByTestId('prompt-submit').click();
 
     // Open Request
     await page.getByTestId('node-Scope Request').click();

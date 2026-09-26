@@ -17,12 +17,10 @@ test.describe('Collection Operations', () => {
     await expect(page).toHaveURL(/.*\/$/);
     
     // Create Workspace
-    page.on('dialog', async (dialog) => {
-      await dialog.accept('Test Workspace');
-    });
-    
     await page.getByTestId('new-workspace-btn').click();
-    
+    await page.getByTestId('prompt-input').fill('Test Workspace');
+    await page.getByTestId('prompt-submit').click();
+
     // Check if workspace is selected (we can assert that it appears)
     await expect(page.getByTestId('workspace-select')).toContainText('Test Workspace');
   });

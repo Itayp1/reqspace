@@ -18,9 +18,10 @@ test.describe('Workspace Management', () => {
     const newWorkspaceName = `Test Workspace ${timestamp}`;
     const editedWorkspaceName = `${newWorkspaceName} Edited`;
 
-    page.on('dialog', dialog => dialog.accept(newWorkspaceName));
     await page.click('[data-testid="new-workspace-btn"]');
-    
+    await page.getByTestId('prompt-input').fill(newWorkspaceName);
+    await page.getByTestId('prompt-submit').click();
+
     await expect(page.locator('[data-testid="workspace-select"]')).toContainText(newWorkspaceName);
 
     // 3. Switch to it

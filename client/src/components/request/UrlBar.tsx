@@ -377,7 +377,12 @@ export function UrlBar() {
         if (remoteReq.updatedAt && activeRequest.updatedAt && new Date(remoteReq.updatedAt).getTime() > new Date(activeRequest.updatedAt).getTime()) {
           if (isAutoSave) return; // Silent abort for auto-save conflict
           
-          const overwrite = window.confirm('A newer version of this request exists on the server. Do you want to overwrite it? Click Cancel to save as new.');
+          const { customConfirm } = await import('../../utils/dialog');
+          const overwrite = await customConfirm(
+            'Conflicting changes',
+            'A newer version of this request exists on the server. Do you want to overwrite it? Click Cancel to save as new.',
+            'Overwrite'
+          );
           if (!overwrite) {
             updateActiveRequest({ isConflicted: true, isDirty: true }); // revert isDirty so user can decide
             return;
