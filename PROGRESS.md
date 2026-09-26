@@ -87,3 +87,13 @@ One line per completed task: date · id · what was done · files touched.
   `conflict.spec.ts` before this task, just never actually present). ·
   `client/src/components/common/ContextMenu.tsx`, `client/src/components/workspace/WorkspaceSettingsModal.tsx`,
   `tests/e2e/permission-toast.spec.ts`, `README.md`, `TODO.md`
+* 2026-09-26 · PERF-6 · Added `RequestRepository.findSummaryByCollection`/`findSummaryByFolder` (projects
+  only id/collectionId/folderId/name/method/order) and wired them into `GET
+  /collections/:collectionId/requests` — the route the client actually calls from
+  `fetchCollectionsData`, not just the already-dead `/workspaces/:id/tree` endpoint from Task 0. Added
+  `compression` and wired it into `index.ts`. Test fixture caveat worth keeping in mind: a naive fixture
+  where every row shares one repeated script string lets gzip alone crush even the *full*, unprojected
+  record set under budget — the real 500-row test asserts the full records exceed 50 KB uncompressed
+  first, so the projection is proven to matter independent of what compression does to it. ·
+  `server/src/repositories/RequestRepository.ts`, `server/src/routes/collections.ts`,
+  `server/src/index.ts`, `server/package.json`, `server/src/tests/perf6.test.ts`, `README.md`, `TODO.md`

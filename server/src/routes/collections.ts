@@ -64,7 +64,7 @@ router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), asyn
   const ids = collections.map(c => c._id);
   const [foldersByCollection, requestsByCollection] = await Promise.all([
     Promise.all(ids.map(id => FolderRepository.findByCollection(id))),
-    Promise.all(ids.map(id => RequestRepository.findByCollection(id))),
+    Promise.all(ids.map(id => RequestRepository.findSummaryByCollection(id))),
   ]);
   return res.json({ collections, folders: foldersByCollection.flat(), requests: requestsByCollection.flat() });
 });
@@ -170,10 +170,10 @@ router.get('/collections/:collectionId/requests',
     if (req.query.folderId !== undefined) {
       const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);
       requests = folderId === null
-        ? (await RequestRepository.findByCollection(req.params.collectionId)).filter(r => r.folderId === null)
-        : await RequestRepository.findByFolder(folderId);
+        ? await RequestRepository.findSummaryByCollection(req.params.collectionId, { rootOnly: true })
+        : await RequestRepository.findSummaryByFolder(folderId);
     } else {
-      requests = await RequestRepository.findByCollection(req.params.collectionId);
+      requests = await RequestRepository.findSummaryByCollection(req.params.collectionId);
     }
     return res.json(requests);
   }

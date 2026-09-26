@@ -8,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
 import helmet from 'helmet';
+import compression from 'compression';
 import path from 'path';
 // import mongoose from 'mongoose';
 import dotenv from 'dotenv';
@@ -159,6 +160,10 @@ app.use(helmet({
   },
   hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
 }));
+// PERF-6: gzip API responses. The tree/list endpoints are the ones this
+// actually matters for — JSON compresses well, and text-heavy request
+// bodies/scripts are exactly what make those payloads large.
+app.use(compression());
 // Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
 // MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
 const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';

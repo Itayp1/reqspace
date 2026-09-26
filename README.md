@@ -345,7 +345,7 @@ is the index; `TODO.md` is the detail.
 | `[~]` | PERF-3 | Paginate everything that returns a list | L | Cursor helpers exist (`utils/pagination.ts`); confirm every list endpoint uses them and caps `limit` |
 | `[~]` | PERF-4 | Kill the N+1 queries | L | Reorder rewritten to `bulkCreate`; the other six sites need checking |
 | `[~]` | PERF-5 | Cache RBAC and system config | M | |
-| `[ ]` | PERF-6 | Trim what the wire carries | M | |
+| `[x]` | PERF-6 | Trim what the wire carries | M | Added `findSummaryByCollection`/`findSummaryByFolder`, wired into the route the client actually calls (not just the still-dead `/tree` endpoint), plus gzip via `compression` |
 | `[ ]` | PERF-7 | Client bundle weight | M | Monaco is already bundled locally (found while verifying SEC-10) — set the budget from what the build emits today, not from an assumption it still needs adding |
 
 ### 🔌 Realtime — SOCK

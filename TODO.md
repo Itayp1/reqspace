@@ -689,14 +689,39 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-6 — Trim what the wire carries
 
-* **Status:** verified real · **Size:** M
-* **Verified state:** `RequestRepository.findByCollection` (`server/src/repositories/RequestRepository.ts:51-53`)
-  has **no `attributes` projection**, so every sidebar row carries `params`, `headers`, `auth`, `body`,
-  both scripts and `comments`. `GET /api/auth/me` returns the full `clientCertificates` array (see SEC-8).
-  `compression` is neither in `server/package.json` nor used in `index.ts`.
-* **Change:** a `summaryOnly` projection for tree/list reads (`id`, `collectionId`, `folderId`, `name`,
-  `method`, `order`) — PERF-1 part 1 already needs it — and gzip via `compression` on the API.
-* **Done when:** the tree payload for a 500-request collection is under 50 KB, asserted in a test.
+* **Status:** done · **Size:** M
+* **Verified state (accurate as found):** `RequestRepository.findByCollection` had no `attributes`
+  projection, so every sidebar row carried `params`, `headers`, `auth`, `body`, both scripts and `comments`.
+  `compression` was in neither `server/package.json` nor `index.ts`. This section's claims were correct —
+  unlike most of what surrounded it in this file.
+* **Change:**
+  1. `RequestRepository.findSummaryByCollection` / `findSummaryByFolder`: `attributes: ['id',
+     'collectionId', 'folderId', 'name', 'method', 'order']` — no `id` duplicate of `_id` (the tree/list
+     views only ever key on `_id`; verified nothing reads the plain `.id` field client-side).
+  2. `GET /collections/:collectionId/requests` (`routes/collections.ts:166-180`) — the route the client
+     actually calls (`fetchCollectionsData`, `client/src/store/collectionStore.ts:117`) — now uses the
+     summary methods. Opening a request already does its own fresh `GET /requests/:id` for the full record
+     (`CollectionExplorer.tsx:191`), so the list no longer needing to carry everything doesn't cost a round
+     trip that wasn't already happening.
+  3. `compression` added as a dependency and wired in `index.ts` right after `helmet`.
+  4. Left the `/workspaces/:workspaceId/tree` endpoint (Task 0) on the same summary method for consistency,
+     though **it is currently dead code** — `grep -rn "/tree" client/src` returns nothing; nothing calls it.
+* **Traps:**
+  1. The raw (uncompressed) JSON for 500 realistic requests is genuinely large even summarized (~80 KB) —
+     three UUID-shaped fields (`_id`, `collectionId`, and `folderId` when set) dominate the size at that row
+     count, and none of the three can be dropped (the client re-groups a flattened cross-collection array
+     by `collectionId`, and `_id` is load-bearing everywhere). **The 50 KB budget is a wire budget, met via
+     gzip, not a raw-JSON budget** — measure the gzipped size, matching what `compression()` actually puts
+     on the wire, not `JSON.stringify(...).length`.
+  2. Don't let gzip's own effectiveness fool you into thinking the projection doesn't matter: a fixture
+     whose 500 requests all share one repeated script string gzips the *full*, unprojected record set down
+     to ~31 KB on its own — gzip crushes repeated substrings regardless of which fields carry them.
+     Real, independent per-request bodies/scripts don't have that redundancy, so don't use "gzip already
+     gets the full records under budget" as a reason to skip the projection — a fixture built to look
+     realistic can still accidentally prove the wrong thing if every row is a copy of the same string.
+* **Done when:** `server/src/tests/perf6.test.ts` — a 500-request collection's summary list, gzipped, is
+  under 50 KB, and the same fixture's full records exceed 50 KB *uncompressed* (establishing the fixture
+  itself is heavy, independent of what compression does to it).
 
 ---
 

@@ -2,6 +2,18 @@ import { SqlRequest } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 
+// PERF-6: the tree/list views only ever render name, method and position —
+// carrying params/headers/auth/body/scripts/comments for every row in a
+// 500-request collection is most of what makes that payload heavy.
+export interface IRequestSummary {
+  _id: string;
+  collectionId: string;
+  folderId: string | null;
+  name: string;
+  method: string;
+  order: number;
+}
+
 export interface IRequestRecord {
   _id: string; id: string;
   collectionId: string;
@@ -21,6 +33,17 @@ export interface IRequestRecord {
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+function sqlToSummary(r: SqlRequest): IRequestSummary {
+  return {
+    _id: r.id,
+    collectionId: r.collectionId,
+    folderId: r.folderId,
+    name: r.name,
+    method: r.method,
+    order: r.order,
+  };
 }
 
 function sqlToRecord(r: SqlRequest): IRequestRecord {
@@ -51,6 +74,26 @@ export const RequestRepository = {
 
   async findByCollection(collectionId: string): Promise<IRequestRecord[]> {
     return (await SqlRequest.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  async findSummaryByCollection(collectionId: string, options?: { rootOnly?: boolean }): Promise<IRequestSummary[]> {
+    const where: Record<string, any> = { collectionId };
+    if (options?.rootOnly) where.folderId = null;
+    const rows = await SqlRequest.findAll({
+      where,
+      order: [['order', 'ASC']],
+      attributes: ['id', 'collectionId', 'folderId', 'name', 'method', 'order'],
+    });
+    return rows.map(sqlToSummary);
+  },
+
+  async findSummaryByFolder(folderId: string): Promise<IRequestSummary[]> {
+    const rows = await SqlRequest.findAll({
+      where: { folderId },
+      order: [['order', 'ASC']],
+      attributes: ['id', 'collectionId', 'folderId', 'name', 'method', 'order'],
+    });
+    return rows.map(sqlToSummary);
   },
 
   async findByFolder(folderId: string): Promise<IRequestRecord[]> {
