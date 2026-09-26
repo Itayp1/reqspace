@@ -28,6 +28,10 @@ interface EnvironmentStore {
   setLocalVariables: (vars: EnvironmentVariable[]) => void;
   fetchEnvironments: (workspaceId: string) => Promise<void>;
   fetchLocalVariables: (workspaceId: string) => Promise<void>;
+
+  // SOCK-1: apply a socket event directly instead of refetching the list.
+  applyEnvironmentUpserted: (env: Environment) => void;
+  applyEnvironmentDeleted: (id: string) => void;
 }
 
 export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
@@ -39,6 +43,19 @@ export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
   setActiveEnvironmentId: (activeEnvironmentId) => set({ activeEnvironmentId }),
   setGlobalEnvironment: (globalEnvironment) => set({ globalEnvironment }),
   setLocalVariables: (localVariables) => set({ localVariables }),
+  applyEnvironmentUpserted: (env) => set((state) => {
+    if (env.isGlobal) return { globalEnvironment: env };
+    const exists = state.environments.some(e => e._id === env._id);
+    return {
+      environments: exists
+        ? state.environments.map(e => e._id === env._id ? env : e)
+        : [...state.environments, env],
+    };
+  }),
+  applyEnvironmentDeleted: (id) => set((state) => ({
+    environments: state.environments.filter(e => e._id !== id),
+    globalEnvironment: state.globalEnvironment?._id === id ? null : state.globalEnvironment,
+  })),
   fetchEnvironments: async (workspaceId: string) => {
     try {
       const api = (await import('../api/axios')).default;

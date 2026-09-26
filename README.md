@@ -334,6 +334,8 @@ is the index; `TODO.md` is the detail.
 | `[ ]` | FIX-10 | Renaming a workspace right after creating it can silently revert the name | S | `WorkspaceSettingsModal`'s own fetch-after-open stomps a fast edit |
 | `[ ]` | FIX-11 | Saving an edited request can 400 on its own save payload | M | `UrlBar.tsx` sends client-only fields (`_id`, `tabId`, …) straight to the `.strict()` schema |
 | `[ ]` | FIX-12 | Creating a request inside a folder doesn't refresh the sidebar tree | S | Create succeeds server-side (`201`); the client just never shows it |
+| `[ ]` | FIX-13 | Deleting a folder only cascades one level server-side | S | `FolderRepository`/`RequestRepository` delete-by-parent only remove direct children, not recursive descendants — a nested sub-folder's own requests survive orphaned. Found while writing SOCK-1's `applyFolderDeleted` reducer, which deliberately mirrors this same one-level behavior to stay consistent with the server until this is fixed |
+| `[ ]` | FIX-14 | A collection/request that arrives via socket while collapsed stays invisible | S | `openCollectionIds` (`collectionStore.ts`) is a client-only "have I clicked this open" set; a brand-new collection created by another user starts absent from it (collapsed), so its children never render until someone manually expands it — independent of SOCK-1's fetch-vs-event strategy, but it means `tests/e2e/socket-sync.spec.ts`'s "User B opens the request" step can never pass as written even once FIX-8 is fixed. Found while regression-checking SOCK-1 |
 
 ### ⚡ Performance — PERF
 
@@ -353,7 +355,7 @@ is the index; `TODO.md` is the detail.
 | Done | ID | Task | Size | Notes |
 |---|---|---|---|---|
 | `[x]` | SOCK-0 | Environment events never reached the client | XS | |
-| `[ ]` | SOCK-1 | Apply deltas instead of refetching the tree | L | Preserve the last-write-wins conflict branch in `SocketSync.tsx` |
+| `[x]` | SOCK-1 | Apply deltas instead of refetching the tree | L | 6 store reducers + `SocketSync.tsx` rewired to call them; last-write-wins conflict branch preserved verbatim. Regression-checked against `socket-sync.spec.ts`/`socket-advanced.spec.ts` (both pre-blocked by FIX-8/FIX-14, unrelated to this change — verified via a scratch copy) |
 | `[ ]` | SOCK-2 | Cover every emit site with a two-client test | M | Land the CI guard *after* the tests, or CI goes red immediately |
 | `[ ]` | SOCK-3 | Redis adapter and horizontal scaling | M | `replicas: 2` today with no shared adapter — roughly half of all events are lost |
 | `[ ]` | SOCK-4 | Connection hygiene at 10k sockets | M | |

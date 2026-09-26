@@ -97,3 +97,27 @@ One line per completed task: date · id · what was done · files touched.
   first, so the projection is proven to matter independent of what compression does to it. ·
   `server/src/repositories/RequestRepository.ts`, `server/src/routes/collections.ts`,
   `server/src/index.ts`, `server/package.json`, `server/src/tests/perf6.test.ts`, `README.md`, `TODO.md`
+* 2026-09-26 · SOCK-1 · Enumerated all 14 emit sites (11 in `routes/collections.ts`, 3 in
+  `routes/environments.ts`) and added 8 store reducers (`applyCollectionUpserted/Deleted`,
+  `applyFolderUpserted/Deleted`, `applyRequestUpserted/Deleted` in `collectionStore.ts`;
+  `applyEnvironmentUpserted/Deleted` in `environmentStore.ts`). Rewired `SocketSync.tsx` to call them
+  directly instead of `handleUpdate`'s full `fetchCollectionsData` refetch, **preserving the
+  `request:updated`/`environment:updated` last-write-wins conflict branches verbatim** (only their sidebar
+  refresh line changed). `workspace:reordered` intentionally kept on the refetch path — its payload is
+  `undefined`. Converting to reducers surfaced a real duplicate-render bug: every optimistic create/duplicate
+  path in `collectionStore.ts` did a blind `set()` append, which raced the new socket-echo reducer for the
+  same create and rendered the item twice; switched all of them (collection/folder/request create +
+  duplicate, 8 call sites) to call the matching `applyXUpserted` reducer so both paths are idempotent
+  regardless of ordering. New test `tests/e2e/sock1-no-refetch.spec.ts` asserts zero matching HTTP requests
+  on the observer after a rename from another user — stable 3/3. Regression-checked against the two
+  pre-existing two-client tests (`socket-sync.spec.ts`, `socket-advanced.spec.ts`): both fail before ever
+  reaching this code path, blocked by the already-filed FIX-8 (SQLite `LIKE` on an email containing `_`) —
+  confirmed via a scratch copy (not committed) using name-based search to work around FIX-8, which surfaced
+  a second, independent pre-existing bug (now FIX-14: a brand-new collection/request arriving via socket
+  stays collapsed and invisible until manually expanded, regardless of refetch-vs-event strategy — confirmed
+  by checking `fetchCollectionsData` never touched `openCollectionIds` either). Also documented, not fixed:
+  FIX-13 (folder delete only cascades one level server-side, found while designing `applyFolderDeleted` to
+  match that same behavior). Full server+client build and a fresh single jest run are clean (only the known
+  pre-existing FEAT-10 failures remain). · `client/src/store/collectionStore.ts`,
+  `client/src/store/environmentStore.ts`, `client/src/components/common/SocketSync.tsx`,
+  `tests/e2e/sock1-no-refetch.spec.ts`, `README.md`, `TODO.md`

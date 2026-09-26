@@ -24,30 +24,28 @@ export function SocketSync() {
       useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
     });
 
+    // SOCK-1: apply each event to the store directly — no HTTP. `reorder`
+    // carries no payload (routes/collections.ts emits `undefined`), so
+    // there is nothing to apply; it stays an explicit resync refetch.
     const handleUpdate = () => {
-      // For simplicity, just fetch the whole tree when anything changes structurally.
-      // This ensures we always have the correct folders, requests, orders, etc.
       useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
     };
 
-    socket.on('collection:created', handleUpdate);
-    socket.on('collection:updated', handleUpdate);
-    socket.on('collection:deleted', handleUpdate);
-    socket.on('folder:created', handleUpdate);
-    socket.on('folder:updated', handleUpdate);
-    socket.on('folder:deleted', handleUpdate);
-    socket.on('request:created', handleUpdate);
-    socket.on('request:deleted', handleUpdate);
+    socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
+    socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
+    socket.on('collection:deleted', (id) => useCollectionStore.getState().applyCollectionDeleted(id));
+    socket.on('folder:created', (data) => useCollectionStore.getState().applyFolderUpserted(data));
+    socket.on('folder:updated', (data) => useCollectionStore.getState().applyFolderUpserted(data));
+    socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));
+    socket.on('request:created', (data) => useCollectionStore.getState().applyRequestUpserted(data));
+    socket.on('request:deleted', (id) => useCollectionStore.getState().applyRequestDeleted(id));
     socket.on('workspace:reordered', handleUpdate);
 
-    const handleEnvUpdate = () => {
-      useEnvironmentStore.getState().fetchEnvironments(activeWorkspace._id);
-    };
-    socket.on('environment:created', handleEnvUpdate);
-    socket.on('environment:deleted', handleEnvUpdate);
+    socket.on('environment:created', (data) => useEnvironmentStore.getState().applyEnvironmentUpserted(data));
+    socket.on('environment:deleted', (id) => useEnvironmentStore.getState().applyEnvironmentDeleted(id));
 
     socket.on('environment:updated', (updatedEnv: any) => {
-      handleEnvUpdate();
+      useEnvironmentStore.getState().applyEnvironmentUpserted(updatedEnv);
       const requestStore = useRequestStore.getState();
       const tabExists = requestStore.tabs.some(t => t.tabId === updatedEnv._id);
       if (tabExists) {
@@ -69,7 +67,7 @@ export function SocketSync() {
     // For request update, we handle live conflict checking
     socket.on('request:updated', (updatedRequest: any) => {
       // First update the collection store to reflect the new name/method in the sidebar
-      handleUpdate();
+      useCollectionStore.getState().applyRequestUpserted(updatedRequest);
 
       // Check if it affects open tabs
       const requestStore = useRequestStore.getState();

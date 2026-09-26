@@ -537,6 +537,54 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
   triggers a refetch) the same way collection-scoped creation does.
 * **Done when:** a test creates a request inside a folder and asserts the node appears without a page reload.
 
+## FIX-13 — Deleting a folder only cascades one level server-side
+
+* **Status:** verified real (found while designing SOCK-1's `applyFolderDeleted` reducer) · **Size:** S
+* **Verified state:** the delete-folder route removes the folder's own direct child folders and direct
+  child requests, but does not recurse into a grandchild sub-folder's own children — a folder nested two or
+  more levels deep survives the delete of its grandparent, orphaned (no longer reachable from any tree
+  fetch by `collectionId`+`folderId`, but still present in the DB with its old `parentFolderId` pointing at
+  a folder that no longer exists).
+* **Why:** silent orphaned rows accumulate on every nested-folder delete; they never surface in the UI (the
+  tree can't reach them) but stay in the DB forever, and a future feature that lists "all folders in a
+  collection" regardless of nesting would show ghosts.
+* **Change:** make the delete cascade recursive (walk `parentFolderId` transitively, or add an
+  `ON DELETE CASCADE`/recursive CTE at the DB layer) so deleting a folder removes every descendant folder
+  and request, not just direct children.
+* **Traps:** SOCK-1's client-side `applyFolderDeleted` reducer (`collectionStore.ts`) currently mirrors this
+  same one-level-only behavior deliberately, to stay consistent with what the server actually does. Fixing
+  this server-side needs a matching client fix (make `applyFolderDeleted` filter transitively too), or the
+  two will disagree once this is fixed.
+* **Done when:** deleting a folder three levels deep removes every descendant folder/request, verified by
+  querying the DB directly (not just checking the UI tree, which already hides orphans either way).
+
+## FIX-14 — A collection/request that arrives via socket while collapsed stays invisible
+
+* **Status:** verified real (found while regression-checking SOCK-1 against `socket-sync.spec.ts`) · **Size:** S
+* **Verified state:** `openCollectionIds` (`client/src/store/collectionStore.ts`) is a client-only `Set`
+  that starts empty and is only ever added to by the local user clicking to expand a collection
+  (`toggleCollectionOpen`/`openCollection`). `CollectionExplorer.tsx:986` renders a collection's children
+  only when `openCollectionIds.has(collection._id)` (or a search filter is active). When another user
+  creates a brand-new collection, it arrives via `collection:created` and renders as a row, but its id was
+  never added to `openCollectionIds` for any *other* viewer — the row stays collapsed and nothing inside it
+  (folders, requests) is ever visible until someone manually clicks to expand it. This reproduces
+  identically whether the tree was populated by a full refetch or an incrementally-applied socket event —
+  confirmed by checking that `fetchCollectionsData` never touches `openCollectionIds` either, so SOCK-1 did
+  not introduce this.
+* **Why:** defeats the point of realtime sync for exactly the case it matters most — a collaborator
+  creating something new is the one piece of state guaranteed to be collapsed for everyone else, so nobody
+  sees it without knowing to go click around.
+* **Change:** when `applyCollectionUpserted` (or the folder equivalent) receives an entity whose id is not
+  yet in `openCollectionIds`/known to the viewer, add it to `openCollectionIds` so a genuinely new node
+  auto-expands. Needs care to only do this for *creates*, not every update (an update to a collection the
+  viewer deliberately collapsed should stay collapsed).
+* **Traps:** `tests/e2e/socket-sync.spec.ts`'s "User B opens the request" step asserts
+  `getByTestId('node-Shared Request')` is visible without ever expanding "Shared Collection" — that
+  assertion cannot pass until this is fixed (it is also independently blocked by FIX-8's email-search bug
+  earlier in the same test). Fixing FIX-8 alone is not enough to make that test pass.
+* **Done when:** a two-client test has user A create a brand-new collection (not previously known to B) and
+  asserts B sees its children (a request inside it) without manually clicking to expand.
+
 # PERF — Efficiency at 10k workspaces / 100k collections / 100k requests
 
 Every item below is a measured defect at the target scale. Each task must report a number: queries issued,
@@ -749,38 +797,6 @@ rows touched, bytes transferred, milliseconds.
 ---
 
 # SOCK — Realtime
-
-## SOCK-1 — Apply deltas instead of refetching the tree
-
-* **Status:** verified real · **Size:** L · Blocked behind nothing, but PERF-1 makes the cost smaller.
-* **Goal:** a socket event mutates the client's store in place. No HTTP.
-* **Verified state:** `client/src/components/common/SocketSync.tsx:30-33` — `handleUpdate` is
-  `fetchCollectionsData(...)`, wired to **nine** structural events at `:35-43`. It also refetches on
-  window focus (`:104-112`) and on every reconnect (`:25`). There is no delta application anywhere in the
-  client.
-* **Why:** `fetchCollectionsData` is the 1 + 2N request storm described in PERF-1. One rename by one
-  collaborator therefore costs every other viewer a full tree refetch — 401 HTTP requests in a
-  200-collection workspace. At the target scale this is the single most expensive thing the app does, and
-  it is triggered by other people.
-* **Change:** each event carries the changed entity; apply it to the store directly. Add reducers to
-  `collectionStore` (`applyCollectionUpserted`, `applyCollectionDeleted`, `applyFolder*`, `applyRequest*`)
-  and have `SocketSync` call those instead of `handleUpdate`. Keep the refetch as an explicit
-  "resync" path for reconnect only, where missed events make the local state genuinely unknown.
-* **Traps:**
-  1. The previous revision's event list was incomplete — it omitted `collection:created` and the three
-     environment events. Enumerate the emit sites from the source before wiring reducers: **11 in
-     `server/src/routes/collections.ts`** (folders at `:127,140,148`; requests at `:191,213,219`; reorder
-     at `:300`) and **3 in `routes/environments.ts`** (and fix SOCK-0 first, or three of your reducers will
-     look broken).
-  2. `request:updated` already has last-write-wins conflict handling at `SocketSync.tsx:71-97`. **Preserve
-     it.** Replacing that branch with a naive upsert reintroduces the conflict bug that
-     `tests/e2e/socket-sync.spec.ts` covers.
-  3. The socket URL is derived at `:16` as `api.defaults.baseURL?.replace('/api','')` — fragile, and worth
-     replacing with an explicit value while you are in the file.
-* **Done when:** a two-client test asserts the observer issues **zero** HTTP requests on receiving a
-  rename, and its sidebar still shows the new name.
-
----
 
 ## SOCK-2 — Cover every emit site with a two-client test
 

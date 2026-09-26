@@ -42,6 +42,15 @@ interface CollectionStore {
   setFolders: (folders: Folder[]) => void;
   setRequests: (requests: ApiRequest[]) => void;
 
+  // SOCK-1: apply a single changed entity from a socket event directly,
+  // instead of refetching the whole tree.
+  applyCollectionUpserted: (collection: Collection) => void;
+  applyCollectionDeleted: (id: string) => void;
+  applyFolderUpserted: (folder: Folder) => void;
+  applyFolderDeleted: (id: string) => void;
+  applyRequestUpserted: (request: ApiRequest) => void;
+  applyRequestDeleted: (id: string) => void;
+
   // Open/close tree nodes
   toggleCollectionOpen: (id: string) => void;
   openCollection: (id: string) => void;
@@ -80,6 +89,51 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   setCollections: (collections) => set({ collections }),
   setFolders: (folders) => set({ folders }),
   setRequests: (requests) => set({ requests }),
+
+  applyCollectionUpserted: (collection) => set((state) => {
+    const exists = state.collections.some(c => c._id === collection._id);
+    return {
+      collections: exists
+        ? state.collections.map(c => c._id === collection._id ? collection : c)
+        : [...state.collections, collection],
+    };
+  }),
+  applyCollectionDeleted: (id) => set((state) => ({
+    // routes/collections.ts's DELETE /collections/:id cascades fully
+    // (deleteByCollection on both folders and requests), so this matches
+    // the server's real end state exactly.
+    collections: state.collections.filter(c => c._id !== id),
+    folders: state.folders.filter(f => f.collectionId !== id),
+    requests: state.requests.filter(r => r.collectionId !== id),
+  })),
+  applyFolderUpserted: (folder) => set((state) => {
+    const exists = state.folders.some(f => f._id === folder._id);
+    return {
+      folders: exists
+        ? state.folders.map(f => f._id === folder._id ? folder : f)
+        : [...state.folders, folder],
+    };
+  }),
+  applyFolderDeleted: (id) => set((state) => ({
+    // routes/collections.ts's DELETE /folders/:id only cascades one level
+    // (deleteByParent + deleteByFolder — direct children only, not deeper
+    // descendants; a separate bug, FIX-13). Matching that exactly here
+    // keeps client state consistent with what a refetch of the same
+    // server state would actually show, not what it theoretically should.
+    folders: state.folders.filter(f => f._id !== id && f.parentFolderId !== id),
+    requests: state.requests.filter(r => r.folderId !== id),
+  })),
+  applyRequestUpserted: (request) => set((state) => {
+    const exists = state.requests.some(r => r._id === request._id);
+    return {
+      requests: exists
+        ? state.requests.map(r => r._id === request._id ? request : r)
+        : [...state.requests, request],
+    };
+  }),
+  applyRequestDeleted: (id) => set((state) => ({
+    requests: state.requests.filter(r => r._id !== id),
+  })),
 
   toggleCollectionOpen: (id: string) => set((state) => {
     const next = new Set(state.openCollectionIds);
@@ -150,7 +204,9 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const res = await api.post(`/workspaces/${workspaceId}/collections`, { name });
     const { db } = await import('../db');
     await db.collections.put({ ...res.data, workspaceId });
-    set((state) => ({ collections: [...state.collections, res.data] }));
+    // Idempotent: the create's own 'collection:created' socket echo can
+    // arrive before this HTTP response resolves and already add it.
+    get().applyCollectionUpserted(res.data);
     return res.data;
   },
 
@@ -193,7 +249,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       const res = await api.post(`/collections/${newCol._id}/requests`, {
         name: req.name, method: req.method, url: req.url || '',
       });
-      set((state) => ({ requests: [...state.requests, res.data] }));
+      get().applyRequestUpserted(res.data);
     }
 
     // Duplicate top-level folders (simplified — one level)
@@ -201,18 +257,18 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     for (const folder of topFolders) {
       const fRes = await api.post(`/collections/${newCol._id}/folders`, { name: folder.name });
       const newFolder: Folder = fRes.data;
-      set((state) => ({ folders: [...state.folders, newFolder] }));
+      get().applyFolderUpserted(newFolder);
 
       const folderRequests = requests.filter(r => r.folderId === folder._id);
       for (const req of folderRequests) {
         const rRes = await api.post(`/collections/${newCol._id}/requests`, {
           name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
         });
-        set((state) => ({ requests: [...state.requests, rRes.data] }));
+        get().applyRequestUpserted(rRes.data);
       }
     }
 
-    set((state) => ({ collections: [...state.collections, newCol] }));
+    get().applyCollectionUpserted(newCol);
   },
 
   // ── Folder ──────────────────────────────────────────────────────────────────
@@ -221,7 +277,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const res = await api.post(`/collections/${collectionId}/folders`, { name, parentFolderId });
     const { db } = await import('../db');
     await db.folders.put(res.data);
-    set((state) => ({ folders: [...state.folders, res.data] }));
+    get().applyFolderUpserted(res.data);
     get().openCollection(collectionId);
   },
 
@@ -254,14 +310,14 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       name: `Copy of ${source.name}`, parentFolderId
     });
     const newFolder: Folder = fRes.data;
-    set((state) => ({ folders: [...state.folders, newFolder] }));
+    get().applyFolderUpserted(newFolder);
 
     const folderRequests = requests.filter(r => r.folderId === id);
     for (const req of folderRequests) {
       const rRes = await api.post(`/collections/${collectionId}/requests`, {
         name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
       });
-      set((state) => ({ requests: [...state.requests, rRes.data] }));
+      get().applyRequestUpserted(rRes.data);
     }
   },
 
@@ -273,7 +329,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     });
     const { db } = await import('../db');
     await db.requests.put(res.data);
-    set((state) => ({ requests: [...state.requests, res.data] }));
+    get().applyRequestUpserted(res.data);
     get().openCollection(collectionId);
     return res.data;
   },
@@ -304,7 +360,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       url: source.url || '',
       folderId: source.folderId,
     });
-    set((state) => ({ requests: [...state.requests, res.data] }));
+    get().applyRequestUpserted(res.data);
   },
 
   moveRequest: async (id, newCollectionId, newFolderId) => {
