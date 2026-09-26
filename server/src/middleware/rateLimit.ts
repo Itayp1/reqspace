@@ -14,6 +14,12 @@ interface Bucket {
  * should move this to Redis instead.
  */
 export function rateLimit(options: { windowMs: number; max: number; message?: string; keyBy?: (req: Request) => string }) {
+  // Local PM2 (ecosystem.config.js) sets this. Production and Docker do not,
+  // so login/register/share throttling stays on outside that process.
+  if (process.env.DISABLE_RATE_LIMIT === 'true') {
+    return (_req: Request, _res: Response, next: NextFunction) => next();
+  }
+
   const buckets = new Map<string, Bucket>();
 
   let redisClient: any = null;

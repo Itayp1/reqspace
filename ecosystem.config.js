@@ -15,7 +15,10 @@ module.exports = {
       restart_delay: 5000,
       min_uptime: 30000,
       env: {
-        NODE_ENV: "production"
+        NODE_ENV: "production",
+        // This file is the local PM2 deployment only. Skip request throttling
+        // here so local use and tests are not blocked by login/mutation limits.
+        DISABLE_RATE_LIMIT: "true"
       }
     }
   ]
