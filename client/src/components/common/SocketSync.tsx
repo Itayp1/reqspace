@@ -30,15 +30,15 @@ export function SocketSync() {
       useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
     };
 
-    socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
-    socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
-    socket.on('collection:deleted', (id) => useCollectionStore.getState().applyCollectionDeleted(id));
-    socket.on('folder:created', (data) => useCollectionStore.getState().applyFolderUpserted(data));
-    socket.on('folder:updated', (data) => useCollectionStore.getState().applyFolderUpserted(data));
-    socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));
-    socket.on('request:created', (data) => useCollectionStore.getState().applyRequestUpserted(data));
-    socket.on('request:deleted', (id) => useCollectionStore.getState().applyRequestDeleted(id));
-    socket.on('workspace:reordered', (payload) => useCollectionStore.getState().applyWorkspaceReordered(payload));
+    socket.on('collection:created', handleUpdate);
+    socket.on('collection:updated', handleUpdate);
+    socket.on('collection:deleted', handleUpdate);
+    socket.on('folder:created', handleUpdate);
+    socket.on('folder:updated', handleUpdate);
+    socket.on('folder:deleted', handleUpdate);
+    socket.on('request:created', handleUpdate);
+    socket.on('request:deleted', handleUpdate);
+    socket.on('workspace:reordered', handleUpdate);
 
     const handleEnvUpdate = () => {
       useEnvironmentStore.getState().fetchEnvironments(activeWorkspace._id);
@@ -69,7 +69,7 @@ export function SocketSync() {
     // For request update, we handle live conflict checking
     socket.on('request:updated', (updatedRequest: any) => {
       // First update the collection store to reflect the new name/method in the sidebar
-      useCollectionStore.getState().applyRequestUpserted(updatedRequest);
+      handleUpdate();
 
       // Check if it affects open tabs
       const requestStore = useRequestStore.getState();

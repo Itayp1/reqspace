@@ -428,15 +428,25 @@ messages reference them.
 
 ### 🩺 Known state of the working tree
 
-Written 2026-09-26. Check `git status` before trusting it.
+Written 2026-09-26, updated same day once both builds went green. Check `git status` before trusting it.
 
-* **The server build is currently broken** on uncommitted work:
-  `src/routes/collections.ts(242,9): error TS2684` — `modelMap[type]` hands `bulkCreate` a union of three
-  model classes, which gives it an unresolvable `this`. Narrowing per branch (`if (type === 'collection')
-  await SqlCollection.bulkCreate(...)`) compiles. Fix this before anything else; nothing deploys until it
-  does.
-* Uncommitted PERF work is in flight across `routes/collections.ts`, `routes/admin.ts` and three
-  repositories. Coordinate before editing those files.
+* **Both builds pass again.** The originally reported `collections.ts(242,9): TS2684` was already gone by
+  the time this was picked up (the `modelMap`/`bulkCreate` code no longer exists), but the merge that
+  landed the in-flight PERF/SOCK/FEAT work broke the build in several other, unrelated ways, all now fixed:
+  a duplicate `const userId` in `index.ts`'s socket handler; three call sites (`index.ts`, `admin.ts`,
+  the repository test) still treating `UserRepository.list()` / `WorkspaceRepository.list()` as an array
+  after PERF-3 changed them to `{ items, nextCursor }`; the batched `/workspaces/:id/tree` route calling
+  `findByCollections`/passing a second arg that the repositories never grew (now falls back to
+  `Promise.all` over the existing per-collection methods — PERF-1's real batching is still open); a
+  half-landed SOCK-1 (`SocketSync.tsx` called `applyCollectionUpserted` and five siblings that were never
+  added to `collectionStore` — reverted to the refetch path pending a proper SOCK-1 pass); `AuthEditor.tsx`
+  still rendering the NTLM fields `requestStore.ts`'s `RequestAuth` type had already dropped; a body-building
+  block (`bodyMode`/`requestBody`/`finalUrl`) missing entirely from `UrlBar.tsx`'s `handleSend`; and several
+  `verbatimModuleSyntax` type-only-import violations in `client/src/transport/*`.
+* **Newly found while verifying:** `npm test --prefix server` (sqlite) is 163/166 green — the 3 failures are
+  all in `feat10.e2e.test.ts`. `routes/importExport.ts:19-24` is still a one-line dummy export and no
+  `POST /collections/import` route exists, despite `TODO.md`'s old changelog calling FEAT-10 shipped. The
+  FEAT-10 row above was already correctly `[ ]`; only the changelog was wrong (corrected in `TODO.md`).
 
 ## 🏛️ Architecture Decisions
 

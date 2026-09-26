@@ -100,7 +100,6 @@ io.on('connection', (socket) => {
   }, 60000);
 
   socket.on('disconnect', () => clearInterval(tokenInterval));
-  const userId = getSocketUserId(socket);
   const authorizedWorkspaces = new Set<string>();
 
   socket.on('join:workspace', async (workspaceId: string) => {
@@ -273,7 +272,7 @@ async function bootstrap() {
     await SystemConfigRepository.ensure();
     console.log('✅ SystemConfig initialized');
 
-    const adminCount = (await UserRepository.list({ isSuperAdmin: true })).length;
+    const adminCount = (await UserRepository.list({ isSuperAdmin: true })).items.length;
     if (adminCount === 0) {
       const adminEmail = process.env.ADMIN_EMAIL || 'admin';
       const adminPassword = process.env.ADMIN_PASSWORD || 'admin';

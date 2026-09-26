@@ -12,12 +12,12 @@ const router = Router();
 router.use(authenticate, requireSuperAdmin);
 
 router.get('/users', async (req: AuthRequest, res: Response) => {
-  const users = await UserRepository.list();
+  const { items: users } = await UserRepository.list();
   return res.json({ users, total: users.length, page: 1, limit: 50 });
 });
 
 router.get('/workspaces', async (req: AuthRequest, res: Response) => {
-  const workspaces = await WorkspaceRepository.list();
+  const { items: workspaces } = await WorkspaceRepository.list();
   return res.json({ workspaces, total: workspaces.length, page: 1, limit: 50 });
 });
 

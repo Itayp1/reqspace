@@ -60,13 +60,13 @@ router.use(authenticate);
 // ── Collections ─────────────────────────────────────────────────────────────
 
 router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
-  const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId, { limit: 200 });
+  const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
   const ids = collections.map(c => c._id);
-  const [folders, requests] = await Promise.all([
-    FolderRepository.findByCollections(ids),
-    RequestRepository.findByCollections(ids, { summaryOnly: true }),
+  const [foldersByCollection, requestsByCollection] = await Promise.all([
+    Promise.all(ids.map(id => FolderRepository.findByCollection(id))),
+    Promise.all(ids.map(id => RequestRepository.findByCollection(id))),
   ]);
-  return res.json({ collections, folders, requests });
+  return res.json({ collections, folders: foldersByCollection.flat(), requests: requestsByCollection.flat() });
 });
 
 router.get('/workspaces/:workspaceId/collections',

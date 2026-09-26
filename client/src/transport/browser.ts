@@ -1,4 +1,4 @@
-import { Transport, TransportRequest, TransportResponse } from './types';
+import type { Transport, TransportRequest, TransportResponse } from './types';
 
 export class BrowserTransport implements Transport {
   async send(req: TransportRequest): Promise<TransportResponse> {

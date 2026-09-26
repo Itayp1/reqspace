@@ -2,7 +2,6 @@ import SandboxWorker from '../sandbox/worker?worker';
 import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 import { useConsoleStore } from '../store/consoleStore';
-import api from '../api/axios';
 import { sendRequest } from '../transport';
 
 interface ScriptResult {

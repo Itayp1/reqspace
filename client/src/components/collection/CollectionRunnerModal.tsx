@@ -4,7 +4,6 @@ import { useCollectionStore } from '../../store/collectionStore';
 import { useEnvironmentStore } from '../../store/environmentStore';
 
 
-import api from '../../api/axios';
 import { resolveAllVariables } from '../../utils/variables';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
 import { sendRequest } from '../../transport';
@@ -143,7 +142,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
               return {
                 ...item,
                 status: statusCode,
-                statusText: res.data?.statusText || res.statusText || 'OK',
+                statusText: res.statusText || 'OK',
                 time: duration,
                 passed: testPassed,
               };

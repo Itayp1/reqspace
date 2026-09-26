@@ -1,4 +1,4 @@
-import { Transport, TransportRequest, TransportResponse } from './types';
+import type { Transport, TransportRequest, TransportResponse } from './types';
 
 let extensionVersion: string | null = null;
 let pendingRequests: Map<string, (res: TransportResponse) => void> = new Map();
@@ -23,7 +23,9 @@ window.addEventListener('message', (event) => {
           statusText: 'Error',
           headers: {},
           body: res.error,
-          time: 0
+          isBase64: false,
+          responseTime: 0,
+          size: 0,
         });
       } else {
         resolve({
@@ -31,7 +33,9 @@ window.addEventListener('message', (event) => {
           statusText: res.statusText,
           headers: res.headers,
           body: res.body,
-          time: res.time
+          isBase64: !!res.isBase64,
+          responseTime: res.time ?? 0,
+          size: res.body ? res.body.length : 0,
         });
       }
     }

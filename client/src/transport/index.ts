@@ -1,7 +1,7 @@
-import { Transport, TransportRequest, TransportResponse } from './types';
+import type { Transport, TransportRequest, TransportResponse } from './types';
 import { BrowserTransport } from './browser';
 import { ElectronTransport } from './electron';
-import { ExtensionTransport } from './extension';
+import { ExtensionTransport, isExtensionInstalled } from './extension';
 
 export * from './types';
 export * from './browser';

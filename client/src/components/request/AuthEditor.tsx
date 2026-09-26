@@ -10,7 +10,6 @@ const AUTH_TYPES: Array<{ value: RequestAuth['type']; label: string }> = [
   { value: 'basic', label: 'Basic Auth' },
   { value: 'apikey', label: 'API Key' },
   { value: 'oauth2', label: 'OAuth 2.0' },
-  { value: 'ntlm', label: 'NTLM Authentication' },
 ];
 
 export function AuthEditor() {
@@ -175,48 +174,6 @@ export function AuthEditor() {
           </div>
           <div className="mt-2 text-xs text-gray-500">
             More OAuth 2.0 configuration (Client ID, Auth URL, etc.) can be managed via pre-request scripts or by fetching the token manually for now.
-          </div>
-        </div>
-      )}
-
-      {/* NTLM Auth */}
-      {auth.type === 'ntlm' && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Username</label>
-            <input
-              type="text"
-              className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
-              value={auth.ntlm?.username || ''}
-              onChange={e => update({ ntlm: { ...auth.ntlm, username: e.target.value } })}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Password</label>
-            <input
-              type="password"
-              className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
-              value={auth.ntlm?.password || ''}
-              onChange={e => update({ ntlm: { ...auth.ntlm, password: e.target.value } })}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Domain</label>
-            <input
-              type="text"
-              className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
-              value={auth.ntlm?.domain || ''}
-              onChange={e => update({ ntlm: { ...auth.ntlm, domain: e.target.value } })}
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Workstation</label>
-            <input
-              type="text"
-              className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
-              value={auth.ntlm?.workstation || ''}
-              onChange={e => update({ ntlm: { ...auth.ntlm, workstation: e.target.value } })}
-            />
           </div>
         </div>
       )}

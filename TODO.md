@@ -1017,6 +1017,7 @@ Corrected in place, listed here because each one would have sent an implementer 
 | UI-3: "remove the double `AuthGuard` on /admin" | **Dangerous.** The inner guard at `App.tsx:229` carries the superadmin check. Removing it exposes the admin page to any logged-in user |
 | SEC-9: add `params: Record<string, string>` to `AuthRequest` | Already present at `middleware/auth.ts:15` |
 | SEC-2 has four authorization holes | Six candidates; four are real, and two (`/requests/import/curl`, `/requests/import/raw-http`) never write anything and are not holes |
+| "Shipped" table (2026-09-25) lists FEAT-10 as Completed | Not true as of 2026-09-26: `server/src/routes/importExport.ts:19-24` is a one-line dummy — `res.json({ info: { name: collection?.name }, item: [] })` — and no `POST /collections/import` route exists at all. `feat10.e2e.test.ts` fails 3/3. README already correctly shows FEAT-10 `[ ]`; only this file's changelog was wrong |
 
 ## Working-tree state
 

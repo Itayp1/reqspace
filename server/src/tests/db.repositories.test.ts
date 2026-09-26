@@ -100,7 +100,7 @@ describe('UserRepository (SQL)', () => {
 
   it('lists all users', async () => {
     const users = await UserRepository.list();
-    expect(users.length).toBeGreaterThanOrEqual(1);
+    expect(users.items.length).toBeGreaterThanOrEqual(1);
   });
 
   it('counts users', async () => {
@@ -162,7 +162,7 @@ describe('WorkspaceRepository (SQL)', () => {
 
   it('lists all workspaces', async () => {
     const all = await WorkspaceRepository.list();
-    expect(all.length).toBeGreaterThanOrEqual(1);
+    expect(all.items.length).toBeGreaterThanOrEqual(1);
   });
 
   it('deletes workspace', async () => {
