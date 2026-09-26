@@ -26,8 +26,9 @@ Every task has:
    built" — has its own drift: it still points at `server/src/models/AuditLog.ts`, `routes/capture.ts` and
    `CaptureTrafficModal.tsx`, all of which are deleted. Treat B as a hint, not a citation.)
 3. **Order:** `SEC` → `FIX` → `PERF` → `SOCK` → `TEST` → `UI` → `FEAT` → `CLEAN`. Within a section, top to
-   bottom. Two exceptions are called out in place: SEC-10 has a hard prerequisite, and PERF-0 must precede
-   every other PERF item.
+   bottom, except where a task's own text says otherwise (e.g. SEC-0's execution order across its
+   subtasks). SEC-10 and PERF-0, which used to carry ordering exceptions here, have both shipped — see
+   Shipped.
 4. **One task per commit.** Commit message starts with the task id: `SEC-2: close the four authz holes`.
 5. **Every task ships a test that fails before the change and passes after.** Write the test first, watch
    it fail.
@@ -96,50 +97,22 @@ without it. That is expected, not a regression.
 
 # SEC — Security
 
-## SEC-13 — Self-registration silently grants superadmin
-
-* **Priority: do this one first, before anything else in this file.** Requested explicitly by the owner
-  on 2026-09-26.
-* **Status:** verified real, **UNFIXED** · **Size:** XS (one word) · **Severity: critical — this is the most
-  severe open item in this file.**
-* **Goal:** a self-registered user is an ordinary user.
-* **Verified state:** `server/src/routes/auth.ts:54` creates the user with
-  `authType: 'password', isSuperAdmin: true`. Introduced in commit `c965de2` (2026-09-25). Confirmed
-  empirically: registering `bob.outsider@example.com` against a fresh instance returned
-  `"isSuperAdmin": true`. `allowSelfRegistration` defaults to `true`
-  (`server/src/repositories/SystemConfigRepository.ts:57`).
-* **Why:** anyone who can reach the login page can grant themselves full superadmin — every workspace, the
-  admin dashboard, user management, audit logs and system configuration. It also silently defeats the whole
-  RBAC layer, because `requireWorkspaceRole` and `requireRoleOnCollection` both short-circuit for
-  superadmins, so no membership check applies to a self-registered account.
-* **Change:** `isSuperAdmin: false`. The bootstrap superadmin in `server/src/index.ts:226-252` is the only
-  account that should ever be created with that flag, and it already handles the "no admin exists yet" case.
-* **Operational, alongside the code fix:** audit the `users` table for unexpected superadmins — any account
-  created while this was live still carries the flag, and fixing the route does not revoke it. Until it is
-  fixed, disable self-registration in the Admin Dashboard or do not expose the instance.
-* **Done when:** an API test registers a user and asserts `isSuperAdmin` is false in the response **and** in
-  the database, and asserts that user gets 403 from an admin-only route.
-
----
-
 ## SEC-0 — Delete the server-side proxy entirely
 
-* **Status: APPROVED to start, 2026-09-26.** The prior deferral ("do not start any SEC-0 subtask without
-  saying so explicitly") is lifted — the owner explicitly asked for this to be built. Do it after SEC-13.
-* **Size:** XL — the largest item in this file by an order of magnitude.
+* **Status: APPROVED, in progress.** The prior deferral is lifted — the owner asked for this to be built.
+  Real progress already exists in the code (see per-subtask status below): the client transport module is
+  built and 3 of 5 callers are migrated, and the Chrome extension has a skeleton. What's actually left is
+  enumerated in the execution order.
+* **Size:** L (down from XL) — SEC-0.6, and the self-registration bug and Zod-validation task that used to
+  sit next to this section, are all shipped; see [Shipped (2026-09-26, audit pass 2)](#shipped-2026-09-26-audit-pass-2).
 * **Execution order (do not reshuffle without a reason):**
-  1. **SEC-0.0** — already decided below (Electron + Chrome extension). Nothing to build here, just read it
-     before touching any other subtask so the "why" of every later step makes sense.
-  2. **SEC-0.1** — already done (inventory table below). Just confirms scope; skip straight to 0.2.
-  3. **SEC-0.2** — build the client transport abstraction (`client/src/transport/`). Do this first among the
-     buildable subtasks: every other step migrates a caller onto it.
-  4. **SEC-0.3** — move history writing to a client-driven endpoint. Depends on 0.2 existing.
-  5. **SEC-0.6** — harden/replace the share-link route. Independent of the rest of SEC-0 — can be pulled
-     forward or done in parallel by someone else if that's useful, but do not skip it.
-  6. **SEC-0.4** — delete the old proxy routes and dead dependencies. Do this **last**, only once nothing
-     calls them any more (0.2/0.3 fully migrated), or you delete a route still in use.
-  7. **SEC-0.7** — the Chrome extension transport. Biggest, most self-contained subtask; can be started in
-     parallel with 0.2-0.4 by a separate person, since it does not touch server code.
+  1. **SEC-0.0** — decision already made below (Electron + Chrome extension). Read-only context.
+  2. **SEC-0.1** — inventory, already done. Just confirms scope.
+  3. **SEC-0.2** — 3 of 5 callers already migrated to the transport module. Finish the remaining 2.
+  4. **SEC-0.3** — move history writing to a client-driven endpoint. Still fully open.
+  5. **SEC-0.4** — delete the old proxy routes and dead dependencies. Do this **last**, only once nothing
+     calls them any more, or you delete a route still in use.
+  6. **SEC-0.7** — the Chrome extension transport. Skeleton exists; finish hardening it.
 * Each subtask below already has its own **Goal / Verified state / Change / Done when** — follow those, not
   a paraphrase of them.
 
@@ -170,199 +143,80 @@ could. The page never makes the cross-origin call — it asks the extension to.
 
 ### SEC-0.1 — Inventory of server-side outbound calls
 
-Done — this is the verified output of
+Done — this is the verified output of (re-confirmed 2026-09-26; line numbers drift as the files change, the
+call sites and verdicts don't):
 `grep -rn "undiciFetch\|await fetch(\|ProxyAgent\|createSafeLookup\|assertSsrfSafe\|soap\." server/src`:
 
 | Call site | Verdict | Reason |
 |---|---|---|
-| `routes/proxy.ts:5,75,82,93,120` | **move** | This *is* the user proxy |
-| `routes/shareProxy.ts:4,54,55,76,83,87` | **move, then delete** | Anonymous user proxy |
-| `routes/importExport.ts:8,132,134` (`soap.createClientAsync`) | **move** | Fetches a user-supplied WSDL URL |
-| `routes/auth.ts:202,218` (Google token + userinfo) | **keep** | Server-to-Google, fixed hosts, server's own credentials |
+| `routes/proxy.ts:7,77,85,123` | **move** | This *is* the user proxy |
+| `routes/shareProxy.ts:5,55,56,77,84,88` | **move, then delete** | Anonymous user proxy |
+| `routes/importExport.ts:12,137,139` (`soap.createClientAsync`) | **move** | Fetches a user-supplied WSDL URL |
+| `routes/auth.ts:237,253` (Google token + userinfo) | **keep** | Server-to-Google, fixed hosts, server's own credentials |
 
-Two rows from the previous revision were wrong and are gone: `routes/capture.ts:140` (the file is deleted)
+Two rows from an older revision were wrong and are gone: `routes/capture.ts:140` (the file is deleted)
 and "`routes/admin.ts` SMTP send", which never existed —
 `grep -rn "nodemailer\|createTransport\|sendMail" server/src` returns nothing. The `SystemConfig.auth.smtp`
 **config fields** exist, but nothing sends mail.
 
 ### SEC-0.2 — Build the client transport abstraction
 
+* **Status:** mostly done, 2026-09-26. `client/src/transport/` already exists —
+  `types.ts`, `index.ts`, `electron.ts`, `extension.ts`, `browser.ts` — with a working
+  `getTransport()`/`sendRequest()`.
 * **Goal:** one module decides *how* a request goes out, so no UI component knows or cares.
-* **Where:** new `client/src/transport/` — `types.ts`, `index.ts`, `electron.ts`, `extension.ts`, `browser.ts`
-* **Verified callers to migrate** — all five still call `POST /api/proxy`:
-  `client/src/components/request/UrlBar.tsx:250`,
-  `client/src/components/collection/CollectionRunnerModal.tsx:103`,
-  `client/src/utils/scripts.ts:175`,
-  `client/src/components/request/LoadTestModal.tsx`,
-  `client/src/pages/SharedCollectionPage.tsx:19`.
+* **Already migrated:** `CollectionRunnerModal.tsx:103`, `scripts.ts:5,99`, `SharedCollectionPage.tsx:23`.
+* **Still on the old path** — `grep -rn "api.post('/proxy'" client/src` returns exactly these 2:
+  `client/src/components/request/UrlBar.tsx:263`,
+  `client/src/components/request/LoadTestModal.tsx:57`.
 * **Done when:** `grep -rn "api.post('/proxy'" client/src` returns nothing and a Playwright test sends a
   request through the abstraction with the transport stubbed.
 
 ### SEC-0.3 — Move history writing to a client-driven, server-validated endpoint
 
+* **Status:** still fully open.
 * **Goal:** history still works once the server never sees the response.
-* **Where:** `server/src/routes/proxy.ts:149-170` writes history today from data only the server had.
+* **Where:** `server/src/routes/proxy.ts` around lines 140-160 (`shouldSaveHistory` at `:140`,
+  `saveHistoryEntry(...)` at `:153-154`) writes history today from data only the server had.
 * **Note:** the response-size cap (FEAT-9) applies here — the endpoint must never accept a 200 MB body.
 * **Done when:** API tests prove a viewer can write their own history, a non-member gets 403, and an
   oversized body is rejected rather than truncated after the fact.
 
 ### SEC-0.4 — Delete the routes and everything that existed only for them
 
-* **Done when:** `grep -rn "api/proxy\|shareProxy\|assertSsrfSafe\|createSafeLookup" server/src client/src`
-  returns nothing, and `undici` + `http-proxy-middleware` come out of `server/package.json`. (`undici` has
-  **3** live usages today and is the one dead-looking dependency that must **not** be dropped before this
+* **Status:** still fully open — `grep -rn "api/proxy\|shareProxy\|assertSsrfSafe\|createSafeLookup"
+  server/src client/src` still returns many hits (proxy.ts, shareProxy.ts, ssrf.ts, and the mounts in
+  `index.ts`).
+* **Done when:** that grep returns nothing, and `undici` + `http-proxy-middleware` come out of
+  `server/package.json`. (`undici` has **5** live usages today, not 3 — `proxy.ts:85,123` and
+  `shareProxy.ts:55,77,88` — and is the one dead-looking dependency that must **not** be dropped before this
   lands — see CLEAN.)
 
 ### SEC-0.5 — ~~Decide the fate of traffic capture~~ — **removed, moot**
 
 `server/src/routes/capture.ts` and `client/src/components/layout/CaptureTrafficModal.tsx` were both deleted
-in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
-`server/src/utils/ssrf.ts:6` still says "share-proxy, capture, and WSDL-import routes", and
-`client/src/pages/AdminPage.tsx:391` still tells admins the setting affects "every user's Send / share-link
-/ capture requests".
-
-### SEC-0.6 — Harden the public share-link route
-
-* **Status:** verified real — independent of the rest of SEC-0, no longer blocked on anything.
-* **Goal:** a public share link exposes only what a viewer needs, can be revoked, and can't be brute-forced.
-* **Verified state:** `server/src/routes/share.ts:9-31` — `GET /api/share/:shortId` returns the whole
-  `collection` row plus whole `requests` rows: `auth`, `headers`, `body`, `preRequestScript` and
-  `testScript`. The short id is `crypto.randomBytes(6)` at `:49`. The file contains **only two routes** —
-  there is no DELETE, so a leaked link can never be killed. No rate limit either.
-* **Why:** a share link is a public, unauthenticated URL. Today it hands every anonymous visitor the bearer
-  tokens, basic-auth passwords and API keys saved on every request in the collection, plus any script the
-  author wrote. One link posted in a ticket leaks the collection's credentials permanently.
-* **Change:** project the response down to what a viewer needs (`name`, `method`, `url`, non-sensitive
-  headers, `description`); strip `auth` to its type; drop both script fields entirely; add
-  `DELETE /api/share/:shortId` with an owner check; rate-limit the public GET.
-* **Traps:**
-  1. The previous revision's fix snippet was **Mongoose** (`SharedLink.findOne({shortId})`, `deleteOne()`,
-     `.lean()`). Mongoose is gone. Use `SqlSharedLink.findOne({ where: { shortId } })` and `.destroy()`.
-  2. **Extra bug found while verifying:** `share.ts:62` returns
-     `token: crypto.randomBytes(32).toString('hex')` — a *freshly generated* value, not the `link.token`
-     stored at `:54`. The token handed to the client can never match the one in the database. Decide what
-     `token` is for and either wire it correctly or delete the field; do not leave a credential-shaped
-     value that means nothing.
-  3. The route is mounted **before** the bare-`/api` routers on purpose (`server/src/index.ts:162-167`).
-     Do not reorder it — that is what broke anonymous viewing once already.
-* **Done when:** an API test creates a share link for a collection whose request carries a bearer token and
-  a test script, fetches it anonymously, and asserts neither the token nor the script appears; and a
-  revoked link returns 404.
+in commit `36b3331`. The stale copy this used to leave behind (`ssrf.ts`, `AdminPage.tsx` mentioning
+"capture") is also fixed now — see Shipped. Nothing left to do here at all.
 
 ### SEC-0.7 — Build the Chrome extension transport
 
-* **Status:** greenfield, nothing exists (`extension/` and `client/src/transport/` are both absent).
-* Subtasks, unchanged and still accurate: **0.7.1** MV3 manifest and skeleton · **0.7.2** the request
-  bridge · **0.7.3** restore the headers Chrome strips (`Origin`, `Referer`, `Cookie`, `Host`,
-  `User-Agent`) via `declarativeNetRequest` · **0.7.4** cookie policy — default `credentials: 'omit'`,
-  because attaching ambient cookies silently turns every request into a potential CSRF · **0.7.5** harden
-  the extension (origin allowlist, no `<all_urls>` beyond what is needed) · **0.7.6** app-side integration
-  and install prompt · **0.7.7** build, test and ship, with a CI Playwright project that runs the core send
-  flow through the extension.
+* **Status:** partially built — do not treat as greenfield. `extension/` now exists at the repo root
+  (`background.js`, `content.js`, `manifest.json`, `options.html`, `options.js`) plus
+  `tests/e2e/extension.spec.ts`. The manifest is MV3 with a background service worker, a content script, and
+  `declarativeNetRequest`/`declarativeNetRequestWithHostAccess` permissions — **0.7.1 and 0.7.2 look done.**
+* **Confirmed still open — 0.7.5:** `manifest.json` has `host_permissions: ["<all_urls>"]`, exactly the
+  over-broad grant this subtask exists to remove.
+* **Not verified either way, check before continuing:** 0.7.3 (header restoration), 0.7.4 (cookie policy),
+  0.7.6 (app-side integration/install prompt), 0.7.7 (a spec file existing is not the same as a CI project
+  that runs it and passes).
+* Subtasks: **0.7.1** MV3 manifest and skeleton · **0.7.2** the request bridge · **0.7.3** restore the
+  headers Chrome strips (`Origin`, `Referer`, `Cookie`, `Host`, `User-Agent`) via `declarativeNetRequest` ·
+  **0.7.4** cookie policy — default `credentials: 'omit'`, because attaching ambient cookies silently turns
+  every request into a potential CSRF · **0.7.5** harden the extension (origin allowlist, no `<all_urls>`
+  beyond what is needed) · **0.7.6** app-side integration and install prompt · **0.7.7** build, test and
+  ship, with a CI Playwright project that runs the core send flow through the extension.
 * Read `IGNORE.md`'s "browser-extension traffic interceptor" row before starting: that declined feature is
   **not** this one, and the distinction is the permission surface.
-
----
-
-
-
-* **Status:** verified real · **Size:** L · Also the prerequisite for dropping `'unsafe-eval'` in SEC-10.
-* **Goal:** a pre-request or test script cannot read the user's session, tokens, cookies or DOM.
-* **Verified state:**
-  * `client/src/utils/scripts.ts:134` and `:312` run user scripts with
-    `new Function('pm', 'reqSpace', '_', 'moment', 'CryptoJS', 'console', script)` — **on the main thread**,
-    with `window`, `document` and `localStorage` in scope.
-  * `scripts.ts:8` imports the app's authenticated axios instance and hands it to `pm.sendRequest` at
-    `:175-178` (`api.post('/proxy', …)`). A script therefore has the user's session.
-  * `client/src/sandbox/worker.ts` **already exists** — 95 lines, with a working `pm` shim (environment,
-    globals, variables, request, response, test, expect, sendRequest) and its own `new Function` at `:77`.
-    **Nothing instantiates it:** `grep "new Worker" client/src` returns nothing, and the only reference is
-    a *comment* at `client/src/components/collection/RunnerModal.tsx:16`. It is dead code.
-  * `client/src/components/response/ResponseViewer.tsx:377-381` — the HTML preview iframe has
-    `sandbox="allow-same-origin"`. `:537-540` — the visualizer iframe has **no `sandbox` attribute at all**
-    and loads `handlebars@latest` from jsDelivr.
-* **Why:** a malicious test script in a shared collection can read whatever is in browser storage and issue
-  requests as the user. Two half-built sandboxes (the dead worker and the live `new Function`) is how this
-  gap survived.
-* **Change:**
-  1. **One sandbox, not two.** Keep `sandbox/worker.ts`, delete the `new Function` paths in `scripts.ts`.
-  2. The worker receives **data only** — never a live object. Host→worker: `{type:'run', phase, script,
-     request, response?, variables}`. Worker→host: `{type:'result', variableWrites, testResults,
-     consoleLines, visualizer?}`. Async: `{type:'sendRequest', id, request}` answered with
-     `{type:'sendRequestResult', id, response|error}`. The host validates scope and key before applying
-     `variableWrites`; the worker never touches a store.
-  3. `pm.sendRequest` becomes a message the host routes and caps (e.g. 10 requests per run) — an
-     allowlisted channel, not a handed-over HTTP client.
-  4. Visualizer iframe: add `sandbox="allow-scripts"` and **never** `allow-same-origin` — that combination
-     gives an opaque origin, so Handlebars runs but `parent`, `localStorage` and cookies are unreachable.
-  5. Self-host Handlebars instead of fetching `@latest` from a CDN on the render path (this is also SEC-10
-     blocker 3 — do them together).
-  6. HTML preview iframe: `sandbox="allow-same-origin"` → `sandbox=""`. Scripts are already blocked, so the
-     grant buys nothing and becomes a real origin grant the day someone adds `allow-scripts`.
-* **Traps:** there are **two** runner modals — `RunnerModal.tsx` and `CollectionRunnerModal.tsx`. The dead
-  worker comment is in the former; the live runner that calls `POST /api/proxy` is the latter. Know which
-  one you are editing. Note also that `server/src/routes/runner.ts` is a stub returning
-  `'Run started (stub)'` — the runner is entirely client-side, so there is no server counterpart to
-  sandbox.
-* **Done when:** a test script running
-  `pm.test('leak', () => pm.expect(typeof localStorage).to.equal('undefined'))` passes, a script touching
-  `window.parent` fails, and a Playwright test asserts the visualizer frame cannot reach `parent`.
-
----
-
-
-
-* **Status:** verified real · **Size:** M
-* **Verified state:** `server/src/routes/auth.ts:294-314` stores `{hostname, cert, key, passphrase}` in
-  clear text, and `:140` (`GET /api/auth/me`) returns the **whole array** — PEM private key and passphrase
-  included — on every session check. Storage is the `users.clientCertificates` TEXT column
-  (`server/src/db/sql-models/index.ts:200`, added by migration `002`).
-* **Change:** a `server/src/utils/cryptoBox.ts` with AES-256-GCM `seal`/`open` keyed from
-  `CERT_ENCRYPTION_KEY` (32 bytes as 64 hex chars, validated at use). `POST /certificates` seals `key` and
-  `passphrase`; `GET /me` returns metadata only (`{ _id, hostname, createdAt }`) — never `cert`, `key` or
-  `passphrase`. Add `CERT_ENCRYPTION_KEY` to `server/.env.example` and the README secrets inventory.
-* **Traps:**
-  1. The previous revision said "decrypt only at the moment a certificate is handed to the Electron
-     transport" — **there is no Electron transport** (that is SEC-0.2, deferred). The only consumer today
-     is `server/src/routes/proxy.ts:60` (`req.user?.clientCertificates`). So either add the decrypt call
-     there now, or sequence SEC-8 after SEC-0.4 deletes that file. Decide before starting.
-  2. Narrowing `GET /me` changes a shape the client already renders:
-     `client/src/components/common/GlobalSettingsModal.tsx:11,28,40` reads `user.clientCertificates`. Update
-     it in the same commit or the settings screen breaks.
-  3. Existing rows are plaintext. The read path needs to tolerate both until a migration re-seals them —
-     and that migration needs `CERT_ENCRYPTION_KEY` present, so it must fail loudly rather than silently
-     skipping.
-* **Done when:** a repository test asserts the stored `key` is not the plaintext PEM, and an API test
-  asserts `GET /api/auth/me` contains no `-----BEGIN` string.
-
----
-
-## SEC-9 — Validate every request body with Zod
-
-* **Status:** verified real · **Size:** L (33 routes) · Roll out per route group, one commit each.
-* **Verified state:** `zod` is at `server/package.json:73` and `grep "from 'zod'" server/src` returns
-  **nothing**. `ajv ^6.15.0` sits at `:43`, also unused. There is no `server/src/middleware/validate.ts`
-  (the middleware directory holds only `auth.ts`, `rateLimit.ts`, `rbac.ts`). The surface is **33**
-  `POST`/`PUT`/`PATCH` routes across `server/src/routes/*.ts`. `AuthRequest.user?: any` is confirmed at
-  `server/src/middleware/auth.ts:11`.
-* **Why:** the mass-assignment fixes so far are hand-written allowlists scattered through handlers. One
-  missed field is one privilege escalation.
-* **Change:** a `validate(schema)` middleware whose whole point is the reassignment —
-
-  ```ts
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: 'Invalid request body', issues: … });
-  req.body = parsed.data;      // unknown keys are DROPPED, not merely ignored
-  ```
-
-  plus per-resource schemas in `server/src/schemas/`, each `.strict()` so a foreign `workspaceId` is
-  **rejected** rather than silently dropped. Roll-out order: the SEC-2 routes → auth → admin →
-  collections/environments/history. Replace `AuthRequest.user?: any` with a real `AuthUser` interface while
-  you are in the file, then remove `ajv`.
-* **Traps:** the previous revision also proposed adding `params: Record<string, string>` to `AuthRequest` —
-  that is **already there** at `middleware/auth.ts:15`. Do not add it twice.
-* **Done when:** a test walks the Express router stack and fails if any `POST`/`PUT`/`PATCH` route lacks
-  `validate`, and posting `{ name: 'x', workspaceId: '<other>' }` to `PUT /api/collections/:id` returns 400.
 
 ---
 
@@ -435,25 +289,26 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
 
 ## FIX-9 — Switching workspaces can silently show the wrong (or no) collections
 
-* **Status:** verified real · **Size:** S
+* **Status:** verified real, still open as of 2026-09-26 (re-checked after the SOCK-1 commit touched this
+  file — SOCK-1 added a local-first Dexie read as a new first step, it did not add any concurrency guard).
 * **Goal:** the collection tree shown always corresponds to the currently-selected workspace.
-* **Verified state:** `client/src/components/collection/CollectionExplorer.tsx:646-650` —
-  `useEffect(() => fetchCollectionsData(activeWorkspace._id), [activeWorkspace?._id])`. In dev
-  (`<StrictMode>`, `client/src/main.tsx:11`) this effect runs twice per change, and on a workspace switch
-  there is a brief window where a fetch for the *previous* workspace is still in flight alongside the new
-  one; `fetchCollectionsData` (`client/src/store/collectionStore.ts:99-145`) does `set({ collections:
-  serverCols })` unconditionally, with no check that `workspaceId` still matches the currently-active
-  workspace and no request cancellation. Whichever response resolves last wins, regardless of which
+* **Verified state:** `client/src/store/collectionStore.ts`'s `fetchCollectionsData` (now ~lines 153-199)
+  still does `set({ collections: serverCols })` (line ~173) and later `set({ folders: allFolders, requests:
+  allRequests })` (line ~190) unconditionally, with no check that `workspaceId` still matches the
+  currently-active workspace and no request cancellation. In dev (`<StrictMode>`) this effect runs twice per
+  change, and on a workspace switch there is a brief window where a fetch for the *previous* workspace is
+  still in flight alongside the new one — whichever response resolves last wins, regardless of which
   workspace it was for. Reproduced directly: logged the actual network responses during a real
   invite-then-switch flow — a fetch for the *old* workspace (correctly empty) sometimes resolves after the
   fetch for the newly-selected one (correctly populated), and the tree is left showing "No collections yet"
-  for a workspace that has one. Not reproducible if the previous fetch is given time to fully settle before
-  switching, which is what makes it intermittent rather than constant.
+  for a workspace that has one.
 * **Why:** a real user switching workspaces in quick succession (or right after being invited to one) can
   see a wrong, silently-stale collection tree with no indication anything is wrong.
-* **Change:** guard the `set()` calls in `fetchCollectionsData` on `workspaceId === get().activeWorkspaceId`
-  (or thread an AbortController per call and cancel the previous one on a new call), so a stale response is
-  dropped instead of applied.
+* **Change:** guard the `set()` calls in `fetchCollectionsData` on the active workspace id. Note
+  `collectionStore.ts` does not itself track `activeWorkspaceId` (that lives in `useAuthStore`), so the fix
+  needs to either thread the target workspace id through the call and compare against the store at
+  `useAuthStore.getState()` at the time the response lands, or use an AbortController per call and cancel the
+  previous one on a new call.
 * **Done when:** a test switches workspaces twice in quick succession and asserts the tree always matches
   the *last* selection, never an intermediate one.
 
@@ -495,19 +350,25 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
 
 ## FIX-12 — Creating a request inside a folder doesn't refresh the sidebar tree
 
-* **Status:** verified real (found by a subagent while migrating tests/e2e off native dialogs) · **Size:** S
-* **Verified state:** reproduced directly while fixing `scripts-scope.spec.ts`'s folder/request creation
-  flow: `POST /requests` (via the folder-scoped "new request" action) returns `201` with the correct
-  `name`/`folderId`/`collectionId` every time, but the sidebar never renders the new node — `node-<name>`
-  never appears, confirming the create succeeded server-side and the client simply doesn't reflect it for a
-  folder-scoped creation. Collection-scoped request creation (not inside a folder) doesn't show this.
-* **Why:** likely the same missing-refresh/stale-tree class of bug as FIX-9, scoped to whatever code path
-  handles folder-nested request creation specifically — a real user creating a request inside a folder
-  would not see it appear without a manual refresh.
-* **Change:** find the folder-scoped "new request" handler (`CollectionExplorer.tsx`, the
-  `action-menu-new-request`-style action under a folder node) and confirm it updates local/store state (or
-  triggers a refetch) the same way collection-scoped creation does.
-* **Done when:** a test creates a request inside a folder and asserts the node appears without a page reload.
+* **Status:** verified real, but the root cause has moved since this was first written — **re-diagnosed
+  2026-09-26, read this before touching the store.**
+* **Verified state:** the store-side half of the original bug is already fixed: `createRequest`
+  (`collectionStore.ts:326-335`) does call `get().applyRequestUpserted(res.data)`, so the new request is
+  present in the `requests` array right after a folder-scoped create. The symptom persists for a different
+  reason: in `CollectionExplorer.tsx`, `FolderNode` keeps its own local `isOpen` state (line ~268), and
+  children only render under `{isOpen && (...)}`  (line ~378). The folder's "New Request" action-menu handler
+  (line ~320, `createRequest(collectionId, name, folder._id)`) never calls `setIsOpen(true)` — only the
+  drag-and-drop handlers do (lines ~300, ~303). So the request exists in state but the folder stays visually
+  collapsed. Confirmed against `tests/e2e/scripts-scope.spec.ts:61-69`, which creates "Scope Request" via
+  `action-menu-new-request` without expanding the folder first, then expects `node-Scope Request` visible —
+  this still fails today.
+* **Why:** a real user creating a request inside a collapsed folder sees nothing happen and has no reason to
+  suspect the create actually succeeded.
+* **Change:** in the folder's "new request" (and "new folder") action-menu handler in `CollectionExplorer.tsx`,
+  call `setIsOpen(true)` on the `FolderNode` the same way the drag-and-drop handlers already do — do **not**
+  touch `collectionStore.ts`'s request-creation logic, it's not the bug.
+* **Done when:** `scripts-scope.spec.ts`'s folder-scoped request creation passes without manually expanding
+  the folder first.
 
 ## FIX-13 — Deleting a folder only cascades one level server-side
 
@@ -564,33 +425,32 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-1 — Opening a workspace issues 1 + 2×N HTTP requests
 
-* **Status:** verified real · **Size:** M · **The single worst performance defect in the product.**
-* **Verified state:** `client/src/store/collectionStore.ts:117` fetches the collection list, then `:127-130`
-  runs a `Promise.all` over every collection issuing **two** requests each —
-  `api.get('/collections/:id/folders')` and `/requests`. A workspace with 200 collections therefore fires
-  **401 HTTP requests** on open, and again on every socket event and every window focus (SOCK-1). Each one
-  runs `checkPermission` → `resolveWorkspaceId` → 1-2 DB reads (PERF-4 #2).
-* **Change — part 1, one batched endpoint** (a stop-gap that is one line for the client):
+* **Status:** verified real, half-built and unused · **Size:** M · **The single worst performance defect in
+  the product.**
+* **Verified state:** `client/src/store/collectionStore.ts`'s `fetchCollectionsData` still fetches the
+  collection list, then runs a `Promise.all` over every collection issuing **two** requests each —
+  `api.get('/collections/:id/folders')` and `/requests`. A workspace with 200 collections therefore still
+  fires **401 HTTP requests** on open. **Someone already started the fix but didn't finish or wire it up:**
+  `GET /workspaces/:workspaceId/tree` now exists at `server/src/routes/collections.ts:62-70` — but it's a
+  half-fix, not the real batched endpoint this task asks for: it does
+  `Promise.all(ids.map(id => FolderRepository.findByCollection(id)))`, i.e. still one query **per collection
+  id**, just moved server-side instead of eliminated. `FolderRepository.findByCollections(ids)` /
+  `RequestRepository.findByCollections(ids)` (plural, real batched `Op.in` queries) still do not exist.
+  Worse: `grep -rn "/tree" client/src` returns nothing — **nothing calls this route**. It's dead code sitting
+  next to the bug it was meant to fix.
+* **Change — part 1:** write the real batched `findByCollections(ids)` on both `FolderRepository` and
+  `RequestRepository` (with an empty-array guard before the `Op.in`), have the existing `/tree` route use
+  them instead of its per-id loop, and — the actually-missing step — point the client at it:
 
   ```ts
-  // server/src/routes/collections.ts
-  router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), async (req, res) => {
-    const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId, { limit: 200 });
-    const ids = collections.map(c => c._id);
-    const [folders, requests] = await Promise.all([
-      FolderRepository.findByCollections(ids),
-      RequestRepository.findByCollections(ids, { summaryOnly: true }),   // PERF-6 projection
-    ]);
-    return res.json({ collections, folders, requests });
-  });
+  // client/src/store/collectionStore.ts, replacing the Promise.all loop
+  const res = await api.get(`/workspaces/${workspaceId}/tree`);
   ```
 
 * **Change — part 2:** PERF-2. Part 1 alone still ships the whole tree; it is a bridge, not the destination.
-* **Traps:** `FolderRepository.findByCollections` and `RequestRepository.findByCollections` **do not
-  exist** — only the singular `findByCollection` (`server/src/repositories/RequestRepository.ts:51`). Write
-  them as part of this task, with an empty-array guard before the `Op.in`.
 * **Done when:** `measure.ts` shows opening a workspace with 200 collections issuing **1** HTTP request and
-  **≤ 3** DB queries.
+  **≤ 3** DB queries — today it's still 401 requests, unchanged, because the client never calls the endpoint
+  that already exists for this.
 
 ---
 
@@ -616,7 +476,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-3 — Paginate everything that returns a list
 
-* **Status:** verified real · **Size:** L
+* **Status:** verified real, scaffolding exists but nothing uses it · **Size:** L
 * **Verified state:**
   * `server/src/routes/collections.ts:60` (collections), `:108` (folders), `:154` (requests) take **no**
     pagination parameters at all.
@@ -625,6 +485,10 @@ rows touched, bytes transferred, milliseconds.
     `COUNT(*)` on every page (`:30`).
   * `server/src/routes/admin.ts:12-25` is **fake** pagination: `UserRepository.list()` loads every row, then
     the response reports `{ total: users.length, page: 1, limit: 50 }`.
+  * **New since last pass:** `server/src/utils/pagination.ts` (`decodeCursor`/`encodeCursor`/`getCursorWhere`)
+    now exists — someone built the cursor helpers this task asks for — but `history.ts` only imports it
+    (line 1) and never calls it. It's unused scaffolding, not a partial fix; wire it in rather than writing
+    a second implementation.
 * **Why offsets are not enough:** `skip((page-1)*limit)` on page 500 makes the database walk 25,000 rows it
   then discards.
 * **Change:** cursor pagination everywhere. Cursor = the last item's sort key, base64url-encoded; for tree
@@ -681,18 +545,17 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-5 — Cache RBAC and system config
 
-* **Status:** verified real · **Size:** M
-* **Verified state:** `server/src/middleware/auth.ts:89` calls `SystemConfigRepository.getConfig()` on
-  **every authenticated request**, which is a `SqlSystemConfig.findOne()`
-  (`server/src/repositories/SystemConfigRepository.ts:82-85`). `server/src/middleware/rbac.ts:18` loads a
-  full workspace row per permission check. `server/src/utils/cache.ts` does not exist.
-* **Change:** a small TTL cache in `server/src/utils/cache.ts`; wrap the system config (30 s is ample — it
-  changes only from the admin screen, which can invalidate explicitly) and the (user, workspace) role
-  decision. SOCK-4 needs the same role cache, and SEC-10's limiter store has the same multi-replica
-  problem — design once.
-* **Traps:** the previously proposed `TtlCache.set` did
-  `this.map.delete(this.map.keys().next().value)`, where the argument is `string | undefined` and **will not
-  typecheck** under this project's `strict` settings. Narrow it before calling `delete`.
+* **Status:** verified real — **the cache got built but never plugged in.** · **Size:** S now (down from M —
+  the hard part is already done).
+* **Verified state:** `server/src/utils/cache.ts` **now exists** (`TtlCache` + a `roleCache` instance, 30s
+  TTL) — this task's original "does not exist" claim is stale. But it's dead weight today:
+  `server/src/middleware/auth.ts:91` still calls `SystemConfigRepository.getConfig()` unconditionally on
+  every authenticated request. `server/src/middleware/rbac.ts:18` still loads the full workspace row
+  (including the whole `members` array) per permission check, uncached. `roleCache` is imported in
+  `server/src/index.ts:88` but never called anywhere — a dead import.
+* **Change:** wrap `SystemConfigRepository.getConfig()` in `auth.ts` with the existing cache, and wrap the
+  (user, workspace) role lookup in `rbac.ts` with the existing `roleCache` — SOCK-4 needs this exact same
+  role cache for its own `join:workspace` handler, do both call sites in one pass.
 * **Done when:** `measure.ts` shows one `SystemConfig` read per 30 s under sustained load instead of one
   per request, and an admin config save takes effect immediately (proving invalidation works).
 
@@ -702,9 +565,15 @@ rows touched, bytes transferred, milliseconds.
 
 * **Status:** verified real — **except the Monaco claim, which was backwards** · **Size:** M
 * **Verified state:** `client/package.json` ships **both** `moment ^2.30.1` (imported in 2 files) and
-  `date-fns ^4.4.0`; `lodash ^4.18.1` is whole-imported in 2 files; `chai ^6.2.2` and `crypto-js ^4.2.0`
+  `date-fns ^4.4.0`; `lodash ^4.18.1` is whole-imported (only 1 site now, `client/src/sandbox/worker.ts:2` —
+  down from 2, but still whole-imported rather than per-function); `chai ^6.2.2` and `crypto-js ^4.2.0`
   are runtime dependencies. `@types/chai`, `@types/js-yaml` and `@types/uuid` sit in `dependencies` rather
-  than `devDependencies`. The current build emits a single ~985 KB JS chunk (289 KB gzipped).
+  than `devDependencies`. **Re-measured 2026-09-26:** `npm run build --prefix client` now emits a single
+  **4.75 MB** JS chunk (**1.23 MB gzipped**) — substantially bigger than the ~985 KB/289 KB this section
+  previously cited, confirming bundle weight has only gotten worse since. The build also warns
+  `[INEFFECTIVE_DYNAMIC_IMPORT]` for `toastStore.ts`, `axios.ts`, `environmentStore.ts` and `dialog.tsx` —
+  each is both statically and dynamically imported somewhere, so code-splitting buys nothing for them; worth
+  fixing alongside the lazy-loading work below since it's the same root cause (inconsistent import style).
 * **Correction (2026-09-26):** both the original claim and this section's own prior correction are now
   stale. `monaco-editor` **is** a bundled dependency (`client/src/main.tsx:3-8`,
   `client/package.json:31`) — someone bundled it since this note was written, and SEC-10 (verified done)
@@ -727,12 +596,12 @@ rows touched, bytes transferred, milliseconds.
 
 * **Status:** verified real — **and the previous revision's coverage table was false** · **Size:** M
 * **Goal:** every `emitToWorkspace` call site has a test where the *observer* is the assertion subject.
-* **Verified state:** `grep -rl` for each of the 13 event names across `tests/` returns **zero files**.
-  The three events previously marked "✅ Covered" are not covered at event level by anything.
-  `tests/socket-realtime.spec.ts`, which the previous revision cited, **does not exist**. What exists is
-  two two-context UI tests: `tests/e2e/socket-sync.spec.ts` (one test, conflict-on-edit) and
-  `tests/e2e/socket-advanced.spec.ts` (one test, folder rename + globals). Neither imports
-  `socket.io-client` — `grep -rn "socket.io-client" tests/` returns nothing.
+* **Verified state:** `grep -rn "socket.io-client" tests/` still returns nothing — no test connects a raw
+  socket client directly; every existing realtime test still goes through a second browser context. What
+  exists is now **three** two-context UI tests, not two: `tests/e2e/socket-sync.spec.ts` (conflict-on-edit),
+  `tests/e2e/socket-advanced.spec.ts` (folder rename + globals), and a new
+  `tests/e2e/sock1-no-refetch.spec.ts` added alongside the SOCK-1 commit. None of the 13 event names has a
+  test asserting on its payload — the new spec is still UI-observation, same category as the other two.
 * **Why:** coverage of one event in a family proves nothing about the others, because each one obtains its
   payload differently. SOCK-1 turns all 13 into reducers, and a reducer with no test is a silent data-loss
   bug — the observer's tree just quietly drifts from the server's.
@@ -748,22 +617,22 @@ rows touched, bytes transferred, milliseconds.
 
 ## SOCK-3 — Redis adapter and horizontal scaling
 
-* **Status:** verified real · **Size:** M · Needed the moment there is more than one pod.
+* **Status:** the adapter itself is already built — **remaining scope is k8s + a CI test, not application
+  code.** · **Size:** S now (down from M).
 * **Goal:** an event emitted on pod A reaches a socket held by pod B.
-* **Verified state:** `k8s/deployment.yaml:6` sets `replicas: 2` and `k8s/hpa.yaml:10-11` scales 2→10.
-  There is no Redis package in `server/package.json` and no adapter in the code — only comments
-  acknowledging the gap (`server/src/middleware/rateLimit.ts:14`, `server/src/utils/socketUtils.ts:8,13`).
-  `k8s/ingress.yaml` has **no `annotations:` block at all**, so there are no sticky sessions either.
-* **Why:** with two replicas and no shared adapter, roughly half of all realtime events are lost — whichever
-  pod did not receive the write never emits to its own sockets. The feature appears intermittently broken,
-  which is worse than being absent.
-* **Change:** `@socket.io/redis-adapter` + `ioredis`, wired in `server/src/index.ts` next to the
-  `SocketIOServer` construction. Gate on `REDIS_URL` so a single-node deployment keeps working unchanged.
-  Add the Redis service to `k8s/`. The in-memory rate limiter (SEC-10) has the same problem and should move
-  to the same store in the same pass.
-* **Traps:** Socket.IO's HTTP long-polling fallback needs sticky sessions even *with* the Redis adapter;
-  either add the ingress annotation or force `transports: ['websocket']`. Decide explicitly — this is the
-  classic half-fix.
+* **Verified state:** `server/package.json` already has `@socket.io/redis-adapter ^8.3.0` and
+  `ioredis ^6.0.0`, and `server/src/index.ts:5-6,64-68` already wires `createAdapter`, gated on `REDIS_URL`
+  exactly as this task prescribes — the core fix is done. What's still missing: `k8s/` has **no Redis
+  service/deployment at all** (`grep -rln redis k8s/` returns nothing), so the adapter has nothing to connect
+  to in the actual cluster manifests. `k8s/ingress.yaml` still has **no `annotations:` block**, so there are
+  still no sticky sessions for Socket.IO's HTTP long-polling fallback. No CI test proves cross-process
+  delivery.
+* **Why:** the code fix without a Redis service in `k8s/` means this still doesn't work the moment it's
+  actually deployed with `replicas: 2` — it's only tested (if at all) with `REDIS_URL` unset, i.e. the
+  single-node fallback path.
+* **Change:** add a Redis service/deployment to `k8s/` and set `REDIS_URL` in the server's deployment env;
+  add the ingress sticky-session annotation (or force `transports: ['websocket']` — decide explicitly, this
+  is the classic half-fix if skipped).
 * **Done when:** a CI test boots two server processes against one Redis, connects a client to each, and
   asserts an event emitted through process A arrives at the client on process B.
 
@@ -771,23 +640,26 @@ rows touched, bytes transferred, milliseconds.
 
 ## SOCK-4 — Connection hygiene at 10k sockets
 
-* **Status:** verified real · **Size:** M
+* **Status:** more done than the file previously claimed — **two of three sub-fixes already shipped,
+  the DB-read-per-join problem is the one still real.** · **Size:** S now (down from M).
 * **Goal:** 10,000 concurrent sockets within a documented memory ceiling, without a DB read per join.
-* **Verified state:** `server/src/index.ts:84-85` — `join:workspace` issues **two** DB reads every time
-  (`getUserWorkspaceRole` then `UserRepository.findById` for the superadmin check). `signToken`
-  (`server/src/middleware/auth.ts:18-22`) signs `{ sub: userId }` only, so there is no `isSuperAdmin` claim
-  to read instead. There are no caps on rooms per socket or sockets per user, and no periodic re-check of
-  the token on a long-lived connection.
-* **Why:** at 10k sockets joining a handful of workspaces each, that is tens of thousands of DB reads in a
-  reconnect storm — and a reconnect storm is exactly what a deploy causes. A revoked member also keeps
-  receiving events for as long as the socket lives, because authorization is checked once at join.
-* **Change:** cache the role decision per (user, workspace) with a short TTL (share the PERF-5 cache),
-  cap rooms per socket, and re-verify the token periodically, disconnecting on failure.
-* **Traps:** the previous revision's snippet read `s.data.userId`, but `grep -n "socket.data"
-  server/src/index.ts` returns nothing — `userId` is a closure const at `index.ts:79`. Assign
-  `socket.data.userId = userId` first, or the code compiles and silently authorizes nobody.
+* **Verified state:**
+  * `server/src/index.ts:91` now does `socket.data.userId = getSocketUserId(socket)` — the old "nothing
+    assigns `socket.data.userId`" claim is stale.
+  * Periodic re-verification is **already implemented**: a `tokenInterval` (lines ~96-103, every 60s)
+    re-checks the token and disconnects on mismatch — the old "no periodic re-check" claim is stale.
+  * **Still open:** `join:workspace` (lines ~106-112) still does **two sequential DB reads** every time
+    (`getUserWorkspaceRole` then `UserRepository.findById` for the superadmin check) — PERF-5's `roleCache`
+    is imported (`index.ts:88`) but never called here, so the cache built for this exact purpose sits unused.
+  * `MAX_ROOMS = 50` is declared (line ~93) but **never enforced anywhere** — dead constant, not a real cap.
+* **Why:** at 10k sockets joining a handful of workspaces each, two uncached DB reads per join is tens of
+  thousands of DB reads in a reconnect storm — and a reconnect storm is exactly what a deploy causes.
+* **Change:** call PERF-5's `roleCache` inside `join:workspace` instead of hitting the DB directly (do PERF-5
+  first, or in the same commit — they're now the same piece of unfinished wiring), and actually enforce
+  `MAX_ROOMS` (reject or evict beyond the cap) instead of leaving it declared and unused.
 * **Done when:** a load test holds 10k sockets under a documented memory ceiling with p95 delivery inside
-  the budget, and a test proves a member removed mid-session stops receiving events.
+  the budget, and a test proves a member removed mid-session stops receiving events (already covered by the
+  existing `tokenInterval` — just needs a test asserting it).
 
 ---
 
@@ -803,33 +675,6 @@ rows touched, bytes transferred, milliseconds.
 4. **Use `getByTestId`.** The existing specs already do this widely; do not reintroduce
    `page.locator('input[type="text"]')`.
 5. **Every test must fail against the pre-fix code.** Watch it fail before you fix anything.
-
-## TEST-2 — The database matrix
-
-* **Status:** partially real — **two of its three "Where" claims were false** · **Size:** M
-* **Goal:** the whole suite runs against sqlite, postgres and mysql.
-* **Verified state:**
-  * ❌ `baseURL` is **not** commented out — `playwright.config.ts` sets `http://localhost:5173`.
-  * ❌ `webServer` is **not** commented out — it is active with two entries.
-  * ❌ The API-URL refactor it asks for is **already done**: `grep -rn "localhost:3005" tests/` returns
-    nothing; specs use relative paths (e.g. `tests/e2e/auth-api.spec.ts:6`
-    `request.get('/api/admin/config')`).
-  * ✅ **Eleven** spec files still hardcode `page.goto('http://localhost:5173/...')`: collection,
-    concurrency, conflict, edgecases, environments, requests, scripts-scope, scripts, socket-advanced,
-    socket-sync, tabs.
-  * ✅ There is no per-backend harness and no per-DB Playwright project — only `chromium`.
-    `test-all-dbs.ps1` still sits at the repo root as the manual substitute.
-  * Server-side: `db.repositories.test.ts` and `db.sqlmodels.test.ts` run against **sqlite only** (via
-    `server/src/tests/__mocks__/connect.ts`). `db.config.test.ts` covers postgres/mysql/mssql *config
-    resolution* with no connection. CI is sqlite-only end to end.
-* **Why:** the three backends differ in exactly the places this app is fragile — `LIKE` escaping (SEC-6),
-  index creation (FIX-3's migrations), `JSON` column behaviour, and `Op.in` limits. A bug that only appears
-  on mysql currently ships.
-* **Change:** replace the 11 hardcoded `page.goto` URLs with `baseURL`-relative paths; add a Playwright
-  project per `DB_TYPE` with the backend supplied as a service container; keep sqlite as the default local
-  project so nobody needs Docker to run tests.
-* **Done when:** `npx playwright test --project=postgres` runs the whole suite against a fresh Postgres and
-  CI runs all three.
 
 ## TEST-3 — Journey coverage, per feature area
 
@@ -854,14 +699,14 @@ rows touched, bytes transferred, milliseconds.
 | 4 | Request editing | partial | `requests.spec.ts` (3), `edgecases.spec.ts` | body-mode and auth-type matrix, dirty state, undo/redo |
 | 5 | Sending | partial | `response.spec.ts` | per-mode viewer, image/PDF, timeout and error paths |
 | 6 | Environments | partial | `environments.spec.ts` (2) | secret masking, globals-vs-env precedence, import/export |
-| 7 | Scripts | partial | `scripts.spec.ts`, `scripts-scope.spec.ts` | failing assertions, `pm.sendRequest`, isolation (SEC-3) |
+| 7 | Scripts | partial | `scripts.spec.ts`, `scripts-scope.spec.ts` | failing assertions, `pm.sendRequest`; sandbox isolation is shipped in code but no test asserts it |
 | 8 | History | partial | `history.spec.ts` | search, save-to-collection, quota behaviour |
 | 9 | Runner | partial | `runner.spec.ts` | iterations, CSV/JSON data files, stop mid-run |
 | 10 | Import / Export | **placeholder** | `import-export.spec.ts` | only asserts buttons exist on AdminPage |
-| 11 | Share | **placeholder** | `share.spec.ts` | only generates a link — never opens it anonymously (SEC-0.6) |
+| 11 | Share | **placeholder** | `share.spec.ts` | only generates a link — never opens it anonymously; the route itself is already hardened in code (shipped), nothing tests it |
 | 12 | Admin | **placeholder** | `admin.spec.ts` | login + dashboard render only |
 | 13 | Tabs | partial | `tabs.spec.ts`, `concurrency.spec.ts` | drag-reorder only |
-| 14 | Multi-user realtime | partial | `socket-sync.spec.ts`, `socket-advanced.spec.ts` | 2 tests for 13 events (SOCK-2) |
+| 14 | Multi-user realtime | partial | `socket-sync.spec.ts`, `socket-advanced.spec.ts`, `sock1-no-refetch.spec.ts` | 3 UI-level tests for 13 events, none asserting directly on payload (SOCK-2) |
 
 * **Why rows 10-12 matter most:** each one is a green tick that proves nothing. `share.spec.ts` in
   particular gave false confidence while the public share route was returning 401 to anonymous viewers
@@ -886,19 +731,21 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-5 — Client unit tests
 
-* **Status:** verified real, exactly as previously written · **Size:** M
-* **Verified state:** `client/package.json` scripts are `dev`, `build`, `lint`, `preview` only; devDeps
-  include `@playwright/test` but no vitest, jest, `@testing-library/*` or jsdom. There are **zero**
-  `*.test.*` / `*.spec.*` files under `client/src`. The root `package.json` has no `test` script either.
+* **Status:** the infra is now built; the actual tests still aren't written. **Size:** S now (down from M —
+  the setup work is done).
+* **Verified state:** `client/package.json` now has `"test": "vitest run"` plus `vitest ^5.0.2` and
+  `jsdom ^30.1.1` in devDependencies — the old "no vitest, no test script" claim is stale, someone wired the
+  harness. But `find client/src -iname "*.test.*" -o -iname "*.spec.*"` still returns **zero files** — no
+  actual test exists yet for `variables.ts`, `scripts.ts`, or `requestStore.ts`.
 * **Why:** the highest-risk pure logic in the product is client-side and completely untested — variable
   resolution and precedence (`client/src/utils/variables.ts`), the script runner
   (`client/src/utils/scripts.ts`), and the SEC-4 `stripSecrets` persistence filter in
   `client/src/store/requestStore.ts`, where a regression silently writes credentials back to
   `localStorage`.
-* **Change:** add vitest + jsdom, a `test` script, and start with those three modules. They are pure
-  functions — no component rendering needed for the first pass.
-* **Done when:** `npm test --prefix client` runs in CI with a coverage floor on `client/src/utils` and
-  `client/src/store`.
+* **Change:** just write the tests — start with those three modules, they're pure functions, no component
+  rendering needed for the first pass. Do not re-set-up vitest, it's already there.
+* **Done when:** `npm test --prefix client` runs in CI with real assertions and a coverage floor on
+  `client/src/utils` and `client/src/store`.
 
 ## TEST-6 — Scale and performance budgets
 
@@ -954,52 +801,21 @@ rows touched, bytes transferred, milliseconds.
 
 # UI — Client experience
 
-## UI-3 — Handle 403 distinctly from 401
-
-* **Status:** verified real · **Size:** S · **One instruction in the previous revision was dangerous —
-  read the trap.**
-* **Verified state:** `client/src/api/axios.ts:8-17` handles **401 only**. A 403 falls through, so the
-  action simply does not happen and the UI says nothing.
-* **Change:** on 403, surface a permission message through UI-2's toast; keep the 401 redirect as is.
-* **Traps:** the previous revision also said to "remove the double `AuthGuard` on /admin". **Do not.**
-  `client/src/App.tsx:227` is the authentication gate on `MainLayout`; `:229` is
-  `<AuthGuard requireSuperAdmin>` on `AdminPage`, and **the inner one carries the superadmin check**.
-  Removing it removes the privilege gate and hands the admin page to any logged-in user.
-* **Done when:** a viewer attempting an editor-only action sees an explicit permission message, and a
-  non-superadmin still cannot reach `/admin`.
-
 ## UI-4 — Accessibility
 
-* **Status:** verified real, **worse than stated** · **Size:** L
-* **Verified state:** across `client/src/**/*.tsx` there are **zero** `aria-label`, `aria-modal` and
-  `role=` attributes — confirmed exactly as claimed. Additionally there are **73** occurrences of
-  `outline-none` / `focus:outline-none` and **zero** `focus-visible`: focus rings are actively stripped
-  app-wide with nothing put back, so the app cannot be navigated by keyboard at all.
-* **Change:** restore a visible `focus-visible` ring as a global style **first** — it is one rule and it is
-  the difference between "unusable by keyboard" and "usable" — then label controls, add `role`/`aria-modal`
-  to the modals, and trap focus inside them.
+* **Status:** verified real, still open, but remediation has quietly started · **Size:** L
+* **Verified state:** across `client/src/**/*.tsx` there is now **1** `aria-label`/`aria-modal`/`role=`
+  attribute (not zero as previously claimed — still effectively unaddressed at this scale). `outline-none`/
+  `focus:outline-none` is at **70** occurrences (was 73 — roughly unchanged). `focus-visible` now has **2**
+  hits — `ToastContainer.tsx:25` (`focus-visible:ring-2 focus-visible:ring-white`) and `App.css:14`
+  (`&:focus-visible`) — so this is no longer literally zero, but nowhere close to "every interactive control
+  shows a focus ring."
+* **Change:** restore a visible `focus-visible` ring as a global style **first** (extend what's already
+  started in `App.css` app-wide) — it is the difference between "unusable by keyboard" and "usable" — then
+  label controls, add `role`/`aria-modal` to the modals, and trap focus inside them.
 * **Traps:** `@axe-core/playwright` is in neither `package.json`, so the "Done when" needs it added first.
 * **Done when:** an axe scan of the main screen, one modal and the admin page reports no critical
   violations, and every interactive control shows a focus ring when tabbed to.
-
-## UI-5 — Style consistency
-
-* **Status:** verified real · **Size:** S
-* **Verified state:** **21** `style={{` occurrences in `client/src/App.tsx` where the rest of the app uses
-  Tailwind — principally `DbErrorScreen` and the loading screen. Both render before the app shell, which is
-  presumably why they were written that way; confirm whether Tailwind is available at that point before
-  converting.
-* **Done when:** the inline blocks are Tailwind, or a comment explains why they cannot be.
-
-## UI-6 — Fix stale copy
-
-* **Status:** verified real · **Size:** XS
-* **Verified state:** `client/src/pages/AdminPage.tsx:465` still warns that import will "overwrite system
-  configuration". `POST /api/admin/import/:workspaceId` inserts collections, folders, requests and
-  environments only — it never touches config. Also `client/src/pages/AdminPage.tsx:391` still describes the
-  setting as affecting "every user's Send / share-link / **capture** requests", and capture no longer
-  exists (see CLEAN).
-* **Done when:** both strings describe what the code does.
 
 ---
 
@@ -1043,11 +859,7 @@ Everything here was explicitly selected by the owner. Anything *not* here and no
 
 | # | Item | Verified state | Action |
 |---|---|---|---|
-| 3 | Inconsistent naming | `package.json:14` `appId: com.reqspaceclone.app`; `server/src/db/dbConfig.ts:78` default DB `postman_clone`; repo folder `postman`; product Reqspace; also `server/src/tests/db.connection.manual.ts:9-10` | Pick one name and apply it |
-| 4 | Dead dependencies | Zero usages in `server/src` for `multer` (1.4.5-lts.1 is end-of-life), `archiver`, `postman-collection`, `http-proxy-middleware`, `ajv` — **all droppable now.** Also `@types/archiver`, `@types/multer`. `undici` has **3** live usages and must stay until SEC-0.4. `soap@^1.12.0` is live in `importExport.ts` — do not touch | Drop the five plus the two `@types` |
-| 5 | Stale capture copy | `server/src/utils/ssrf.ts:6` says "share-proxy, capture, and WSDL-import routes"; `client/src/pages/AdminPage.tsx:391` says "every user's Send / share-link / capture requests". Capture was deleted in `36b3331` | Fix both strings (the second is also UI-6) |
-| 6 | Stale doc references | `scripts/smoke-core.sh:4` points at `TESTING.md` and `server/src/tests/ssrf.test.ts:5` at `CODE_REVIEW.md`; **neither document exists** in the repo | Repoint both at this file |
-| 7 | `IGNORE.md` drift | Its section B cites `server/src/models/AuditLog.ts`, `server/src/routes/capture.ts` and `CaptureTrafficModal.tsx`, all deleted | Repoint or drop those rows |
+| 8 | Dead PowerShell script | `test-all-dbs.ps1` at the repo root was the manual substitute for a per-DB Playwright matrix. That matrix now exists for real (`playwright.config.ts` has `sqlite`/`postgres`/`mysql`/`extension` projects, wired into CI) — the script is now dead weight, not a fallback anyone needs | Delete `test-all-dbs.ps1` |
 
 ---
 
@@ -1104,6 +916,26 @@ Two corrections that outlived FIX-3 and now live in the tasks that need them:
 | **TEST-1** — run the Playwright suite in CI | `test.yml` runs the full Playwright matrix (`--project=${{ matrix.db }}` + extension project); `docker-publish.yml` gates on it via `workflow_call`; `CERT_ENCRYPTION_KEY` fixed in CI, admin test-ordering/forced-password-change bug fixed | `.github/workflows/test.yml`, `tests/e2e/global-setup.ts` |
 | **UI-1** — replace native `prompt()`/`confirm()`/`alert()` | All 8 real sites (across `AdminPage.tsx`, `HistorySidebar.tsx`, `Sidebar.tsx`, `RequestTabBar.tsx`, `UrlBar.tsx`, `EnvironmentSidebar.tsx`, `EnvironmentTabEditor.tsx`) migrated to the app's own modals/toasts; all 13 e2e specs' `page.on('dialog', ...)` listeners rewritten to drive the real modals | grep for `window.prompt`/`window.confirm`/bare `alert(`/`confirm(`/`prompt(` in `client/src` returns nothing |
 | **UI-2** — one global feedback surface | The 6 modals that swallowed async errors into local `useState` now also route through `toastStore`; `GlobalSettingsModal`'s silent `console.error`-only delete failure now surfaces a toast | `client/src/store/toastStore.ts`, `ToastContainer.tsx`, `tests/e2e/toast-on-closed-modal.spec.ts` |
+
+## Shipped (2026-09-26, audit pass 2)
+
+Found by re-verifying every remaining open item against the actual running code, instead of trusting the
+file's own prior text. All confirmed done by direct inspection (grep, reading the source, and — for the two
+builds — actually running them).
+
+| Was | What shipped | Evidence |
+|---|---|---|
+| **Self-registration silently granted superadmin** (the item formerly titled SEC-13) | `server/src/routes/auth.ts:56` now creates self-registered users with `isSuperAdmin: false` | `server/src/routes/auth.ts:56` |
+| **SEC-0.6** — harden the public share-link route | `GET /:shortId` now returns only `{name, method, url, description}` per request plus filtered headers and `auth:{type}` — no tokens, body or scripts; `DELETE /:shortId` exists with an owner/superadmin check; rate limiting (`shareGetLimiter`) is applied; the mismatched-token bug is fixed (one `token` value generated and stored, not a fresh one returned) | `server/src/routes/share.ts` |
+| **The script sandbox** (the item formerly titled SEC-3 in cross-references) | `client/src/utils/scripts.ts` no longer runs user scripts via `new Function` on the main thread — it now does `new SandboxWorker()` (Vite `?worker` import of `client/src/sandbox/worker.ts`) and communicates by `postMessage`; the HTML preview iframe is `sandbox=""` and the visualizer iframe is `sandbox="allow-scripts"` (never `allow-same-origin`), matching the target design exactly | `client/src/utils/scripts.ts:1,40`, `client/src/components/response/ResponseViewer.tsx:381,540` |
+| **SEC-8** — encrypt client SSL certificates at rest | `server/src/utils/cryptoBox.ts` implements AES-256-GCM `seal`/`open` keyed from `CERT_ENCRYPTION_KEY`, with graceful fallback for pre-existing plaintext rows (`isEncrypted` check); `POST /certificates` seals `key`/`passphrase`; `GET /me` returns metadata only (`_id`, `hostname`, `createdAt`); `routes/proxy.ts` decrypts via `cryptoBox.open()` at the point of use | `server/src/utils/cryptoBox.ts`, `server/src/routes/auth.ts:135-151,335-341`, `server/src/routes/proxy.ts:79` |
+| **SEC-9** — validate every request body with Zod | 10 files under `server/src/schemas/` plus `server/src/middleware/validate.ts`; every mutating route across admin/auth/collections/environments/history/importExport/localVariables/proxy/share/shareProxy has a matching `validate(...)` call (checked 1:1, zero gaps found); `ajv` fully removed from `server/package.json` | `server/src/middleware/validate.ts`, `server/src/schemas/*.ts` |
+| **UI-3** — handle 403 distinctly from 401 | `client/src/api/axios.ts:9-22` now dispatches a toast on 403 alongside the existing 401 redirect | `client/src/api/axios.ts` |
+| **UI-5** — style consistency | `client/src/App.tsx` no longer has any `style={{` occurrences (was 21) | `client/src/App.tsx` |
+| **UI-6** — fix stale copy | `AdminPage.tsx`'s import-confirm text no longer mentions "overwrite system configuration"; the proxy-setting text no longer mentions "capture" | `client/src/pages/AdminPage.tsx` |
+| **TEST-2** — the database matrix | `playwright.config.ts` now defines `sqlite`/`postgres`/`mysql`/`extension` projects wired into CI (`test.yml`'s `--project=${{ matrix.db }}`, confirmed under TEST-1); zero spec files under `tests/e2e/` hardcode `localhost:5173` any more (was 11) | `playwright.config.ts`, `tests/e2e/*.spec.ts` |
+| **CLEAN rows 3, 4, 5, 6, 7** (naming, dead deps, stale capture copy, stale doc refs, `IGNORE.md` drift) | Naming is consistently `reqspace`/`reqSpace` now (`appId: com.reqspace.app`, default DB `reqspace`); `multer`/`archiver`/`postman-collection`/`http-proxy-middleware`/`ajv` and their `@types` are gone from `server/package.json`; `ssrf.ts`/`AdminPage.tsx` no longer mention "capture"; `smoke-core.sh`/`ssrf.test.ts` point at `TODO.md`, not the nonexistent `TESTING.md`/`CODE_REVIEW.md`; `IGNORE.md` section B already says "(formerly CaptureTrafficModal)" / "(formerly capture.ts)" | `package.json`, `server/package.json`, `server/src/utils/ssrf.ts`, `IGNORE.md` |
+| **Build health** (not a numbered task, but directly relevant to this file's own "a build error is a production outage" warning) | Both builds pass clean as of 2026-09-26: `npm run build --prefix server` (tsc, no errors) and `npm run build --prefix client` (vite, "✓ built", no type/compile errors — only a chunk-size warning and `INEFFECTIVE_DYNAMIC_IMPORT` notices, both now tracked under PERF-7) | direct run, 2026-09-26 |
 
 ## No longer applicable
 
