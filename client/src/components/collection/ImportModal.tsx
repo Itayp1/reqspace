@@ -6,6 +6,7 @@ import api from '../../api/axios';
 import { useAuthStore } from '../../store/authStore';
 import { useRequestStore } from '../../store/requestStore';
 import { useCollectionStore } from '../../store/collectionStore';
+import { useToastStore } from '../../store/toastStore';
 
 function generateSampleFromSchema(schema: any): any {
   if (!schema) return {};
@@ -271,7 +272,9 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
       }
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Import failed');
+      const message = err.response?.data?.message || err.message || 'Import failed';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     } finally {
       setLoading(false);
     }

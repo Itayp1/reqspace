@@ -46,3 +46,19 @@ One line per completed task: date · id · what was done · files touched.
   (Monaco's worker fails to load, confirmed independent of CSP) and TEST-7 (`sec10.e2e.test.ts`'s flood
   pollutes the shared rate limiter for whatever suite runs next). · `server/src/tests/sec10-headers.test.ts`,
   `README.md`, `TODO.md`
+* 2026-09-26 · UI-2 · Found the toast infrastructure already shipped and uncredited
+  (`store/toastStore.ts`, `components/common/ToastContainer.tsx`, wired into `App.tsx`, plus a global 403
+  handler in `api/axios.ts`). The real remaining bug: 6 modals (`ShareLinkModal`, `ImportModal`,
+  `CopyToWorkspaceModal`, `AddUserModal`, `WorkspaceSettingsModal` ×4, `GlobalSettingsModal`) still caught
+  async failures into local `useState`, lost the moment the modal unmounts — `GlobalSettingsModal`'s
+  `handleDelete` didn't even show it while mounted (console.error only). Each catch block now also toasts.
+  Added `data-testid`s to `ToastContainer` and `AddUserModal` (neither had any) and a Playwright test that
+  submits, closes the modal before a mocked delayed/failing response lands, and asserts the toast still
+  appears — verified it fails against the pre-fix code and passes with it. ·
+  `client/src/components/common/ToastContainer.tsx`, `client/src/components/collection/ShareLinkModal.tsx`,
+  `client/src/components/collection/ImportModal.tsx`,
+  `client/src/components/collection/CopyToWorkspaceModal.tsx`,
+  `client/src/components/admin/AddUserModal.tsx`,
+  `client/src/components/workspace/WorkspaceSettingsModal.tsx`,
+  `client/src/components/common/GlobalSettingsModal.tsx`, `client/src/pages/AdminPage.tsx`,
+  `tests/e2e/toast-on-closed-modal.spec.ts`, `README.md`, `TODO.md`

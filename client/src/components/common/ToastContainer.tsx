@@ -12,6 +12,7 @@ export const ToastContainer: React.FC = () => {
       {toasts.map((toast) => (
         <div
           key={toast.id}
+          data-testid={`toast-${toast.type}`}
           className={`flex items-center justify-between min-w-[300px] max-w-md p-4 rounded shadow-lg text-white ${
             toast.type === 'error' ? 'bg-red-600' :
             toast.type === 'success' ? 'bg-green-600' :

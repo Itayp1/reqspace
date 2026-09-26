@@ -4,6 +4,7 @@ import { X, UserPlus, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../api/axios';
 import { UserAutocomplete } from '../common/UserAutocomplete';
+import { useToastStore } from '../../store/toastStore';
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
   const { activeWorkspace, workspaces, setWorkspaces, setActiveWorkspace } = useAuthStore();
@@ -51,7 +52,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       setWorkspaces(updatedWorkspaces);
       setActiveWorkspace(updatedWorkspaces.find(w => w._id === res.data._id) || null);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to update');
+      const message = e.response?.data?.message || 'Failed to update';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -62,7 +65,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       await refreshMembers();
       setInviteEmail('');
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to add member');
+      const message = e.response?.data?.message || 'Failed to add member';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -71,7 +76,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       await api.delete(`/workspaces/${activeWorkspace?._id}/members/${userId}`);
       await refreshMembers();
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to remove member');
+      const message = e.response?.data?.message || 'Failed to remove member';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -215,7 +222,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                                   await api.put(`/workspaces/${activeWorkspace?._id}/members/${m.userId?._id}`, { role: e.target.value });
                                   await refreshMembers();
                                 } catch (err: any) {
-                                  setError(err?.response?.data?.message || 'Failed to update role');
+                                  const message = err?.response?.data?.message || 'Failed to update role';
+                                  setError(message);
+                                  useToastStore.getState().addToast('error', message);
                                 }
                               }}
                               className="bg-transparent border border-border rounded p-1"

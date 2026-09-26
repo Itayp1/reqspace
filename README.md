@@ -370,7 +370,7 @@ is the index; `TODO.md` is the detail.
 | Done | ID | Task | Size | Notes |
 |---|---|---|---|---|
 | `[ ]` | UI-1 | Replace native `prompt` / `confirm` / `alert` | M | **22 sites**, including 12 `alert()` calls. Playwright specs install dialog handlers that must be replaced in the same commit |
-| `[ ]` | UI-2 | One global feedback surface (toasts) | M | Do this before UI-1 |
+| `[x]` | UI-2 | One global feedback surface (toasts) | M | The store/container already existed and wasn't credited. 6 modals still lost async errors to local state on unmount — fixed, each now also toasts |
 | `[ ]` | UI-3 | Handle 403 distinctly from 401 | S | **Do not remove the inner `AuthGuard` on `/admin`** — it carries the superadmin check |
 | `[ ]` | UI-4 | Accessibility | L | Zero `aria-label`/`role`, and 73 `outline-none` with no `focus-visible` — start by restoring a focus ring |
 | `[ ]` | UI-5 | Style consistency | S | 21 inline `style={{}}` blocks in `App.tsx` |

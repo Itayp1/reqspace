@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import api from '../../api/axios';
+import { useToastStore } from '../../store/toastStore';
 
 interface Props {
   type: 'collection' | 'request' | 'environment';
@@ -68,7 +69,9 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
       }
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to copy item');
+      const message = err.response?.data?.message || err.message || 'Failed to copy item';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     } finally {
       setIsLoading(false);
     }

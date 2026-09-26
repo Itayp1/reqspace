@@ -958,12 +958,22 @@ rows touched, bytes transferred, milliseconds.
 
 ## UI-2 — One global feedback surface
 
-* **Status:** verified real · **Size:** M · Do this before UI-1.
-* **Verified state:** `client/src/store/toastStore.ts` does not exist and there is no toast anywhere. ~32
-  components each hold their own `setError` state.
-* **Why:** an error raised by a request that finishes after its modal closed has nowhere to go, so it is
-  swallowed entirely.
-* **Done when:** a save that fails inside a modal that has already closed still surfaces a message.
+* **Status:** done · **Size:** M
+* **Correction (2026-09-26):** the infrastructure this section said didn't exist was already there —
+  `client/src/store/toastStore.ts` (a zustand store, 5s auto-dismiss) and
+  `client/src/components/common/ToastContainer.tsx`, mounted unconditionally in `App.tsx:176`. `api/axios.ts`
+  already routes every `403` response through it globally. What was still real: 6 modal components
+  (`ShareLinkModal`, `ImportModal`, `CopyToWorkspaceModal`, `AddUserModal`, `WorkspaceSettingsModal` — 4
+  call sites, `GlobalSettingsModal`) caught their own async failures into local `useState`, which is gone
+  the instant the component unmounts — the exact bug this task describes. `GlobalSettingsModal`'s
+  `handleDelete` was worse: `console.error` only, no user-facing feedback at all, ever.
+* **Change:** each of those catch blocks now also calls `useToastStore.getState().addToast('error',
+  message)` alongside (not instead of) its existing `setError` — inline feedback while the modal is open,
+  guaranteed feedback either way. Added `data-testid`s to `ToastContainer` (`toast-{type}`) and
+  `AddUserModal`/its trigger button, neither of which had any.
+* **Done when:** `tests/e2e/toast-on-closed-modal.spec.ts` — opens `AddUserModal`, submits, closes the modal
+  before a deliberately delayed+failing mocked response lands, asserts the toast still appears with the
+  right message. Fails against the pre-fix code (verified by temporarily reverting the fix), passes with it.
 
 ## UI-3 — Handle 403 distinctly from 401
 

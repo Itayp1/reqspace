@@ -4,6 +4,7 @@ import { useSettingsStore } from '../../store/settingsStore';
 import { useState } from 'react';
 import api from '../../api/axios';
 import { useAuthStore } from '../../store/authStore';
+import { useToastStore } from '../../store/toastStore';
 
 function ClientCertificatesManager() {
   const user = useAuthStore(state => state.user);
@@ -29,7 +30,9 @@ function ClientCertificatesManager() {
       setIsAdding(false);
       setHostname(''); setCert(''); setKey(''); setPassphrase('');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to add certificate');
+      const message = err.response?.data?.message || 'Failed to add certificate';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -39,7 +42,7 @@ function ClientCertificatesManager() {
       setCerts(res.data);
       setUser({ ...user!, clientCertificates: res.data });
     } catch (err: any) {
-      console.error(err);
+      useToastStore.getState().addToast('error', err.response?.data?.message || 'Failed to delete certificate');
     }
   };
 

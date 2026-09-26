@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Copy, Check } from 'lucide-react';
 import api from '../../api/axios';
+import { useToastStore } from '../../store/toastStore';
 
 interface Props {
   collectionId: string;
@@ -23,7 +24,12 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
       setSharedLink(window.location.origin + res.data.url);
       setLoading(false);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to generate link');
+      const message = err.response?.data?.message || 'Failed to generate link';
+      // Local state for inline feedback while the modal is still open, plus a
+      // toast so the error isn't silently lost if the user already closed it
+      // before this async call settled (UI-2).
+      setError(message);
+      useToastStore.getState().addToast('error', message);
       setLoading(false);
     }
   };

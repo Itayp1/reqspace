@@ -109,7 +109,8 @@ export default function AdminPage() {
         {!loading && activeTab === 'users' && (
           <div className="flex flex-col h-full">
             <div className="p-4 border-b border-border flex justify-end bg-surface">
-              <button 
+              <button
+                data-testid="admin-add-user-btn"
                 className="bg-primary text-white px-4 py-2 rounded-md font-semibold text-sm hover:bg-orange-600 transition"
                 onClick={() => setIsAddUserModalOpen(true)}
               >
