@@ -29,6 +29,6 @@ export const updateConfigSchema = z.object({
     clientId: z.string().optional(),
     clientSecret: z.string().optional()
   }).optional()
-}).strict();
+});
 
 export const importDumpSchema = z.record(z.any()); // passthrough because multer adds fields

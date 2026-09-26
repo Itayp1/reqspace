@@ -12,7 +12,7 @@ export const loginSchema = z.object({
 }).strict();
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string(),
+  currentPassword: z.string().optional(),
   newPassword: z.string().min(8, 'Password must be at least 8 characters')
 }).strict();
 

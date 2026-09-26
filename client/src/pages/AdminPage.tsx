@@ -74,7 +74,12 @@ export default function AdminPage() {
 
   const saveConfig = async () => {
     try {
-      await api.put('/admin/config', config);
+      const payload = { ...config };
+      delete payload._id;
+      delete (payload as any).id;
+      delete (payload as any).createdAt;
+      delete (payload as any).updatedAt;
+      await api.put('/admin/config', payload);
       useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
       useToastStore.getState().addToast('error', e.message);
