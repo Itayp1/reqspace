@@ -69,6 +69,15 @@ interface CollectionStore {
   moveRequest: (id: string, newCollectionId: string, newFolderId: string | null) => Promise<void>;
   moveFolder: (folderId: string, newCollectionId: string, newParentFolderId: string | null) => Promise<void>;
   reorderItems: (type: 'collection' | 'folder' | 'request', items: { id: string; order: number }[]) => Promise<void>;
+
+  // Socket reducers
+  applyCollectionUpserted: (collection: Collection) => void;
+  applyCollectionDeleted: (id: string) => void;
+  applyFolderUpserted: (folder: Folder) => void;
+  applyFolderDeleted: (id: string) => void;
+  applyRequestUpserted: (request: ApiRequest) => void;
+  applyRequestDeleted: (id: string) => void;
+  applyWorkspaceReordered: (payload: { collections?: Collection[], folders?: Folder[], requests?: ApiRequest[] }) => void;
 }
 
 export const useCollectionStore = create<CollectionStore>((set, get) => ({
@@ -80,6 +89,56 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   setCollections: (collections) => set({ collections }),
   setFolders: (folders) => set({ folders }),
   setRequests: (requests) => set({ requests }),
+
+  // Socket reducers implementation
+  applyCollectionUpserted: (c) => set((state) => {
+    const existing = state.collections.find(col => col._id === c._id);
+    return existing 
+      ? { collections: state.collections.map(col => col._id === c._id ? { ...col, ...c } : col) }
+      : { collections: [...state.collections, c] };
+  }),
+  applyCollectionDeleted: (id) => set((state) => ({
+    collections: state.collections.filter(c => c._id !== id),
+    folders: state.folders.filter(f => f.collectionId !== id),
+    requests: state.requests.filter(r => r.collectionId !== id),
+  })),
+  applyFolderUpserted: (f) => set((state) => {
+    const existing = state.folders.find(fol => fol._id === f._id);
+    return existing
+      ? { folders: state.folders.map(fol => fol._id === f._id ? { ...fol, ...f } : fol) }
+      : { folders: [...state.folders, f] };
+  }),
+  applyFolderDeleted: (id) => set((state) => ({
+    folders: state.folders.filter(f => f._id !== id),
+    // We should ideally remove subfolders and requests but backend might send separate events for them, 
+    // or cascading is handled by a refresh. For simplicity, we just filter what we match.
+    requests: state.requests.filter(r => r.folderId !== id), // basic cascade
+  })),
+  applyRequestUpserted: (r) => set((state) => {
+    const existing = state.requests.find(req => req._id === r._id);
+    return existing
+      ? { requests: state.requests.map(req => req._id === r._id ? { ...req, ...r } : req) }
+      : { requests: [...state.requests, r] };
+  }),
+  applyRequestDeleted: (id) => set((state) => ({
+    requests: state.requests.filter(r => r._id !== id),
+  })),
+  applyWorkspaceReordered: (payload) => set((state) => {
+    let newState = { ...state };
+    if (payload.collections) {
+      const updates = new Map(payload.collections.map(c => [c._id, c]));
+      newState.collections = newState.collections.map(c => updates.has(c._id) ? { ...c, ...updates.get(c._id)! } : c);
+    }
+    if (payload.folders) {
+      const updates = new Map(payload.folders.map(f => [f._id, f]));
+      newState.folders = newState.folders.map(f => updates.has(f._id) ? { ...f, ...updates.get(f._id)! } : f);
+    }
+    if (payload.requests) {
+      const updates = new Map(payload.requests.map(r => [r._id, r]));
+      newState.requests = newState.requests.map(r => updates.has(r._id) ? { ...r, ...updates.get(r._id)! } : r);
+    }
+    return newState;
+  }),
 
   toggleCollectionOpen: (id: string) => set((state) => {
     const next = new Set(state.openCollectionIds);

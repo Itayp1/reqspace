@@ -76,7 +76,8 @@ export default defineConfig({
       env: {
         DB_TYPE: process.env.DB_TYPE || 'sqlite',
         PORT: '3005',
-        ALLOW_DEFAULT_ADMIN: 'true'
+        ALLOW_DEFAULT_ADMIN: 'true',
+        CERT_ENCRYPTION_KEY: process.env.CERT_ENCRYPTION_KEY || 'test-key-32-chars-long-1234567890'
       }
     },
     {

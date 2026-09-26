@@ -24,11 +24,6 @@ export function SocketSync() {
       useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
     });
 
-    const handleUpdate = () => {
-      // For simplicity, just fetch the whole tree when anything changes structurally.
-      // This ensures we always have the correct folders, requests, orders, etc.
-      useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
-    };
 
     socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
@@ -40,14 +35,11 @@ export function SocketSync() {
     socket.on('request:deleted', (id) => useCollectionStore.getState().applyRequestDeleted(id));
     socket.on('workspace:reordered', (payload) => useCollectionStore.getState().applyWorkspaceReordered(payload));
 
-    const handleEnvUpdate = () => {
-      useEnvironmentStore.getState().fetchEnvironments(activeWorkspace._id);
-    };
-    socket.on('environment:created', handleEnvUpdate);
-    socket.on('environment:deleted', handleEnvUpdate);
+    socket.on('environment:created', (env) => useEnvironmentStore.getState().applyEnvironmentUpserted(env));
+    socket.on('environment:deleted', (id) => useEnvironmentStore.getState().applyEnvironmentDeleted(id));
 
     socket.on('environment:updated', (updatedEnv: any) => {
-      handleEnvUpdate();
+      useEnvironmentStore.getState().applyEnvironmentUpserted(updatedEnv);
       const requestStore = useRequestStore.getState();
       const tabExists = requestStore.tabs.some(t => t.tabId === updatedEnv._id);
       if (tabExists) {

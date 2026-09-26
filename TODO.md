@@ -566,7 +566,7 @@ rows touched, bytes transferred, milliseconds.
 
 # SOCK — Realtime
 
-## SOCK-1 — Apply deltas instead of refetching the tree
+## [x] SOCK-1 — Apply deltas instead of refetching the tree
 
 * **Status:** verified real · **Size:** L · Blocked behind nothing, but PERF-1 makes the cost smaller.
 * **Goal:** a socket event mutates the client's store in place. No HTTP.
@@ -598,7 +598,7 @@ rows touched, bytes transferred, milliseconds.
 
 ---
 
-## SOCK-2 — Cover every emit site with a two-client test
+## [x] SOCK-2 — Cover every emit site with a two-client test
 
 * **Status:** verified real — **and the previous revision's coverage table was false** · **Size:** M
 * **Goal:** every `emitToWorkspace` call site has a test where the *observer* is the assertion subject.
@@ -621,7 +621,7 @@ rows touched, bytes transferred, milliseconds.
 
 ---
 
-## SOCK-3 — Redis adapter and horizontal scaling
+## [x] SOCK-3 — Redis adapter and horizontal scaling
 
 * **Status:** verified real · **Size:** M · Needed the moment there is more than one pod.
 * **Goal:** an event emitted on pod A reaches a socket held by pod B.
@@ -644,7 +644,7 @@ rows touched, bytes transferred, milliseconds.
 
 ---
 
-## SOCK-4 — Connection hygiene at 10k sockets
+## [x] SOCK-4 — Connection hygiene at 10k sockets
 
 * **Status:** verified real · **Size:** M
 * **Goal:** 10,000 concurrent sockets within a documented memory ceiling, without a DB read per join.
