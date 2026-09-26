@@ -31,4 +31,4 @@ release/
 /fix_*.js
 /fix_*.py
 /fix.ps1
-/patch_*.js
+patch_*.js

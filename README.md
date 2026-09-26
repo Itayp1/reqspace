@@ -347,30 +347,30 @@ is the index; `TODO.md` is the detail.
 | `[x]` | SOCK-0 | Environment events never reached the client | XS | |
 | `[ ]` | SOCK-1 | Apply deltas instead of refetching the tree | L | Preserve the last-write-wins conflict branch in `SocketSync.tsx` |
 | `[ ]` | SOCK-2 | Cover every emit site with a two-client test | M | Land the CI guard *after* the tests, or CI goes red immediately |
-| `[ ]` | SOCK-3 | Redis adapter and horizontal scaling | M | `replicas: 2` today with no shared adapter — roughly half of all events are lost |
+| `[x]` | SOCK-3 | Redis adapter and horizontal scaling | M | `replicas: 2` today with no shared adapter — roughly half of all events are lost |
 | `[ ]` | SOCK-4 | Connection hygiene at 10k sockets | M | |
 
 ### 🧪 Tests — TEST
 
 | Done | ID | Task | Size | Notes |
 |---|---|---|---|---|
-| `[ ]` | TEST-1 | Run the Playwright suite in CI | M | **Highest leverage here.** CI runs jest + a smoke script only; no browser test has ever run in CI |
-| `[ ]` | TEST-2 | The database matrix | M | CI is sqlite-only; 11 specs hardcode `localhost:5173` |
+| `[x]` | TEST-1 | Run the Playwright suite in CI | M | **Highest leverage here.** CI runs jest + a smoke script only; no browser test has ever run in CI |
+| `[x]` | TEST-2 | The database matrix | M | CI is sqlite-only; 11 specs hardcode `localhost:5173` |
 | `[ ]` | TEST-3 | Journey coverage, per feature area | XL | 14 areas, all partial; Import/Export, Share and Admin are placeholders that assert almost nothing |
 | `[ ]` | TEST-4 | The API-authorization layer | L | Pairs with SEC-2 — a UI test cannot prove an authz check |
-| `[~]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
+| `[x]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
 | `[ ]` | TEST-6 | Scale and performance budgets | M | Assert query counts, not milliseconds |
 
 ### 🎨 Interface — UI
 
 | Done | ID | Task | Size | Notes |
 |---|---|---|---|---|
-| `[ ]` | UI-1 | Replace native `prompt` / `confirm` / `alert` | M | **22 sites**, including 12 `alert()` calls. Playwright specs install dialog handlers that must be replaced in the same commit |
-| `[ ]` | UI-2 | One global feedback surface (toasts) | M | Do this before UI-1 |
-| `[ ]` | UI-3 | Handle 403 distinctly from 401 | S | **Do not remove the inner `AuthGuard` on `/admin`** — it carries the superadmin check |
+| `[x]` | UI-1 | Replace native `prompt` / `confirm` / `alert` | M | **22 sites**, including 12 `alert()` calls. Playwright specs install dialog handlers that must be replaced in the same commit |
+| `[x]` | UI-2 | One global feedback surface (toasts) | M | Do this before UI-1 |
+| `[x]` | UI-3 | Handle 403 distinctly from 401 | S | **Do not remove the inner `AuthGuard` on `/admin`** — it carries the superadmin check |
 | `[ ]` | UI-4 | Accessibility | L | Zero `aria-label`/`role`, and 73 `outline-none` with no `focus-visible` — start by restoring a focus ring |
-| `[ ]` | UI-5 | Style consistency | S | 21 inline `style={{}}` blocks in `App.tsx` |
-| `[ ]` | UI-6 | Fix stale copy | XS | `AdminPage.tsx` still mentions config overwrite and traffic capture |
+| `[x]` | UI-5 | Style consistency | S | 21 inline `style={{}}` blocks in `App.tsx` |
+| `[x]` | UI-6 | Fix stale copy | XS | `AdminPage.tsx` still mentions config overwrite and traffic capture |
 
 ### ✨ Features — FEAT
 
@@ -400,11 +400,11 @@ is the index; `TODO.md` is the detail.
 | `[x]` | CLEAN-1 | Stub runner route deleted | |
 | `[x]` | CLEAN-2 | PM2 restart caps | |
 | `[ ]` | CLEAN-3 | Inconsistent naming | `com.reqspaceclone.app`, default DB `postman_clone`, repo folder `postman`, product Reqspace |
-| `[ ]` | CLEAN-4 | Dead dependencies | `multer`, `archiver`, `postman-collection`, `http-proxy-middleware`, `ajv` — droppable now. **Keep `undici`** until SEC-0.4 |
-| `[ ]` | CLEAN-5 | Stale traffic-capture copy | `utils/ssrf.ts:6`, `AdminPage.tsx:391` |
-| `[ ]` | CLEAN-6 | Stale doc references | `smoke-core.sh` → `TESTING.md`, `ssrf.test.ts` → `CODE_REVIEW.md`; neither file exists |
-| `[ ]` | CLEAN-7 | `IGNORE.md` drift | Section B cites three deleted files |
-| `[ ]` | CLEAN-8 | Scratch files committed to the repo | `server/patch_*.js` (six tracked) and `collections.ts.bak`. `.gitignore` has `/patch_*.js` — the leading slash anchors it to the repo root, so anything under `server/` slips through. Drop the anchor and untrack them |
+| `[x]` | CLEAN-4 | Dead dependencies | `multer`, `archiver`, `postman-collection`, `http-proxy-middleware`, `ajv` — droppable now. **Keep `undici`** until SEC-0.4 |
+| `[x]` | CLEAN-5 | Stale traffic-capture copy | `utils/ssrf.ts:6`, `AdminPage.tsx:391` |
+| `[x]` | CLEAN-6 | Stale doc references | `smoke-core.sh` → `TESTING.md`, `ssrf.test.ts` → `CODE_REVIEW.md`; neither file exists |
+| `[x]` | CLEAN-7 | `IGNORE.md` drift | Section B cites three deleted files |
+| `[x]` | CLEAN-8 | Scratch files committed to the repo | `server/patch_*.js` (six tracked) and `collections.ts.bak`. `.gitignore` has `/patch_*.js` — the leading slash anchors it to the repo root, so anything under `server/` slips through. Drop the anchor and untrack them |
 
 ### ➕ Adding a task
 

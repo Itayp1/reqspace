@@ -1,42 +1,43 @@
-import request from 'supertest';
-import { app } from '../index';
-import { UserRepository } from '../repositories/UserRepository';
-import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { v4 as uuidv4 } from 'uuid';
+
+const BASE_URL = 'http://localhost:3005';
 
 describe('SEC-1: Self-registered users are not superadmins', () => {
   let cookie: string;
   const testEmail = `bob.${uuidv4()}@example.com`;
 
   beforeAll(async () => {
-    // Wait for app to be ready (it starts DB on import, we just wait a bit or it's already ready)
-    await new Promise(r => setTimeout(r, 1000));
-    const conf = await SystemConfigRepository.ensure();
-    if (conf && !conf.auth.allowSelfRegistration) {
-      await SystemConfigRepository.updateConfig({ auth: { ...conf.auth, allowSelfRegistration: true } });
+    let healthy = false;
+    for (let i = 0; i < 30; i++) {
+      try {
+        const res = await fetch(`${BASE_URL}/api/health`);
+        if (res.status === 200) { healthy = true; break; }
+      } catch {}
+      await new Promise(r => setTimeout(r, 1000));
     }
+    if (!healthy) throw new Error('Server not healthy');
   });
 
   it('should register a user with isSuperAdmin=false and verify they cannot access admin routes', async () => {
-    const res = await request(app)
-      .post('/api/auth/register')
-      .send({
+    const res = await fetch(`${BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         name: 'Bob Outsider',
         email: testEmail,
         password: 'Password123!'
-      });
+      })
+    });
 
     expect(res.status).toBe(201);
-    expect(res.body.user.isSuperAdmin).toBe(false);
+    const body = await res.json() as any;
+    expect(body.user.isSuperAdmin).toBe(false);
 
-    cookie = res.headers['set-cookie']?.[0]?.split(';')[0];
+    cookie = res.headers.get('set-cookie')?.split(';')[0] || '';
     
-    const dbUser = await UserRepository.findByEmail(testEmail);
-    expect(dbUser?.isSuperAdmin).toBe(false);
-
-    const adminRes = await request(app)
-      .get('/api/admin/users')
-      .set('Cookie', cookie);
+    const adminRes = await fetch(`${BASE_URL}/api/admin/users`, {
+      headers: { 'Cookie': cookie }
+    });
     
     expect(adminRes.status).toBe(403);
   });

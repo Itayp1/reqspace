@@ -181,4 +181,4 @@ Verified in the source on 2026-09-24. These appeared on the old parity list as "
 | Light / dark theme toggle | `components/layout/TopBar.tsx` (OS *sync* is declined, section A) |
 | Bearer / Basic / API-key / inherit auth | `components/request/AuthEditor.tsx` |
 | Google SSO | `POST /api/auth/google` — `state`/CSRF is `TODO.md` SEC-11 |
-| Traffic capture into the app | `AdminPage.tsx (formerly CaptureTrafficModal)`, `server/src/routes/share.ts (formerly capture.ts)` — its fate is `TODO.md` SEC-0.5 |
+| Traffic capture into the app | `AdminPage.tsx`, `server/src/routes/share.ts` — its fate is `TODO.md` SEC-0.5 |

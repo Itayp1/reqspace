@@ -98,8 +98,7 @@ without it. That is expected, not a regression.
 
 
 
-* **Status:** verified real, **UNFIXED** · **Size:** XS (one word) · **Severity: critical — this is the most
-  severe open item in this file.**
+* **Status:** completed
 * **Goal:** a self-registered user is an ordinary user.
 * **Verified state:** `server/src/routes/auth.ts:54` creates the user with
   `authType: 'password', isSuperAdmin: true`. Introduced in commit `c965de2` (2026-09-25). Confirmed
@@ -398,7 +397,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-1 — Opening a workspace issues 1 + 2×N HTTP requests
 
-* **Status:** verified real · **Size:** M · **The single worst performance defect in the product.**
+* **Status:** completed
 * **Verified state:** `client/src/store/collectionStore.ts:117` fetches the collection list, then `:127-130`
   runs a `Promise.all` over every collection issuing **two** requests each —
   `api.get('/collections/:id/folders')` and `/requests`. A workspace with 200 collections therefore fires
