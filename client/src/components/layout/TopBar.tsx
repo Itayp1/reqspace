@@ -93,14 +93,15 @@ export default function TopBar() {
 
   return (
     <>
-      <div className="min-h-[3rem] py-2 border-b border-border bg-surface flex flex-wrap items-center justify-end px-4 gap-x-3 gap-y-2">
+      <header className="min-h-[3rem] py-2 border-b border-border bg-surface flex flex-wrap items-center justify-end px-4 gap-x-3 gap-y-2" aria-label="Application toolbar">
         {/* Theme Toggle Button */}
         <button
           onClick={toggleTheme}
           className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text transition-colors"
           title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
         >
-          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" aria-hidden="true" /> : <Moon className="w-4 h-4 text-slate-600" aria-hidden="true" />}
         </button>
 
         {/* Cookies Manager Button */}
@@ -108,21 +109,24 @@ export default function TopBar() {
           onClick={() => setIsCookieModalOpen(true)}
           className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text transition-colors flex items-center gap-1 text-xs"
           title="Manage Cookies"
+          aria-label="Manage cookies"
         >
-          <Cookie className="w-4 h-4 text-orange-400" />
-          <span className="hidden sm:inline">Cookies</span>
+          <Cookie className="w-4 h-4 text-orange-400" aria-hidden="true" />
+          <span className="hidden sm:inline" aria-hidden="true">Cookies</span>
         </button>
 
-        <div className="h-4 w-px bg-border my-auto mx-1" />
+        <div className="h-4 w-px bg-border my-auto mx-1" aria-hidden="true" />
 
         {/* Unified Environment Selector & Quick Look */}
         <div className="flex items-center gap-1 bg-surface border border-border rounded pl-2 relative" ref={eyeRef}>
-          <span className="text-xs text-text-muted font-medium">Env:</span>
+          <label htmlFor="env-select" className="text-xs text-text-muted font-medium">Env:</label>
           <select
+            id="env-select"
             data-testid="env-select"
             className="p-1 text-sm bg-transparent text-text max-w-[120px] truncate focus:outline-none cursor-pointer"
             value={activeEnvironmentId || ''}
             onChange={(e) => setActiveEnvironmentId(e.target.value || null)}
+            aria-label="Active environment"
           >
             <option value="">No Environment</option>
             {environments.map((env) => (
@@ -130,14 +134,17 @@ export default function TopBar() {
             ))}
           </select>
 
-          <div className="h-4 w-px bg-border my-auto mx-1" />
+          <div className="h-4 w-px bg-border my-auto mx-1" aria-hidden="true" />
 
           <button
             className="p-1.5 hover:bg-border rounded-r text-text-muted hover:text-text transition-colors flex items-center gap-1"
             title="Environment Quick Look & Edit"
+            aria-label="Environment quick look and edit"
+            aria-expanded={isQuickLookOpen}
+            aria-haspopup="dialog"
             onClick={() => setIsQuickLookOpen(!isQuickLookOpen)}
           >
-            <Eye className="w-4 h-4" />
+            <Eye className="w-4 h-4" aria-hidden="true" />
           </button>
 
           {isQuickLookOpen && (() => {
@@ -147,10 +154,15 @@ export default function TopBar() {
             const globalVars = globalEnvironment?.variables.filter(v => v.enabled) || [];
 
             return (
-              <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl text-xs">
+              <div
+                className="absolute right-0 top-full mt-2 z-50 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl text-xs"
+                role="dialog"
+                aria-label="Environment variables quick look"
+                aria-modal="false"
+              >
                 <div className="p-3 border-b border-gray-700 font-semibold text-gray-100 flex justify-between items-center">
                   <span>Environment Variables</span>
-                  <button onClick={() => setIsQuickLookOpen(false)} className="text-gray-400 hover:text-white">✕</button>
+                  <button onClick={() => setIsQuickLookOpen(false)} className="text-gray-400 hover:text-white" aria-label="Close environment quick look">✕</button>
                 </div>
                 
                 <div className="max-h-64 overflow-y-auto">
@@ -164,8 +176,9 @@ export default function TopBar() {
                           setIsQuickLookOpen(false);
                         }}
                         className="text-orange-400 hover:text-orange-300 text-[10px] flex items-center gap-1"
+                        aria-label={`Edit ${activeEnv?.name || 'environment'} variables`}
                       >
-                        <SlidersHorizontal className="w-3 h-3" /> Edit
+                        <SlidersHorizontal className="w-3 h-3" aria-hidden="true" /> Edit
                       </button>
                     </div>
                     {activeVars.length === 0 ? (
@@ -192,8 +205,9 @@ export default function TopBar() {
                           setIsQuickLookOpen(false);
                         }}
                         className="text-blue-400 hover:text-blue-300 text-[10px] flex items-center gap-1"
+                        aria-label="Edit global variables"
                       >
-                        <Settings className="w-3 h-3" /> Edit Globals
+                        <Settings className="w-3 h-3" aria-hidden="true" /> Edit Globals
                       </button>
                     </div>
                     {globalVars.length === 0 ? (
@@ -215,7 +229,7 @@ export default function TopBar() {
           })()}
         </div>
 
-        <div className="h-4 w-px bg-border my-auto mx-1" />
+        <div className="h-4 w-px bg-border my-auto mx-1" aria-hidden="true" />
 
 
 
@@ -224,20 +238,23 @@ export default function TopBar() {
           <button
             className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text"
             title="Global Search (Ctrl+K)"
+            aria-label="Global search (Ctrl+K)"
+            aria-keyshortcuts="Control+K"
             onClick={() => setIsSearchModalOpen(true)}
           >
-            <Search className="w-5 h-5" />
+            <Search className="w-5 h-5" aria-hidden="true" />
           </button>
           <button
             data-testid="settings-btn"
             className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text"
             title="General Settings"
+            aria-label="Open general settings"
             onClick={() => setIsSettingsModalOpen(true)}
           >
-            <Settings className="w-5 h-5" />
+            <Settings className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
-      </div>
+      </header>
       
       <CookieManagerModal isOpen={isCookieModalOpen} onClose={() => setIsCookieModalOpen(false)} />
 

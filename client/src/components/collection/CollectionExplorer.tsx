@@ -60,32 +60,54 @@ const ActionMenu = ({
     return () => document.removeEventListener('mousedown', handler);
   }, [isOpen]);
 
+  // Close on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        setIsOpen(false);
+        // Return focus to trigger button
+        (menuRef.current?.querySelector('[data-testid="action-menu-btn"]') as HTMLElement)?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
   return (
     <div className="relative flex items-center" ref={menuRef} onClick={(e) => e.stopPropagation()}>
-      <div
+      <button
         data-testid="action-menu-btn"
         className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white cursor-pointer"
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
+        aria-label="Item actions"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
       >
-        <MoreVertical size={14} />
-      </div>
+        <MoreVertical size={14} aria-hidden="true" />
+      </button>
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 z-[60] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-xl py-1 min-w-[150px]">
+        <div
+          role="menu"
+          aria-label="Item actions menu"
+          className="absolute right-0 top-full mt-1 z-[60] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-xl py-1 min-w-[150px]"
+        >
           {options.map((opt, idx) => (
-            <div
+            <button
               key={idx}
+              role="menuitem"
               data-testid={`action-menu-${opt.label.replace(/\s+/g, '-').toLowerCase()}`}
-              className={`px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${opt.danger ? 'text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300' : 'text-gray-800 dark:text-gray-200'}`}
+              className={`w-full text-left px-3 py-2 text-xs cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 ${opt.danger ? 'text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300' : 'text-gray-800 dark:text-gray-200'}`}
               onClick={(e) => { e.stopPropagation(); opt.onClick(); setIsOpen(false); }}
             >
               {opt.label}
-            </div>
+            </button>
           ))}
         </div>
       )}
     </div>
   );
 };
+
 
 // ── Inline Rename Input ────────────────────────────────────────────────────────
 

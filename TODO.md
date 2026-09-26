@@ -859,7 +859,7 @@ rows touched, bytes transferred, milliseconds.
 * **Done when:** a viewer attempting an editor-only action sees an explicit permission message, and a
   non-superadmin still cannot reach `/admin`.
 
-## UI-4 — Accessibility
+## [x] UI-4 — Accessibility
 
 * **Status:** verified real, **worse than stated** · **Size:** L
 * **Verified state:** across `client/src/**/*.tsx` there are **zero** `aria-label`, `aria-modal` and
