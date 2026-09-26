@@ -163,19 +163,6 @@ The suite assumes a server is already running on `http://localhost:3005` (`webSe
 Playwright suite. What that leaves uncovered, and the rules any new test must follow, is in
 [`TODO.md`](TODO.md) Stage 4.
 
-## 🚨 Open critical finding — self-registration grants superadmin
-
-`server/src/routes/auth.ts:54` creates every self-registered user with `isSuperAdmin: true`. Combined with
-`allowSelfRegistration` defaulting to `true`, **anyone who can reach the login page can give themselves full
-superadmin** — every workspace, the admin dashboard, user management, audit logs and system configuration.
-
-Introduced in commit `c965de2` (2026-09-25). Verified by registering a new account and observing
-`isSuperAdmin: true` in the response. The fix is one word (`true` → `false`); the bootstrap superadmin in
-`server/src/index.ts` is the only account that should ever be created with that flag.
-
-**Until it is fixed, either disable self-registration in the Admin Dashboard or do not expose the instance.**
-Then audit `users` for unexpected superadmins — an account created while this was live still has the flag.
-
 ## 🔐 Secrets Inventory
 
 Every credential the project needs, where it lives, and how to set it. **Names and locations only — no values are recorded here, and none should ever be added.** This repository is public; a value committed to it is disclosed the moment it is pushed, and rewriting history does not un-disclose it.
@@ -262,23 +249,171 @@ You can enable Google Authentication without touching the code!
 3. Toggle "Enable Google OAuth" and enter your Client ID and Secret.
 4. Save, and the "Continue with Google" button will instantly appear on the login screen.
 
-## ✅ Hardening completed on 2026-09-25
+## 📋 Task Board
 
-One pass, verified against a running instance and covered by tests (153 server tests pass). Full detail for
-each item, including what was deliberately left, is in [`TODO.md`](TODO.md).
+The single place to see what is done and what is left. [`TODO.md`](TODO.md) holds the full spec for every
+open item — verified state, exact files and line numbers, the traps, and the test that proves it. This board
+is the index; `TODO.md` is the detail.
 
-| Area | What changed |
+**Status key**
+
+| Mark | Meaning |
 |---|---|
-| **JWT signing key** | `change_me_in_production` (and six other placeholders) rejected at startup; 32-character minimum enforced in production; the value stripped from `k8s/secret.yaml`. **Rotate if you ever deployed that manifest.** |
-| **Credentials in `localStorage`** | Auth secrets and sensitive header values stripped before every persist, with a store migration that clears what earlier builds already wrote. Fake seed cookie removed |
-| **Authorization** | `POST /api/history/:id/save` and `POST /api/import/wsdl` took a collection/workspace id straight from the request body and wrote into it with no membership check. Both now resolve the owning workspace and require `editor`; `GET /api/collections/:id/export` requires `viewer`. Guard extracted to `middleware/resolveWorkspace.ts` |
-| **Database error disclosure** | The `/api` gate returned the raw driver message — which names host, database and user — to unauthenticated callers on every path. Masked in production, with the client's error screen updated so it still appears |
-| **Search input** | `LIKE` wildcards escaped and terms capped, so `?q=%` no longer matches every row; an array-valued `?q[]=` no longer reaches the query. Orphaned `escapeRegex` util deleted (no `new RegExp` remains server-side) |
-| **Realtime** | Environment create/update/delete events were emitted as `environment-created` while the client listened for `environment:created`, so environment changes never propagated. Renamed to the colon form used by the other ten emit sites |
-| **Correctness** | History rows rendered `executedAt`, a field the server never sends — every row showed "Invalid Date". `GET /api/auth/config` hardcoded `allowSelfRegistration: true` while the register route enforced the real setting, so the client offered a form the server refused |
-| **Deployment** | `ecosystem.config.js` had no `max_restarts` or `restart_delay`, so a build error became an unbounded PM2 restart loop — this took the deployment down twice. Capped with a back-off. Stub `runner.ts` and `POST /api/collections/import` routes deleted |
+| `[x]` | Done and verified |
+| `[ ]` | Open — spec is in `TODO.md` |
+| `[~]` | Partially done — see the note |
+| `[-]` | Deliberately deferred by the owner — do not start without asking |
 
-**Not done, deliberately:** None (OAuth CSRF, CSP, and rate limiting have now been completed in subsequent passes).
+**Working rules**
+
+1. **Tick the box here in the same commit that completes the work**, and delete the task from `TODO.md`.
+   One task per commit, with the id in the message: `SEC-9: validate auth bodies`.
+2. **Every task ships a test** that fails before the change and passes after.
+3. **Build both sides before committing** — `npm run build --prefix server && npm run build --prefix client`.
+   PM2 runs `deploy.js`, which rebuilds on every push; a type error becomes a restart loop and takes the
+   deployment down. Restarts are now capped (`ecosystem.config.js`), so a bad push leaves the app **down**
+   rather than thrashing.
+4. **Do not mark something done you have not run.** If you cannot verify it (an external login, a real
+   cluster), mark it `[~]` and say what is unverified.
+
+### 🔐 Security — SEC
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[-]` | SEC-0 | Delete the server-side proxy; Chrome extension transport | XL | Deferred by the owner. SEC-0.6 (strip the public share payload, revocable links) is independent and still worth doing |
+| `[x]` | SEC-1 | Rotate and remove the committed JWT secret | S | **Operational step outstanding: rotate `JWT_SECRET` in any cluster that applied the old `k8s/secret.yaml`** |
+| `[x]` | SEC-2 | Close the authorization holes on client-supplied parent ids | M | |
+| `[x]` | SEC-3 | Sandbox user scripts | L | `new Function` now only inside `client/src/sandbox/worker.ts` — that one is by design |
+| `[x]` | SEC-4 | Stop persisting credentials to `localStorage` | S | Local proxy password in `reqspace-global-settings` still persists — depends on SEC-0 |
+| `[x]` | SEC-5 | Stop exporting unmasked secrets | — | Was already correct; no change needed |
+| `[x]` | SEC-6 | Escape user input that reaches a query pattern | S | |
+| `[x]` | SEC-7 | Stop leaking `dbError` to anonymous callers | S | |
+| `[x]` | SEC-8 | Encrypt client certificates at rest | M | `server/src/utils/cryptoBox.ts` |
+| `[~]` | SEC-9 | Validate every request body with Zod | L | `middleware/validate.ts` + 5 schema files exist. **Verify coverage across all 33 POST/PUT/PATCH routes before ticking** |
+| `[ ]` | SEC-10 | CSP, HSTS and rate limiting beyond login | M-L | **Read SEC-10.0 first** — the obvious CSP breaks Monaco, the visualizer and the script runner |
+| `[x]` | SEC-11 | OAuth `state` / CSRF | S-M | **Unverified end-to-end** — a real Google login was never exercised. Confirm before trusting it |
+| `[~]` | SEC-12 | Remove the NTLM auth option | S | Owner deferred. Still referenced in `AuthEditor.tsx` and `collections.schemas.ts` |
+| `[x]` | SEC-13 | Self-registration granted superadmin | XS | `auth.ts` now creates users with `isSuperAdmin: false`. **Audit the `users` table** — accounts created while this was live keep the flag |
+
+### 🔧 Broken in place — FIX
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[x]` | FIX-1 | Admin export threw; import orphaned every child row | M | |
+| `[x]` | FIX-3 | Real migrations (`umzug`) | M | |
+| `[x]` | FIX-4 | History rows rendered "Invalid Date" | XS | |
+| `[x]` | FIX-5 | `/api/auth/config` advertised self-registration the server refused | XS | |
+
+### ⚡ Performance — PERF
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[x]` | PERF-0 | Scale harness and baseline | M | Baseline recorded in `TODO.md` |
+| `[~]` | PERF-1 | Opening a workspace issues 1 + 2×N HTTP requests | M | Batched tree endpoint in progress — verify the client actually uses it |
+| `[ ]` | PERF-2 | Lazy-load the tree | L | |
+| `[~]` | PERF-3 | Paginate everything that returns a list | L | Cursor helpers exist (`utils/pagination.ts`); confirm every list endpoint uses them and caps `limit` |
+| `[~]` | PERF-4 | Kill the N+1 queries | L | Reorder rewritten to `bulkCreate`; the other six sites need checking |
+| `[~]` | PERF-5 | Cache RBAC and system config | M | |
+| `[ ]` | PERF-6 | Trim what the wire carries | M | |
+| `[ ]` | PERF-7 | Client bundle weight | M | **Sequence after SEC-10** — bundling Monaco locally makes the bundle bigger, so a budget set now would be wrong |
+
+### 🔌 Realtime — SOCK
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[x]` | SOCK-0 | Environment events never reached the client | XS | |
+| `[ ]` | SOCK-1 | Apply deltas instead of refetching the tree | L | Preserve the last-write-wins conflict branch in `SocketSync.tsx` |
+| `[ ]` | SOCK-2 | Cover every emit site with a two-client test | M | Land the CI guard *after* the tests, or CI goes red immediately |
+| `[ ]` | SOCK-3 | Redis adapter and horizontal scaling | M | `replicas: 2` today with no shared adapter — roughly half of all events are lost |
+| `[ ]` | SOCK-4 | Connection hygiene at 10k sockets | M | |
+
+### 🧪 Tests — TEST
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[ ]` | TEST-1 | Run the Playwright suite in CI | M | **Highest leverage here.** CI runs jest + a smoke script only; no browser test has ever run in CI |
+| `[ ]` | TEST-2 | The database matrix | M | CI is sqlite-only; 11 specs hardcode `localhost:5173` |
+| `[ ]` | TEST-3 | Journey coverage, per feature area | XL | 14 areas, all partial; Import/Export, Share and Admin are placeholders that assert almost nothing |
+| `[ ]` | TEST-4 | The API-authorization layer | L | Pairs with SEC-2 — a UI test cannot prove an authz check |
+| `[~]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
+| `[ ]` | TEST-6 | Scale and performance budgets | M | Assert query counts, not milliseconds |
+
+### 🎨 Interface — UI
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[ ]` | UI-1 | Replace native `prompt` / `confirm` / `alert` | M | **22 sites**, including 12 `alert()` calls. Playwright specs install dialog handlers that must be replaced in the same commit |
+| `[ ]` | UI-2 | One global feedback surface (toasts) | M | Do this before UI-1 |
+| `[ ]` | UI-3 | Handle 403 distinctly from 401 | S | **Do not remove the inner `AuthGuard` on `/admin`** — it carries the superadmin check |
+| `[ ]` | UI-4 | Accessibility | L | Zero `aria-label`/`role`, and 73 `outline-none` with no `focus-visible` — start by restoring a focus ring |
+| `[ ]` | UI-5 | Style consistency | S | 21 inline `style={{}}` blocks in `App.tsx` |
+| `[ ]` | UI-6 | Fix stale copy | XS | `AdminPage.tsx` still mentions config overwrite and traffic capture |
+
+### ✨ Features — FEAT
+
+| Done | ID | Task | Size | Notes |
+|---|---|---|---|---|
+| `[x]` | FEAT-1 | WebSocket (ws / wss) client | L | |
+| `[x]` | FEAT-2 | Socket.IO client | M | |
+| `[x]` | FEAT-3 | Server-Sent Events | M | |
+| `[x]` | FEAT-4 | Kafka events | L | |
+| `[ ]` | FEAT-5.1 | Collection-level RBAC | L | **Do before 5.3-5.6** — they all assume per-collection access |
+| `[ ]` | FEAT-5.2 | `@` mentions in comments | M | |
+| `[ ]` | FEAT-5.3 | Fork a collection | L | |
+| `[ ]` | FEAT-5.4 | Collection versioning | L | Prerequisite for 5.5 |
+| `[ ]` | FEAT-5.5 | Pull requests | XL | Needs 5.3 + 5.4 shipped first |
+| `[ ]` | FEAT-5.6 | Merge and conflict resolution | XL | Needs 5.5 |
+| `[ ]` | FEAT-5.7 | Partner workspaces | L | |
+| `[x]` | FEAT-6 | Scope resolution visualizer | L | |
+| `[x]` | FEAT-7 | Split pane | XL | |
+| `[x]` | FEAT-8 | Restore closed tabs | M | |
+| `[x]` | FEAT-9 | Response size limits | M | |
+| `[ ]` | FEAT-10 | Server-side collection export/import (v2.1) | L | Reuses FIX-1's id remapping. Fix the fabricated `schema.getreqSpace.com` URL while moving the serialiser |
+
+### 🧹 Cleanup — CLEAN
+
+| Done | ID | Task | Notes |
+|---|---|---|---|
+| `[x]` | CLEAN-1 | Stub runner route deleted | |
+| `[x]` | CLEAN-2 | PM2 restart caps | |
+| `[ ]` | CLEAN-3 | Inconsistent naming | `com.reqspaceclone.app`, default DB `postman_clone`, repo folder `postman`, product Reqspace |
+| `[ ]` | CLEAN-4 | Dead dependencies | `multer`, `archiver`, `postman-collection`, `http-proxy-middleware`, `ajv` — droppable now. **Keep `undici`** until SEC-0.4 |
+| `[ ]` | CLEAN-5 | Stale traffic-capture copy | `utils/ssrf.ts:6`, `AdminPage.tsx:391` |
+| `[ ]` | CLEAN-6 | Stale doc references | `smoke-core.sh` → `TESTING.md`, `ssrf.test.ts` → `CODE_REVIEW.md`; neither file exists |
+| `[ ]` | CLEAN-7 | `IGNORE.md` drift | Section B cites three deleted files |
+| `[ ]` | CLEAN-8 | Scratch files committed to the repo | `server/patch_*.js` (six tracked) and `collections.ts.bak`. `.gitignore` has `/patch_*.js` — the leading slash anchors it to the repo root, so anything under `server/` slips through. Drop the anchor and untrack them |
+
+### ➕ Adding a task
+
+Append a row to the right table above, then write the spec in [`TODO.md`](TODO.md) under the matching
+section. A task nobody can act on is worse than no task, so a new entry needs all five of these:
+
+```markdown
+## <ID> — <one line, what is wrong or missing>
+
+* **Status:** verified real / greenfield · **Size:** XS | S | M | L | XL
+* **Goal:** what "working" means, in one sentence.
+* **Verified state:** exact `file:line`, and what the code there does **today**. Quote it.
+* **Why:** the concrete failure. Never "best practice".
+* **Change:** the actual code, query or command.
+* **Traps:** what breaks if you do it the obvious way.
+* **Done when:** the test that proves it.
+```
+
+Use the next free number in the series (`CLEAN-9`, `UI-7`, …). **Never reuse a retired id** — old commit
+messages reference them.
+
+### 🩺 Known state of the working tree
+
+Written 2026-09-26. Check `git status` before trusting it.
+
+* **The server build is currently broken** on uncommitted work:
+  `src/routes/collections.ts(242,9): error TS2684` — `modelMap[type]` hands `bulkCreate` a union of three
+  model classes, which gives it an unresolvable `this`. Narrowing per branch (`if (type === 'collection')
+  await SqlCollection.bulkCreate(...)`) compiles. Fix this before anything else; nothing deploys until it
+  does.
+* Uncommitted PERF work is in flight across `routes/collections.ts`, `routes/admin.ts` and three
+  repositories. Coordinate before editing those files.
 
 ## 🏛️ Architecture Decisions
 
