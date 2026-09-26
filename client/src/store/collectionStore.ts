@@ -114,26 +114,13 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       }
 
       // 2. Fetch from server
-      const colRes = await api.get(`/workspaces/${workspaceId}/collections`);
-      const serverCols = colRes.data;
-      set({ collections: serverCols });
+      const treeRes = await api.get(`/workspaces/${workspaceId}/tree`);
+      const { collections: serverCols, folders: allFolders, requests: allRequests } = treeRes.data;
+
+      set({ collections: serverCols, folders: allFolders, requests: allRequests });
       
       // Update local db
       await db.collections.bulkPut(serverCols.map((c: any) => ({ ...c, workspaceId })));
-
-      let allFolders: Folder[] = [];
-      let allRequests: ApiRequest[] = [];
-
-      await Promise.all(serverCols.map(async (col: Collection) => {
-        const [fRes, rRes] = await Promise.all([
-          api.get(`/collections/${col._id}/folders`),
-          api.get(`/collections/${col._id}/requests`)
-        ]);
-        allFolders = allFolders.concat(fRes.data);
-        allRequests = allRequests.concat(rRes.data);
-      }));
-
-      set({ folders: allFolders, requests: allRequests });
       
       // Update local db
       await db.folders.bulkPut(allFolders);
@@ -359,3 +346,4 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     await api.put('/collections/reorder', { type, items });
   },
 }));
+

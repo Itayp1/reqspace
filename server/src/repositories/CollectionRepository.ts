@@ -1,4 +1,4 @@
-import { SqlCollection } from '../db/sql-models';
+﻿import { SqlCollection } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ICollectionRecord {
@@ -40,8 +40,10 @@ export const CollectionRepository = {
     return c ? sqlToRecord(c) : null;
   },
 
-  async findByWorkspace(workspaceId: string): Promise<ICollectionRecord[]> {
-    return (await SqlCollection.findAll({ where: { workspaceId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  async findByWorkspace(workspaceId: string, opts?: { limit?: number }): Promise<ICollectionRecord[]> {
+    const findOpts: any = { where: { workspaceId }, order: [['order', 'ASC']] };
+    if (opts?.limit) findOpts.limit = opts.limit;
+    return (await SqlCollection.findAll(findOpts)).map(sqlToRecord);
   },
 
   async create(data: {

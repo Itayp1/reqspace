@@ -4,6 +4,7 @@ import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
 import api from '../../api/axios';
+import { sendRequest } from '../../transport';
 
 interface Props {
   onClose: () => void;
@@ -54,18 +55,16 @@ export function LoadTestModal({ onClose }: Props) {
         const start = Date.now();
         try {
           const settings = useSettingsStore.getState().settings;
-          await api.post(`/proxy`, {
+          await sendRequest({
             method: activeRequest.method,
             url: activeRequest.url,
             headers: activeRequest.headers.reduce((acc: any, h) => { if (h.enabled && h.key) acc[h.key] = h.value; return acc; }, {}),
             body: activeRequest.body,
-            workspaceId: activeWorkspace?._id,
             followRedirects: settings.followRedirects,
             verifySsl: settings.verifySsl,
             timeout: settings.timeout,
             localProxy: getLocalProxyConfig(),
-          saveHistory: useSettingsStore.getState().settings.saveHistory,
-          }, { signal: abortControllerRef.current?.signal });
+          });
           success++;
         } catch (e: any) {
           if (e.name !== 'CanceledError') failed++;

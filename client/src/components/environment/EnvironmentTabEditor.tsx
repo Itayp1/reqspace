@@ -73,7 +73,8 @@ export function EnvironmentTabEditor() {
       }
     } catch (e) {
       console.error(e);
-      alert('Failed to save environment');
+      const { useToastStore } = await import('../../store/toastStore');
+      useToastStore.getState().addToast('error', 'Failed to save environment');
     }
   };
 
@@ -95,11 +96,13 @@ export function EnvironmentTabEditor() {
         name: `${env.name} (Copy)`,
         variables: localVars
       });
-      alert('Environment copied to workspace successfully!');
+      const { useToastStore } = await import('../../store/toastStore');
+      useToastStore.getState().addToast('success', 'Environment copied to workspace successfully!');
       setTargetWorkspaceId('');
     } catch (e) {
       console.error(e);
-      alert('Failed to copy environment');
+      const { useToastStore } = await import('../../store/toastStore');
+      useToastStore.getState().addToast('error', 'Failed to copy environment');
     }
   };
 

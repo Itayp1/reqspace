@@ -1,4 +1,4 @@
-import { SqlRequest } from '../db/sql-models';
+﻿import { SqlRequest } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 
@@ -55,6 +55,34 @@ export const RequestRepository = {
 
   async findByFolder(folderId: string): Promise<IRequestRecord[]> {
     return (await SqlRequest.findAll({ where: { folderId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  /** PERF-6: summaryOnly=true returns minimal fields to reduce wire payload */
+  async findByCollections(collectionIds: string[], opts?: { summaryOnly?: boolean }): Promise<IRequestRecord[]> {
+    if (!collectionIds.length) return [];
+    const { Op } = await import('sequelize');
+    const attrs = opts?.summaryOnly
+      ? ['id', 'collectionId', 'folderId', 'name', 'method', 'url', 'order', 'updatedAt']
+      : undefined;
+    const rows = await SqlRequest.findAll({
+      where: { collectionId: { [Op.in]: collectionIds } },
+      order: [['order', 'ASC']],
+      attributes: attrs as any,
+    });
+    return rows.map(r => opts?.summaryOnly ? ({
+      _id: r.id, id: r.id,
+      collectionId: r.collectionId,
+      folderId: r.folderId,
+      name: r.name,
+      method: r.method || 'GET',
+      url: (r as any).url || '',
+      order: r.order,
+      updatedAt: r.updatedAt,
+      // Stub out fields not fetched
+      params: [], headers: [], auth: { type: 'none' }, body: { mode: 'none' },
+      preRequestScript: '', testScript: '', description: '', comments: [],
+      createdBy: '', createdAt: new Date(),
+    }) as IRequestRecord : sqlToRecord(r));
   },
 
   async create(data: Partial<IRequestRecord> & { name: string; collectionId: string; createdBy: string }): Promise<IRequestRecord> {

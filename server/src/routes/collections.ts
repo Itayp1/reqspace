@@ -12,10 +12,9 @@ import { emitToWorkspace } from '../socketUtils';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
-
 type ItemKind = 'collection' | 'folder' | 'request';
+const ROLE_RANK: Record<UserRole, number> = { viewer: 1, editor: 2, owner: 3 };
 
-/** Resolves the owning workspace id for a collection/folder/request. */
 async function resolveWorkspaceId(kind: ItemKind, id: string): Promise<string | null> {
   if (kind === 'collection') {
     const c = await CollectionRepository.findById(id);
@@ -33,12 +32,6 @@ async function resolveWorkspaceId(kind: ItemKind, id: string): Promise<string | 
   return c ? c.workspaceId : null;
 }
 
-/**
- * Resolves the item's workspace, exposes it as `resolvedWorkspaceId` (so the
- * update/delete handlers can address the socket room — CR#9), then enforces the
- * role. Runs the resolution even for superadmins, who bypass the role check but
- * still need the broadcast to fire.
- */
 function checkPermission(kind: ItemKind, minRole: UserRole) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -48,7 +41,26 @@ function checkPermission(kind: ItemKind, minRole: UserRole) {
       req.params.workspaceId = workspaceId;
       (req as any).resolvedWorkspaceId = workspaceId;
       if (req.user?.isSuperAdmin) return next();
-      return requireWorkspaceRole(minRole)(req, res, next);
+
+      const wsRole = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
+      if (!wsRole) return res.status(403).json({ message: 'Access denied: not a workspace member' });
+
+      let effectiveRole: UserRole = wsRole as UserRole;
+      if (kind === 'collection') {
+        const collectionId = req.params.id || req.params.collectionId;
+        const collection = await CollectionRepository.findById(collectionId);
+        if (collection && Array.isArray(collection.roles) && collection.roles.length > 0) {
+          const colEntry = collection.roles.find((r: any) => String(r.userId) === String(req.user!._id));
+          if (colEntry && ROLE_RANK[colEntry.role as UserRole] < ROLE_RANK[effectiveRole]) {
+            effectiveRole = colEntry.role as UserRole;
+          }
+        }
+      }
+
+      if (ROLE_RANK[effectiveRole] < ROLE_RANK[minRole]) {
+        return res.status(403).json({ message: `Requires ${minRole} role (your role: ${effectiveRole})` });
+      }
+      return next();
     } catch (e) {
       next(e);
     }
@@ -57,11 +69,10 @@ function checkPermission(kind: ItemKind, minRole: UserRole) {
 
 router.use(authenticate);
 
-// ── Collections ─────────────────────────────────────────────────────────────
-
 router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId, { limit: 200 });
   const ids = collections.map(c => c._id);
+  if (ids.length === 0) return res.json({ collections, folders: [], requests: [] });
   const [folders, requests] = await Promise.all([
     FolderRepository.findByCollections(ids),
     RequestRepository.findByCollections(ids, { summaryOnly: true }),
@@ -69,39 +80,24 @@ router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), asyn
   return res.json({ collections, folders, requests });
 });
 
-router.get('/workspaces/:workspaceId/collections',
-  requireWorkspaceRole('viewer'),
-  async (req: AuthRequest, res: Response) => {
-    const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
-    return res.json(collections);
-  }
-);
+router.get('/workspaces/:workspaceId/collections', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
+  const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId);
+  return res.json(collections);
+});
 
-router.post('/workspaces/:workspaceId/collections', validate(schemas.createCollectionSchema),
-  requireWorkspaceRole('editor'),
-  async (req: AuthRequest, res: Response) => {
-    const { name, description, variables, preRequestScript, testScript } = req.body;
-    if (!name) return res.status(400).json({ message: 'name required' });
-
-    const order = await CollectionRepository.countByWorkspace(req.params.workspaceId);
-    const collection = await CollectionRepository.create({
-      workspaceId: req.params.workspaceId,
-      name, description, variables, preRequestScript, testScript,
-      order,
-      createdBy: String(req.user!._id),
-    });
-    emitToWorkspace(req.params.workspaceId, 'collection:created', collection);
-    return res.status(201).json(collection);
-  }
-);
+router.post('/workspaces/:workspaceId/collections', validate(schemas.createCollectionSchema), requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
+  const { name, description, variables, preRequestScript, testScript } = req.body;
+  if (!name) return res.status(400).json({ message: 'name required' });
+  const order = await CollectionRepository.countByWorkspace(req.params.workspaceId);
+  const collection = await CollectionRepository.create({ workspaceId: req.params.workspaceId, name, description, variables, preRequestScript, testScript, order, createdBy: String(req.user!._id) });
+  emitToWorkspace(req.params.workspaceId, 'collection:created', collection);
+  return res.status(201).json(collection);
+});
 
 router.put('/collections/:id', validate(schemas.updateCollectionSchema), checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
-  // Allowlist writable fields — never reassign workspaceId (CR#7).
   const { name, description, variables, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
-  for (const [k, v] of Object.entries({ name, description, variables, preRequestScript, testScript, order })) {
-    if (v !== undefined) patch[k] = v;
-  }
+  for (const [k, v] of Object.entries({ name, description, variables, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
   const collection = await CollectionRepository.update(req.params.id, patch);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
   return res.json(collection);
@@ -115,38 +111,24 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
   return res.json({ message: 'Collection deleted' });
 });
 
-// ── Folders ──────────────────────────────────────────────────────────────────
+router.get('/collections/:collectionId/folders', checkPermission('collection', 'viewer'), async (req: AuthRequest, res: Response) => {
+  const folders = await FolderRepository.findByCollection(req.params.collectionId);
+  return res.json(folders);
+});
 
-router.get('/collections/:collectionId/folders',
-  checkPermission('collection', 'viewer'),
-  async (req: AuthRequest, res: Response) => {
-    const folders = await FolderRepository.findByCollection(req.params.collectionId);
-    return res.json(folders);
-  }
-);
-
-router.post('/collections/:collectionId/folders', validate(schemas.createFolderSchema),
-  checkPermission('collection', 'editor'),
-  async (req: AuthRequest, res: Response) => {
-    const { name, parentFolderId, description, preRequestScript, testScript } = req.body;
-    if (!name) return res.status(400).json({ message: 'name required' });
-    const order = await FolderRepository.countInCollection(req.params.collectionId, parentFolderId ?? null);
-    const folder = await FolderRepository.create({
-      collectionId: req.params.collectionId,
-      parentFolderId: parentFolderId ?? null,
-      name, description, preRequestScript, testScript, order,
-    });
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:created', folder);
-    return res.status(201).json(folder);
-  }
-);
+router.post('/collections/:collectionId/folders', validate(schemas.createFolderSchema), checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
+  const { name, parentFolderId, description, preRequestScript, testScript } = req.body;
+  if (!name) return res.status(400).json({ message: 'name required' });
+  const order = await FolderRepository.countInCollection(req.params.collectionId, parentFolderId ?? null);
+  const folder = await FolderRepository.create({ collectionId: req.params.collectionId, parentFolderId: parentFolderId ?? null, name, description, preRequestScript, testScript, order });
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:created', folder);
+  return res.status(201).json(folder);
+});
 
 router.put('/folders/:id', validate(schemas.updateFolderSchema), checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
   const { name, description, parentFolderId, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
-  for (const [k, v] of Object.entries({ name, description, parentFolderId, preRequestScript, testScript, order })) {
-    if (v !== undefined) patch[k] = v;
-  }
+  for (const [k, v] of Object.entries({ name, description, parentFolderId, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
   const folder = await FolderRepository.update(req.params.id, patch);
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
@@ -161,65 +143,38 @@ router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: A
   return res.json({ message: 'Folder deleted' });
 });
 
-// ── Requests ─────────────────────────────────────────────────────────────────
-
-router.get('/collections/:collectionId/requests',
-  checkPermission('collection', 'viewer'),
-  async (req: AuthRequest, res: Response) => {
-    let requests;
-    if (req.query.folderId !== undefined) {
-      const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);
-      requests = folderId === null
-        ? (await RequestRepository.findByCollection(req.params.collectionId)).filter(r => r.folderId === null)
-        : await RequestRepository.findByFolder(folderId);
-    } else {
-      requests = await RequestRepository.findByCollection(req.params.collectionId);
-    }
-    return res.json(requests);
+router.get('/collections/:collectionId/requests', checkPermission('collection', 'viewer'), async (req: AuthRequest, res: Response) => {
+  let requests;
+  if (req.query.folderId !== undefined) {
+    const folderId = req.query.folderId === 'null' ? null : String(req.query.folderId);
+    requests = folderId === null
+      ? (await RequestRepository.findByCollection(req.params.collectionId)).filter(r => r.folderId === null)
+      : await RequestRepository.findByFolder(folderId);
+  } else {
+    requests = await RequestRepository.findByCollection(req.params.collectionId);
   }
-);
+  return res.json(requests);
+});
 
-router.post('/collections/:collectionId/requests', validate(schemas.createRequestSchema),
-  checkPermission('collection', 'editor'),
-  async (req: AuthRequest, res: Response) => {
-    const order = await RequestRepository.countInCollection(req.params.collectionId, req.body.folderId ?? null);
-    // Allowlist request fields rather than spreading req.body wholesale (CR#7).
-    const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId } = req.body;
-    const request = await RequestRepository.create({
-      name: name || 'New Request',
-      method, url, params, headers, auth, body, preRequestScript, testScript, description,
-      folderId: folderId ?? null,
-      collectionId: req.params.collectionId,
-      order,
-      createdBy: String(req.user!._id),
-    });
+router.post('/collections/:collectionId/requests', validate(schemas.createRequestSchema), checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
+  const order = await RequestRepository.countInCollection(req.params.collectionId, req.body.folderId ?? null);
+  const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId } = req.body;
+  const request = await RequestRepository.create({ name: name || 'New Request', method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId: folderId ?? null, collectionId: req.params.collectionId, order, createdBy: String(req.user!._id) });
+  logAudit(String(req.user!._id), 'create_request', { targetType: 'Request', targetId: String(request._id), details: { requestId: request._id, requestName: request.name } }).catch(() => {});
+  emitToWorkspace((req as any).resolvedWorkspaceId, 'request:created', request);
+  return res.status(201).json(request);
+});
 
-    logAudit(String(req.user!._id), 'create_request', {
-      targetType: 'Request',
-      targetId: String(request._id),
-      details: { requestId: request._id, requestName: request.name },
-    }).catch(() => {});
-
-    emitToWorkspace((req as any).resolvedWorkspaceId, 'request:created', request);
-    return res.status(201).json(request);
-  }
-);
-
-router.get('/requests/:id',
-  checkPermission('request', 'viewer'),
-  async (req: AuthRequest, res: Response) => {
-    const request = await RequestRepository.findById(req.params.id);
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    return res.json(request);
-  }
-);
+router.get('/requests/:id', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
+  const request = await RequestRepository.findById(req.params.id);
+  if (!request) return res.status(404).json({ message: 'Request not found' });
+  return res.json(request);
+});
 
 router.put('/requests/:id', validate(schemas.updateRequestSchema), checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
   const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order } = req.body;
   const patch: any = {};
-  for (const [k, v] of Object.entries({ name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order })) {
-    if (v !== undefined) patch[k] = v;
-  }
+  for (const [k, v] of Object.entries({ name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order })) { if (v !== undefined) patch[k] = v; }
   const request = await RequestRepository.update(req.params.id, patch);
   if (!request) return res.status(404).json({ message: 'Request not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
@@ -232,65 +187,40 @@ router.delete('/requests/:id', checkPermission('request', 'editor'), async (req:
   return res.json({ message: 'Request deleted' });
 });
 
-// ── POST /api/requests/:id/comments ───────────────────────────────────────
 router.post('/requests/:id/comments', validate(schemas.addCommentSchema), checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ message: 'Text is required' });
-
   const request = await RequestRepository.findById(req.params.id);
   if (!request) return res.status(404).json({ message: 'Request not found' });
-
   const commentId = uuidv4();
-  const comments = [
-    ...request.comments,
-    { id: commentId, userId: String(req.user!._id), text, createdAt: new Date() },
-  ];
+  const comments = [...request.comments, { id: commentId, userId: String(req.user!._id), text, createdAt: new Date() }];
   const updated = await RequestRepository.update(req.params.id, { comments });
   return res.json(updated);
 });
 
-// ── DELETE /api/requests/:id/comments/:commentId ──────────────────────────
 router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
   const request = await RequestRepository.findById(req.params.id);
   if (!request) return res.status(404).json({ message: 'Request not found' });
-
   const comment = request.comments.find((c: any) => String(c.id ?? c._id) === req.params.commentId);
   if (!comment) return res.status(404).json({ message: 'Comment not found' });
-
-  // Only the comment's author or an editor/owner (or superadmin) may delete it
-  // — previously any viewer could delete anyone's comment (CR#12).
   const isAuthor = String(comment.userId) === String(req.user!._id);
   let isEditor = !!req.user!.isSuperAdmin;
   if (!isEditor) {
     const role = await getUserWorkspaceRole(String(req.user!._id), (req as any).resolvedWorkspaceId);
     isEditor = role === 'editor' || role === 'owner';
   }
-  if (!isAuthor && !isEditor) {
-    return res.status(403).json({ message: 'You can only delete your own comments' });
-  }
-
+  if (!isAuthor && !isEditor) return res.status(403).json({ message: 'You can only delete your own comments' });
   const comments = request.comments.filter((c: any) => String(c.id ?? c._id) !== req.params.commentId);
   const updated = await RequestRepository.update(req.params.id, { comments });
   return res.json(updated);
 });
 
-// ── Reorder ─────────────────────────────────────────────────────────────────
+// PERF-4: bulkCreate with updateOnDuplicate is O(1) queries for any reorder size
 router.put('/reorder', validate(schemas.reorderSchema), async (req: AuthRequest, res: Response) => {
-  const { type, items } = req.body as {
-    type: ItemKind;
-    items: Array<{ id: string; order: number }>;
-  };
-
-  const repoMap = {
-    collection: CollectionRepository,
-    folder: FolderRepository,
-    request: RequestRepository,
-  } as const;
-  const repo = repoMap[type];
-  if (!repo) return res.status(400).json({ message: 'Invalid type' });
+  const { type, items } = req.body as { type: ItemKind; items: Array<{ id: string; order: number }> };
   if (!items?.length) return res.json({ message: 'Reordered' });
+  if (items.length > 500) return res.status(400).json({ message: 'Too many items (max 500)' });
 
-  // Resolve every item's workspace and confirm the caller may edit there.
   const workspaceIds = new Set<string>();
   for (const it of items) {
     const workspaceId = await resolveWorkspaceId(type, it.id);
@@ -301,16 +231,17 @@ router.put('/reorder', validate(schemas.reorderSchema), async (req: AuthRequest,
   if (!req.user!.isSuperAdmin) {
     for (const workspaceId of workspaceIds) {
       const role = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
-      if (!role || role === 'viewer') {
-        return res.status(403).json({ message: 'Editor role required in this workspace' });
-      }
+      if (!role || role === 'viewer') return res.status(403).json({ message: 'Editor role required in this workspace' });
     }
   }
 
-  await Promise.all(items.map(({ id, order }) => (repo as any).update(id, { order })));
-  for (const workspaceId of workspaceIds) {
-    emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
-  }
+  const { SqlCollection, SqlFolder, SqlRequest } = await import('../db/sql-models');
+  const modelMap = { collection: SqlCollection, folder: SqlFolder, request: SqlRequest };
+  const Model = modelMap[type];
+  if (!Model) return res.status(400).json({ message: 'Invalid type' });
+  await (Model as any).bulkCreate(items.map(it => ({ id: it.id, order: it.order })) as any, { updateOnDuplicate: ['order'] });
+
+  for (const workspaceId of workspaceIds) emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
   return res.json({ message: 'Reordered' });
 });
 

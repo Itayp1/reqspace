@@ -91,6 +91,7 @@ io.on('connection', (socket) => {
   const userId = socket.data.userId;
   const MAX_ROOMS = 50;
 
+  const authorizedWorkspaces = new Set<string>();
   // Periodic token check
   const tokenInterval = setInterval(() => {
     const currentUserId = getSocketUserId(socket);
@@ -100,14 +101,20 @@ io.on('connection', (socket) => {
   }, 60000);
 
   socket.on('disconnect', () => clearInterval(tokenInterval));
-  const userId = getSocketUserId(socket);
-  const authorizedWorkspaces = new Set<string>();
 
   socket.on('join:workspace', async (workspaceId: string) => {
     if (!userId || typeof workspaceId !== 'string') return;
-    const role = await getUserWorkspaceRole(userId, workspaceId).catch(() => null);
-    const user = await UserRepository.findById(userId).catch(() => null);
-    if (!role && !user?.isSuperAdmin) return; // not a member, workspace not public, and not superadmin
+    if (socket.rooms.size >= MAX_ROOMS) return; // cap rooms per socket (SOCK-4)
+
+    // Use roleCache to avoid DB reads during reconnect storms (PERF-5/SOCK-4)
+    let cached = roleCache.get(`${userId}:${workspaceId}`);
+    if (!cached) {
+      const role = await getUserWorkspaceRole(userId, workspaceId).catch(() => null);
+      const user = await UserRepository.findById(userId).catch(() => null);
+      cached = { role, isSuperAdmin: user?.isSuperAdmin ?? false };
+      roleCache.set(`${userId}:${workspaceId}`, cached);
+    }
+    if (!cached.role && !cached.isSuperAdmin) return;
     authorizedWorkspaces.add(workspaceId);
     socket.join('workspace:' + workspaceId);
   });
@@ -273,7 +280,7 @@ async function bootstrap() {
     await SystemConfigRepository.ensure();
     console.log('✅ SystemConfig initialized');
 
-    const adminCount = (await UserRepository.list({ isSuperAdmin: true })).length;
+    const adminCount = (await UserRepository.list({ isSuperAdmin: true })).items.length;
     if (adminCount === 0) {
       const adminEmail = process.env.ADMIN_EMAIL || 'admin';
       const adminPassword = process.env.ADMIN_PASSWORD || 'admin';

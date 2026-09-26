@@ -1,4 +1,4 @@
-import { SqlFolder } from '../db/sql-models';
+﻿import { SqlFolder } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface IFolderRecord {
@@ -25,6 +25,12 @@ export const FolderRepository = {
 
   async findByCollection(collectionId: string): Promise<IFolderRecord[]> {
     return (await SqlFolder.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  async findByCollections(collectionIds: string[]): Promise<IFolderRecord[]> {
+    if (!collectionIds.length) return [];
+    const { Op } = await import('sequelize');
+    return (await SqlFolder.findAll({ where: { collectionId: { [Op.in]: collectionIds } }, order: [['order', 'ASC']] })).map(sqlToRecord);
   },
 
   async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string; preRequestScript?: string; testScript?: string; order?: number }): Promise<IFolderRecord> {

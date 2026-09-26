@@ -16,7 +16,8 @@ export default function EnvironmentSidebar() {
   const [copyEnv, setCopyEnv] = useState<{ id: string, name: string } | null>(null);
 
   const handleCreateEnv = async () => {
-    const envName = prompt('Enter environment name:', 'New Environment');
+    const { customPrompt } = await import('../../utils/dialog');
+    const envName = await customPrompt('Create Environment', 'New Environment', 'Enter environment name:', 'Create');
     if (!envName) return;
     
     try {
@@ -41,7 +42,8 @@ export default function EnvironmentSidebar() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete environment?')) return;
+    const { customConfirm } = await import('../../utils/dialog');
+    if (!(await customConfirm('Confirm Deletion', 'Delete environment?', 'Delete'))) return;
     try {
       await api.delete(`/environments/${id}`);
       setEnvironments(environments.filter(e => e._id !== id));
@@ -52,7 +54,8 @@ export default function EnvironmentSidebar() {
   };
 
   const handleRename = async (env: any) => {
-    const newName = prompt('Enter new environment name:', env.name);
+    const { customPrompt } = await import('../../utils/dialog');
+    const newName = await customPrompt('Rename Environment', env.name, 'Enter new environment name:', 'Rename');
     if (!newName || newName === env.name) return;
     try {
       const res = await api.put(`/environments/${env._id}`, { name: newName, variables: env.variables });
