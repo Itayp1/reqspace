@@ -72,12 +72,15 @@ router.get('/:id', requireWorkspaceRole('viewer'), async (req: AuthRequest, res:
 router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   try {
     const logs = await AuditLogRepository.list({ targetId: req.params.id }, 50);
-    const enriched = await Promise.all(
-      logs.map(async (l) => {
-        const u = await UserRepository.findById(String(l.userId)).catch(() => null);
-        return { ...l, userId: u ? { _id: u._id, name: u.name, email: u.email } : l.userId };
-      })
-    );
+    const userIds = [...new Set(logs.map(l => String(l.userId)))];
+    const { SqlUser } = await import('../db/sql-models');
+    const users = await SqlUser.findAll({ where: { id: userIds }, attributes: ['id', 'name', 'email'], raw: true });
+    const userMap = new Map(users.map((u: any) => [u.id, u]));
+
+    const enriched = logs.map(l => {
+      const u = userMap.get(String(l.userId));
+      return { ...l, userId: u ? { _id: u.id, name: u.name, email: u.email } : l.userId };
+    });
     res.json(enriched);
   } catch (err) {
     res.status(500).json({ message: 'Error fetching activity' });

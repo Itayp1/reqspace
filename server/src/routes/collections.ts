@@ -1,4 +1,4 @@
-﻿import { validate } from '../middleware/validate';
+import { validate } from '../middleware/validate';
 import * as schemas from '../schemas/collections.schemas';
 import { Router, Response, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
@@ -227,24 +227,39 @@ router.put('/reorder', validate(schemas.reorderSchema), async (req: AuthRequest,
   if (!items?.length) return res.json({ message: 'Reordered' });
   if (items.length > 500) return res.status(400).json({ message: 'Too many items (max 500)' });
 
+  const { SqlCollection, SqlFolder, SqlRequest } = await import('../db/sql-models');
+  const modelMap = { collection: SqlCollection, folder: SqlFolder, request: SqlRequest };
+  const Model = modelMap[type];
+  if (!Model) return res.status(400).json({ message: 'Invalid type' });
+
   const workspaceIds = new Set<string>();
-  for (const it of items) {
-    const workspaceId = await resolveWorkspaceId(type, it.id);
-    if (!workspaceId) return res.status(400).json({ message: 'Could not resolve workspace for item' });
-    workspaceIds.add(workspaceId);
+  const itemIds = items.map(it => it.id);
+
+  if (type === 'collection') {
+    const collections = await SqlCollection.findAll({ where: { id: itemIds }, attributes: ['id', 'workspaceId'], raw: true });
+    collections.forEach((c: any) => workspaceIds.add(c.workspaceId));
+  } else {
+    const records = await (Model as any).findAll({ where: { id: itemIds }, attributes: ['id', 'collectionId'], raw: true });
+    const colIds = [...new Set(records.map((r: any) => r.collectionId))];
+    if (colIds.length > 0) {
+      const collections = await SqlCollection.findAll({ where: { id: colIds }, attributes: ['id', 'workspaceId'], raw: true });
+      collections.forEach((c: any) => workspaceIds.add(c.workspaceId));
+    }
+  }
+
+  if (workspaceIds.size === 0 && items.length > 0) {
+    return res.status(400).json({ message: 'Could not resolve workspace for item' });
   }
 
   if (!req.user!.isSuperAdmin) {
+    // Usually only 1 workspace is involved, but if multiple, this is a small loop over unique workspaces.
     for (const workspaceId of workspaceIds) {
       const role = await getUserWorkspaceRole(String(req.user!._id), workspaceId);
       if (!role || role === 'viewer') return res.status(403).json({ message: 'Editor role required in this workspace' });
     }
   }
 
-  const { SqlCollection, SqlFolder, SqlRequest } = await import('../db/sql-models');
-  const modelMap = { collection: SqlCollection, folder: SqlFolder, request: SqlRequest };
-  const Model = modelMap[type];
-  if (!Model) return res.status(400).json({ message: 'Invalid type' });
+
   await (Model as any).bulkCreate(items.map(it => ({ id: it.id, order: it.order })) as any, { updateOnDuplicate: ['order'] });
 
   for (const workspaceId of workspaceIds) emitToWorkspace(workspaceId, 'workspace:reordered', undefined);
