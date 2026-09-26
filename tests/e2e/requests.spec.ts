@@ -91,7 +91,80 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });
   });
 
-  test.fixme('body-mode and auth-type matrix, dirty state, undo/redo', async ({ page }) => {
-    expect(true).toBe(true);
+  test('Body mode and auth type matrix', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('new-tab-btn').click();
+
+    // -- Test Auth Types --
+    await page.getByTestId('req-tab-auth').click();
+
+    // Bearer Token
+    await page.getByTestId('auth-type-select').selectOption('bearer');
+    await page.getByTestId('auth-bearer-token').fill('my-super-secret-token');
+
+    // Basic Auth
+    await page.getByTestId('auth-type-select').selectOption('basic');
+    await page.getByTestId('auth-basic-username').fill('admin');
+    await page.getByTestId('auth-basic-password').fill('password123');
+
+    // -- Test Body Modes --
+    await page.getByTestId('req-tab-body').click();
+
+    // JSON (Raw)
+    await page.getByTestId('body-mode-raw').click();
+    await page.getByTestId('body-raw-language-select').selectOption('json');
+    await page.getByTestId('monaco-editor-container').click();
+    await page.keyboard.type('{"key":"value"}');
+
+    // Form-Data
+    await page.getByTestId('body-mode-form-data').click();
+    await page.getByTestId('kv-key-0').fill('formField');
+    await page.getByTestId('kv-val-0').fill('formValue');
+
+    // URL-Encoded
+    await page.getByTestId('body-mode-urlencoded').click();
+    await page.getByTestId('kv-key-0').fill('urlField');
+    await page.getByTestId('kv-val-0').fill('urlValue');
+  });
+
+  test('Dirty state indicators and undo/redo', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('new-tab-btn').click();
+    
+    // Fill URL to trigger dirty state
+    await page.getByTestId('request-url-input').fill('https://httpbin.org/get');
+
+    // Check dirty indicator is visible
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible();
+
+    // Save request to clear dirty state
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('Dirty Test Request');
+    
+    const createColBtn = page.getByTestId('new-collection-empty-btn');
+    if (await createColBtn.isVisible()) {
+      await createColBtn.click();
+      page.on('dialog', async (dialog) => {
+        await dialog.accept('Test Collection');
+      });
+      await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    }
+    await page.getByTestId('save-req-submit-btn').click();
+
+    // Dirty indicator should be gone after save
+    await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
+
+    // Make another change to test undo/redo
+    await page.getByTestId('request-url-input').fill('https://httpbin.org/post');
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible();
+
+    // Test Undo
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.press(`${modifier}+Z`);
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://httpbin.org/get');
+    
+    // Test Redo
+    await page.keyboard.press(`${modifier}+Shift+Z`);
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://httpbin.org/post');
   });
 });

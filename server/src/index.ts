@@ -237,6 +237,19 @@ app.use('/api/local-variables', localVariablesRouter);
 app.use('/api/user-profile-variables', userProfileVariablesRouter);
 app.use('/api', forksRouter);
 
+// Serve the packaged Chrome extension (.crx) for one-click install.
+// Build it first: powershell -File scripts/build-extension.ps1
+const crxPath = path.resolve(__dirname, '../../extension.crx');
+app.get('/extension/reqspace-transport.crx', (_req, res) => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  if (!require('fs').existsSync(crxPath)) {
+    return res.status(404).json({ error: 'Extension not built yet. Run: npm run build:extension' });
+  }
+  res.setHeader('Content-Type', 'application/x-chrome-extension');
+  res.setHeader('Content-Disposition', 'attachment; filename="reqspace-transport.crx"');
+  res.sendFile(crxPath);
+});
+
 // Serve client static files (production)
 const clientDistPath = process.env.CLIENT_DIST_PATH
   ? path.resolve(__dirname, '..', process.env.CLIENT_DIST_PATH)

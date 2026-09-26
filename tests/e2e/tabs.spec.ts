@@ -75,7 +75,63 @@ test.describe('Tab Operations', () => {
     await expect(tabs.nth(1)).toContainText('Request 1');
   });
 
-  test.fixme('drag-reorder only and content persistence', async ({ page }) => {
-    expect(true).toBe(true);
+  test('drag-reorder only and content persistence', async ({ page }) => {
+    // Register to get a clean state
+    const timestamp = Date.now();
+    await page.goto('/register');
+    await page.getByTestId('register-name').fill('Tab User2');
+    await page.getByTestId('register-email').fill(`tabs2_${timestamp}@example.com`);
+    await page.getByTestId('register-password').fill('password123');
+    await page.getByTestId('register-submit').click();
+    await expect(page).toHaveURL(/.*\/$/);
+    
+    // Create first request tab
+    await page.getByTestId('create-request-btn').click();
+    await page.getByTestId('request-url-input').fill('https://example.com/1');
+    await page.getByTestId('method-select').selectOption('POST');
+    
+    // Create second request tab
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-url-input').fill('https://example.com/2');
+    await page.getByTestId('method-select').selectOption('PUT');
+
+    // Verify two tabs are open
+    const tabs = page.locator('[data-testid^="tab-"]');
+    await expect(tabs).toHaveCount(2);
+
+    // Switch back to first tab
+    await tabs.nth(0).click();
+
+    // Verify content persisted in first tab
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://example.com/1');
+    await expect(page.getByTestId('method-select')).toHaveValue('POST');
+    
+    // The tab should also have an unsaved indicator (isDirty)
+    await expect(tabs.nth(0).locator('[title="Unsaved changes"]')).toBeVisible();
+
+    // Switch to second tab
+    await tabs.nth(1).click();
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://example.com/2');
+    await expect(page.getByTestId('method-select')).toHaveValue('PUT');
+    await expect(tabs.nth(1).locator('[title="Unsaved changes"]')).toBeVisible();
+
+    // Drag second tab before first tab
+    const tab1 = tabs.nth(0);
+    const tab2 = tabs.nth(1);
+    await tab2.dragTo(tab1);
+
+    // Wait a bit for React to process the drop
+    await page.waitForTimeout(500);
+
+    // Verify order changed
+    // Click tab at index 0 which should now be the "second" tab (https://example.com/2)
+    await tabs.nth(0).click();
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://example.com/2');
+    await expect(page.getByTestId('method-select')).toHaveValue('PUT');
+    
+    // Switch to the now-second tab (which was tab1, https://example.com/1)
+    await tabs.nth(1).click();
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://example.com/1');
+    await expect(page.getByTestId('method-select')).toHaveValue('POST');
   });
 });

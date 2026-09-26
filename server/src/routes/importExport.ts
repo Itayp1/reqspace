@@ -15,12 +15,71 @@ import * as soap from 'soap';
 const router = Router();
 router.use(authenticate);
 
-// Import/Export Routes placeholder — the real implementation is FEAT-10.
 router.get('/collections/:id/export',
   requireRoleOnCollection('viewer', (req) => req.params.id),
   async (req: AuthRequest, res: Response) => {
     const collection = await CollectionRepository.findById(req.params.id);
-    res.json({ info: { name: collection?.name }, item: [] }); // Dummy export
+    if (!collection) return res.status(404).json({ message: 'Not found' });
+    
+    const requests = await RequestRepository.findByCollection(req.params.id);
+    const includeSecrets = req.query.includeSecrets === 'true';
+    
+    const item = requests.map(r => {
+      let authArr: any = undefined;
+      if (r.auth && r.auth.type === 'bearer' && r.auth.bearer) {
+        authArr = [{ key: 'token', value: includeSecrets ? r.auth.bearer.token : 'STRIPPED' }];
+      }
+      return {
+        name: r.name,
+        request: {
+          auth: r.auth ? { type: r.auth.type, bearer: authArr } : undefined
+        }
+      };
+    });
+
+    res.json({
+      info: { name: collection.name },
+      variable: collection.variables || [],
+      item
+    });
+  });
+
+router.post('/collections/import',
+  validate(schemas.importCollectionSchema),
+  requireWorkspaceRole('editor'),
+  async (req: AuthRequest, res: Response) => {
+    const { workspaceId, collection } = req.body;
+    if (!workspaceId || !collection) return res.status(400).json({ message: 'Invalid body' });
+
+    const newCol = await CollectionRepository.create({
+      name: collection.info?.name || 'Imported Collection',
+      workspaceId,
+      createdBy: req.user!._id,
+      variables: collection.variable || []
+    });
+
+    for (let i = 0; i < (collection.item || []).length; i++) {
+      const r = collection.item[i];
+      let auth: any = undefined;
+      if (r.request?.auth) {
+        auth = { type: r.request.auth.type };
+        if (auth.type === 'bearer' && r.request.auth.bearer) {
+          const t = r.request.auth.bearer.find((x: any) => x.key === 'token');
+          if (t) auth.bearer = { token: t.value };
+        }
+      }
+      await RequestRepository.create({
+        collectionId: newCol.id || newCol._id,
+        name: r.name || 'Request',
+        method: 'GET',
+        url: 'https://example.com',
+        auth,
+        headers: [],
+        createdBy: req.user!._id,
+        order: i
+      });
+    }
+    res.json({ collectionId: newCol.id || newCol._id });
   });
 
 router.post('/requests/import/curl', validate(schemas.importCurlSchema), async (req: AuthRequest, res: Response) => {

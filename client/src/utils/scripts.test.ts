@@ -5,7 +5,7 @@ vi.mock('../sandbox/worker?worker', () => {
   return {
     default: class SandboxWorker {
       onmessage: any;
-      postMessage(msg: any) {
+      postMessage(_msg: any) {
         if (this.onmessage) {
           this.onmessage({ data: { type: 'result', testResults: [{ name: 'test', passed: true }] } } as any);
         }

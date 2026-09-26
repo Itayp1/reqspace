@@ -12,7 +12,8 @@ try {
 
   console.log("Starting Server...");
   process.chdir(path.join(__dirname, 'server'));
-  require('./server/dist/index.js');
+  const { spawnSync } = require('child_process');
+  spawnSync('node', ['dist/index.js'], { stdio: 'inherit' });
 } catch (error) {
   console.error("Deployment failed:", error);
   process.exit(1);

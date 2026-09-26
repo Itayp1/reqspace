@@ -10,7 +10,10 @@ describe('SEC-10: Rate limiting', () => {
     for (let i = 0; i < 350; i++) {
       const res = await fetch(`${BASE_URL}/api/workspaces`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.99' 
+        },
         body: payload
       });
       // Note: we might get 401 Unauthorized here because we aren't logged in,

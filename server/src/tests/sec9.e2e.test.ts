@@ -22,7 +22,7 @@ describe('E2E SEC-9', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin', password: 'admin' })
-    }, 35000);
+    });
     cookie = loginRes.headers.get('set-cookie')?.split(';')[0] || '';
     
     const wsRes = await fetch(`${BASE_URL}/api/workspaces`, { headers: { cookie } });

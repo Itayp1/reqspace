@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import { X, Play, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useEnvironmentStore } from '../../store/environmentStore';
-
-
-import api from '../../api/axios';
 import { resolveAllVariables } from '../../utils/variables';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
-import { sendRequest } from '../../transport';
+import { sendRequest, EXTENSION_NOT_INSTALLED_ERROR } from '../../transport';
+import { useExtensionStore } from '../../store/extensionStore';
 
 interface CollectionRunnerModalProps {
   collectionId: string;
@@ -33,7 +31,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
 }) => {
   const { requests } = useCollectionStore();
   const { environments, activeEnvironmentId, setActiveEnvironmentId } = useEnvironmentStore();
-
+  const { setShowDownloadModal } = useExtensionStore();
 
   const collectionRequests = requests.filter(r => r.collectionId === collectionId);
   const [isRunning, setIsRunning] = useState(false);
@@ -143,7 +141,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
               return {
                 ...item,
                 status: statusCode,
-                statusText: res.data?.statusText || res.statusText || 'OK',
+                statusText: res.statusText || 'OK',
                 time: duration,
                 passed: testPassed,
               };
@@ -160,6 +158,12 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
             }
           }
         } catch (err: any) {
+          if ((err as any).code === EXTENSION_NOT_INSTALLED_ERROR) {
+            // Stop the runner and prompt the user to install the extension
+            setShowDownloadModal(true);
+            setIsRunning(false);
+            return;
+          }
           setResults(prev => prev.map((item, idx) => {
             if (idx === globalIdx) {
               return {

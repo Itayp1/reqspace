@@ -7,6 +7,7 @@
     "start": "electron .",
     "build:client": "cd client && npm run build",
     "build:server": "cd server && npm run build",
+    "build:extension": "powershell -File scripts/build-extension.ps1",
     "pack": "npm run build:client && npm run build:server && electron-builder --dir",
     "dist": "npm run build:client && npm run build:server && electron-builder"
   },

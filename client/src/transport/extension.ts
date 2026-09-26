@@ -1,4 +1,7 @@
-import { Transport, TransportRequest, TransportResponse } from './types';
+import type { Transport, TransportRequest, TransportResponse } from './types';
+
+/** Thrown by ExtensionTransport when the extension is not installed/enabled. */
+export const EXTENSION_NOT_INSTALLED_ERROR = 'EXTENSION_NOT_INSTALLED';
 
 let extensionVersion: string | null = null;
 let pendingRequests: Map<string, (res: TransportResponse) => void> = new Map();
@@ -17,13 +20,14 @@ window.addEventListener('message', (event) => {
       
       const res = event.data.response;
       if (res.error) {
-        // Return a 0 status with the error as body, or similar
         resolve({
           status: 0,
           statusText: 'Error',
           headers: {},
           body: res.error,
-          time: 0
+          isBase64: false,
+          responseTime: 0,
+          size: 0,
         });
       } else {
         resolve({
@@ -31,7 +35,9 @@ window.addEventListener('message', (event) => {
           statusText: res.statusText,
           headers: res.headers,
           body: res.body,
-          time: res.time
+          isBase64: false,
+          responseTime: res.time ?? 0,
+          size: res.body ? res.body.length : 0,
         });
       }
     }
@@ -48,7 +54,9 @@ export function isExtensionInstalled(): boolean {
 export class ExtensionTransport implements Transport {
   async send(req: TransportRequest): Promise<TransportResponse> {
     if (!isExtensionInstalled()) {
-      throw new Error('Reqspace extension is not installed or not enabled for this origin');
+      const err = new Error('Reqspace extension is not installed or not enabled for this origin');
+      (err as any).code = EXTENSION_NOT_INSTALLED_ERROR;
+      throw err;
     }
 
     return new Promise((resolve) => {

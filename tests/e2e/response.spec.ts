@@ -49,7 +49,126 @@ test.describe('Response & Code Gen', () => {
     await expect(page.locator('[data-testid="codegen-code-block"]')).toContainText('import requests');
   });
 
-  test.fixme('per-mode viewer, image/PDF, timeout and error paths', async ({ page }) => {
-    expect(true).toBe(true);
+  test('per-mode viewer, image/PDF, timeout and error paths', async ({ page }) => {
+    // Register
+    const timestamp = Date.now();
+    const testEmail = `viewer_${timestamp}@example.com`;
+    await page.goto('/register');
+    await page.fill('[data-testid="register-name"]', 'Viewer User');
+    await page.fill('[data-testid="register-email"]', testEmail);
+    await page.fill('[data-testid="register-password"]', 'password');
+    await page.click('[data-testid="register-submit"]');
+    await expect(page).toHaveURL(/.*\/$/);
+
+    // Mock proxy responses
+    await page.route('**/proxy', async route => {
+      const postData = JSON.parse(route.request().postData() || '{}');
+      
+      if (postData.url === 'https://mock.com/json') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/json' },
+            body: { message: 'hello JSON' },
+            time: 50,
+            size: 100
+          })
+        });
+      }
+      
+      if (postData.url === 'https://mock.com/html') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'text/html' },
+            body: '<h1>Hello HTML</h1>',
+            time: 50,
+            size: 100
+          })
+        });
+      }
+      
+      if (postData.url === 'https://mock.com/image') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'image/png' },
+            body: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+            isBase64: true,
+            time: 50,
+            size: 100
+          })
+        });
+      }
+      
+      if (postData.url === 'https://mock.com/pdf') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            status: 200,
+            statusText: 'OK',
+            headers: { 'content-type': 'application/pdf' },
+            body: 'JVBERi0xLg==',
+            isBase64: true,
+            time: 50,
+            size: 100
+          })
+        });
+      }
+      
+      if (postData.url === 'https://mock.com/timeout') {
+        return route.fulfill({
+          status: 504,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'Gateway Timeout'
+          })
+        });
+      }
+      
+      return route.continue();
+    });
+
+    // 1. JSON (pretty and raw)
+    await page.getByTestId('request-url-input').fill('https://mock.com/json');
+    await page.click('[data-testid="request-send-btn"]');
+    await expect(page.getByTestId('response-status')).toContainText('200 OK');
+    await expect(page.locator('.monaco-editor').first()).toBeVisible();
+    await page.click('button:has-text("raw")');
+    await expect(page.locator('.monaco-editor').first()).toBeVisible();
+
+    // 2. HTML (preview)
+    await page.getByTestId('request-url-input').fill('https://mock.com/html');
+    await page.click('[data-testid="request-send-btn"]');
+    await expect(page.getByTestId('response-status')).toContainText('200 OK');
+    await page.click('button:has-text("preview")');
+    await expect(page.locator('iframe[title="Response HTML Preview"]')).toBeVisible();
+
+    // 3. Image
+    await page.getByTestId('request-url-input').fill('https://mock.com/image');
+    await page.click('[data-testid="request-send-btn"]');
+    await expect(page.locator('img[alt="Response"]')).toBeVisible();
+
+    // 4. PDF
+    await page.getByTestId('request-url-input').fill('https://mock.com/pdf');
+    await page.click('[data-testid="request-send-btn"]');
+    await expect(page.locator('object[type="application/pdf"]')).toBeVisible();
+
+    // 5. Timeout/Error
+    await page.getByTestId('request-url-input').fill('https://mock.com/timeout');
+    await page.click('[data-testid="request-send-btn"]');
+    await expect(page.getByTestId('response-status')).toContainText('504');
+    await page.click('button:has-text("pretty")');
+    await expect(page.locator('.monaco-editor').first()).toBeVisible();
   });
 });

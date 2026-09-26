@@ -27,7 +27,7 @@ describe('E2E Share - SEC-0.6', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin', password: 'admin' })
-    }, 35000);
+    });
     cookie = loginRes.headers.get('set-cookie')?.split(';')[0] || '';
     
     // Get personal workspace

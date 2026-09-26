@@ -158,6 +158,9 @@ export function UrlBar() {
 
       // 2. Resolve all variables in URL, headers, and body
       const resolvedUrl = resolveAllVariables(activeRequest.url, colId, undefined, localVariables);
+      const finalUrl = resolvedUrl;
+      let requestBody: any = (activeRequest.body as any)?.[activeRequest.bodyMode as any] || '';
+      const bodyMode = activeRequest.bodyMode;
 
       const reqHeaders = activeRequest.headers?.reduce((acc: any, h: any) => {
         if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId, undefined, localVariables);

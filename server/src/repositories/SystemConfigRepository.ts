@@ -81,7 +81,21 @@ const DEFAULT_CONFIG = {
 export const SystemConfigRepository = {
   async getConfig(): Promise<ISystemConfigRecord | null> {
     const c = await SqlSystemConfig.findOne();
-    return c ? sqlToRecord(c) : null;
+    if (!c) return null;
+    const record = sqlToRecord(c);
+
+    if (process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_SECRET) {
+      record.auth.googleOAuth = record.auth.googleOAuth || { enabled: false, clientId: '', clientSecret: '' };
+      if (process.env.GOOGLE_CLIENT_ID) record.auth.googleOAuth.clientId = process.env.GOOGLE_CLIENT_ID;
+      if (process.env.GOOGLE_CLIENT_SECRET) record.auth.googleOAuth.clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (process.env.GOOGLE_OAUTH_ENABLED) {
+        record.auth.googleOAuth.enabled = process.env.GOOGLE_OAUTH_ENABLED === 'true';
+      } else {
+        record.auth.googleOAuth.enabled = true;
+      }
+    }
+
+    return record;
   },
 
   async ensure(): Promise<ISystemConfigRecord> {

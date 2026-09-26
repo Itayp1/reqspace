@@ -54,6 +54,11 @@ async function handleRequest(payload, origin) {
   }
 
   try {
+    // Increment session request counter (shown in popup)
+    chrome.storage.session.get({ reqCount: 0 }).then(({ reqCount }) => {
+      chrome.storage.session.set({ reqCount: (reqCount || 0) + 1 });
+    }).catch(() => {});
+
     const init = {
       method: method || 'GET',
       headers: fetchHeaders,

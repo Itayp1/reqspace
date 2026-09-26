@@ -14,6 +14,7 @@ import { ContextMenuProvider } from './components/common/ContextMenuProvider';
 import ForcePasswordChangeModal from './components/auth/ForcePasswordChangeModal';
 import SharedCollectionPage from './pages/SharedCollectionPage';
 import { ToastContainer } from './components/common/ToastContainer';
+import { ExtensionDownloadModal } from './components/common/ExtensionDownloadModal';
 
 // ── DB Error Banner ───────────────────────────────────────────────────────────
 function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string }) {
@@ -176,6 +177,7 @@ function App() {
       <a href="#main-content" className="skip-to-main">Skip to main content</a>
       <ToastContainer />
       <ForcePasswordChangeModal />
+      <ExtensionDownloadModal />
       <SocketSync />
       <ContextMenuProvider>
         <BrowserRouter>

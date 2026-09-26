@@ -38,7 +38,90 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/.*\/login/);
   });
 
-  test.fixme('forced first-login change, expired session, SSO', async ({ page }) => {
-    expect(true).toBe(true);
+  test('should enforce forced first-login password change', async ({ page }) => {
+    // Mock the login response to return a user with mustChangePassword: true
+    await page.route('**/api/auth/login', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: {
+            _id: 'mock-user',
+            email: 'mock@example.com',
+            name: 'Mock User',
+            mustChangePassword: true
+          },
+          token: 'mock-token'
+        })
+      });
+    });
+    
+    await page.route('**/api/auth/change-password', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Password changed successfully' })
+      });
+    });
+
+    await page.goto('/login');
+    await page.fill('[data-testid="login-email"]', 'mock@example.com');
+    await page.fill('[data-testid="login-password"]', 'anypass');
+    await page.click('[data-testid="login-submit"]');
+
+    // Should show force password change modal
+    await expect(page.locator('[data-testid="new-password-input"]')).toBeVisible();
+    await page.fill('[data-testid="new-password-input"]', 'newpass123');
+    await page.fill('[data-testid="confirm-password-input"]', 'newpass123');
+    await page.click('[data-testid="change-password-submit"]');
+    
+    // Should dismiss the modal
+    await expect(page.locator('[data-testid="new-password-input"]')).not.toBeVisible();
+  });
+
+  test('should handle expired session gracefully', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('[data-testid="login-email"]', testEmail);
+    await page.fill('[data-testid="login-password"]', testPassword);
+    await page.click('[data-testid="login-submit"]');
+    
+    await expect(page).toHaveURL(/.*\/$/);
+    
+    // Simulate expired session (Axios interceptor dispatches 'unauthorized')
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('unauthorized')));
+    
+    await expect(page).toHaveURL(/.*\/login/);
+  });
+
+  test('should display SSO login option if enabled', async ({ page }) => {
+    await page.route('**/api/auth/config', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          googleOAuth: { enabled: true, clientId: 'mock-client-id' }
+        })
+      });
+    });
+
+    await page.goto('/login');
+    
+    const googleBtn = page.getByText('Continue with Google');
+    await expect(googleBtn).toBeVisible();
+    
+    await page.route('**/api/auth/state', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ state: 'mock-state' })
+      });
+    });
+
+    await page.route('https://accounts.google.com/**', async (route) => {
+      await route.fulfill({ status: 200, body: 'Google Login Page Mock' });
+    });
+
+    await googleBtn.click();
+    await expect(page).toHaveURL(/accounts\.google\.com/);
   });
 });

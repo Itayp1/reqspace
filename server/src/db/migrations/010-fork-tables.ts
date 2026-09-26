@@ -1,4 +1,4 @@
-﻿import { QueryInterface, DataTypes } from 'sequelize';
+import { QueryInterface, DataTypes } from 'sequelize';
 
 export async function up({ context: qi }: { context: QueryInterface }) {
   // collection_forks — tracks which collection is a fork of which source
@@ -32,7 +32,7 @@ export async function up({ context: qi }: { context: QueryInterface }) {
     await qi.addIndex('fork_item_hashes', ['itemId'], { name: 'idx_fork_item_hashes_itemId' });
     console.log('  + created fork_item_hashes');
   } catch (e: any) {
-    if (!/already exists/i.test(e?.message ?? '')) throw e;
+    if (!/already exists|Duplicate key name/i.test(e?.message ?? '')) throw e;
     console.log('  ~ fork_item_hashes already exists, skipping');
   }
 }

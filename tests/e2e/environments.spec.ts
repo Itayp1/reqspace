@@ -58,7 +58,48 @@ test.describe('Environments Operations', () => {
     await expect(page.getByTestId('request-url-input')).toHaveValue('{{baseUrl}}/users');
   });
 
-  test.fixme('secret masking, globals-vs-env precedence, import/export', async ({ page }) => {
-    expect(true).toBe(true);
+  test('secret masking, globals-vs-env precedence, export', async ({ page }) => {
+    await page.goto('/');
+
+    await page.getByTestId('tab-environments').click();
+
+    // 1. Setup Globals
+    await page.getByText('Globals (Common)').click();
+    await page.getByTestId('add-env-var-btn').click();
+    await page.getByTestId('env-var-key-0').fill('api_key');
+    await page.getByTestId('env-var-initial-0').fill('global_secret');
+
+    // 2. Secret masking in Globals
+    await page.getByRole('button', { name: /default/i }).click();
+    await expect(page.getByTestId('env-var-initial-0')).toHaveAttribute('type', 'password');
+    
+    await page.getByTitle('Show value').click();
+    await expect(page.getByTestId('env-var-initial-0')).toHaveAttribute('type', 'text');
+    
+    await page.getByTitle('Hide value').click();
+    await expect(page.getByTestId('env-var-initial-0')).toHaveAttribute('type', 'password');
+    
+    await page.getByTestId('env-save-btn').click();
+
+    // 3. Create Environment and override the same variable
+    await page.getByTestId('new-env-btn').click();
+    await page.getByTestId('prompt-input').fill('Precedence Env');
+    await page.getByTestId('prompt-submit').click();
+    
+    await expect(page.getByTestId('env-node-Precedence Env')).toBeVisible();
+
+    await page.getByTestId('add-env-var-btn').click();
+    await page.getByTestId('env-var-key-0').fill('api_key');
+    await page.getByTestId('env-var-initial-0').fill('env_secret');
+    await page.getByTestId('env-save-btn').click();
+
+    // 4. Select Environment
+    await page.getByTestId('env-select').selectOption({ label: 'Precedence Env' });
+
+    // 5. Export Environment
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByTitle('Export Environment JSON').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe('Precedence Env.reqspace_environment.json');
   });
 });

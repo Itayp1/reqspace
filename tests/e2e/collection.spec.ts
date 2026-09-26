@@ -83,7 +83,84 @@ test.describe('Collection Operations', () => {
     await expect(page.getByTestId('node-Test Folder')).not.toBeVisible();
   });
 
-  test.fixme('duplicate, move between folders, reorder survives reload', async ({ page }) => {
-    expect(true).toBe(true);
+  test('duplicate, move between folders, reorder survives reload', async ({ page }) => {
+    await page.goto('/');
+
+    // 1. Create a new collection for this specific test
+    const newBtn = page.getByTestId('new-collection-empty-btn');
+    if (await newBtn.isVisible()) {
+      await newBtn.click();
+    } else {
+      await page.getByTestId('new-collection-btn').click();
+    }
+    
+    await page.getByTestId('prompt-input').fill('Sort Collection');
+    await page.getByTestId('prompt-submit').click();
+    await expect(page.getByTestId('node-Sort Collection')).toBeVisible();
+
+    const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Sort Collection') });
+    
+    // Create Folder A
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-folder').click();
+    await page.getByTestId('prompt-input').fill('Folder A');
+    await page.getByTestId('prompt-submit').click();
+
+    // Create Folder B
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-folder').click();
+    await page.getByTestId('prompt-input').fill('Folder B');
+    await page.getByTestId('prompt-submit').click();
+
+    // Create Request Z in Folder A
+    const folderANode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Folder A') });
+    await folderANode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Request Z');
+    await page.getByTestId('prompt-submit').click();
+
+    // Create Request A in Folder A
+    await folderANode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Request A');
+    await page.getByTestId('prompt-submit').click();
+
+    // Duplicate Request Z
+    const reqZNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Request Z') });
+    await reqZNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-duplicate').click();
+    await expect(page.getByTestId('node-Request Z (Copy)')).toBeVisible();
+
+    // Move Request Z (Copy) to Folder B
+    await page.dragAndDrop('[data-testid="node-Request Z (Copy)"]', '[data-testid="node-Folder B"]');
+    
+    // Expand Folder B to verify
+    await page.getByTestId('node-Folder B').click();
+    await expect(page.getByTestId('node-Request Z (Copy)')).toBeVisible();
+
+    // Duplicate Collection
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-duplicate-/-fork').click();
+    await expect(page.getByTestId('node-Sort Collection (Copy)')).toBeVisible();
+
+    // Reorder Folder A (Sort A-Z)
+    await folderANode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-sort-a-z').click();
+    
+    // Reload
+    await page.reload();
+    
+    // Re-expand Collection and Folder A
+    await page.getByTestId('node-Sort Collection').click();
+    await page.getByTestId('node-Folder A').click();
+
+    await expect(page.getByTestId('node-Request A')).toBeVisible();
+    await expect(page.getByTestId('node-Request Z')).toBeVisible();
+
+    // Verify Reorder
+    const requestNames = await page.locator('[data-testid^="node-Request"]').allTextContents();
+    const idxA = requestNames.indexOf('Request A');
+    const idxZ = requestNames.indexOf('Request Z');
+    expect(idxA).toBeLessThan(idxZ);
   });
 });

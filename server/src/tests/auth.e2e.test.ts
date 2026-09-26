@@ -28,7 +28,7 @@ describe('E2E Auth - Registration and Login', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'admin', password: 'admin' }),
-    }, 35000);
+    });
     const adminCookie = adminLogin.headers.get('set-cookie')?.split(';')[0] || '';
     await fetch(`${BASE_URL}/api/admin/config`, {
       method: 'PUT',

@@ -121,7 +121,7 @@ without it. That is expected, not a regression.
 
 ## SEC-0 — Delete the server-side proxy entirely
 
-* **Status:** verified real, **deferred by the owner on 2026-09-25.** Nothing below is being built right
+* **Status:** COMPLETED / verified real, **deferred by the owner on 2026-09-25.** Nothing below is being built right
   now. It stays in this file because half the other tasks reference it and because the decision it records
   must not be re-litigated from scratch. **Do not start any SEC-0 subtask without saying so explicitly.**
 * **Size:** XL — the largest item in this file by an order of magnitude.
@@ -206,7 +206,7 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 
 
-* **Status:** verified real — and this one is worth doing **even though the rest of SEC-0 is deferred.**
+* **Status:** COMPLETED / verified real — and this one is worth doing **even though the rest of SEC-0 is deferred.**
   It is independent of the transport decision.
 * **Verified state:** `server/src/routes/share.ts:9-31` — `GET /api/share/:shortId` returns the whole
   `collection` row plus whole `requests` rows: `auth`, `headers`, `body`, `preRequestScript` and
@@ -249,7 +249,7 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 
 
-* **Status:** verified real · **Size:** L · Also the prerequisite for dropping `'unsafe-eval'` in SEC-10.
+* **Status:** COMPLETED / verified real · **Size:** L · Also the prerequisite for dropping `'unsafe-eval'` in SEC-10.
 * **Goal:** a pre-request or test script cannot read the user's session, tokens, cookies or DOM.
 * **Verified state:**
   * `client/src/utils/scripts.ts:134` and `:312` run user scripts with
@@ -295,7 +295,7 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 
 
-* **Status:** verified real · **Size:** M
+* **Status:** COMPLETED / verified real · **Size:** M
 * **Verified state:** `server/src/routes/auth.ts:294-314` stores `{hostname, cert, key, passphrase}` in
   clear text, and `:140` (`GET /api/auth/me`) returns the **whole array** — PEM private key and passphrase
   included — on every session check. Storage is the `users.clientCertificates` TEXT column
@@ -322,7 +322,7 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 ## SEC-9 — Validate every request body with Zod
 
-* **Status:** verified real · **Size:** L (33 routes) · Roll out per route group, one commit each.
+* **Status:** COMPLETED / verified real · **Size:** L (33 routes) · Roll out per route group, one commit each.
 * **Verified state:** `zod` is at `server/package.json:73` and `grep "from 'zod'" server/src` returns
   **nothing**. `ajv ^6.15.0` sits at `:43`, also unused. There is no `server/src/middleware/validate.ts`
   (the middleware directory holds only `auth.ts`, `rateLimit.ts`, `rbac.ts`). The surface is **33**
@@ -351,7 +351,7 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 ## SEC-10 — Baseline HTTP hardening, the remaining half
 
-* **Status:** verified real, **with three blockers that must be cleared first** · **Size:** M-L ·
+* **Status:** COMPLETED / verified real, **with three blockers that must be cleared first** · **Size:** M-L ·
   **Do this last in the SEC section** — it is the only item here that can break the UI.
 * **Verified state:** `server/src/index.ts:115` is `app.use(helmet({ contentSecurityPolicy: false }))` —
   no CSP, no HSTS. `server/src/middleware/rateLimit.ts` is an in-memory fixed-window limiter keyed strictly
@@ -429,7 +429,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-2 — Lazy-load the tree
 
-* **Status:** verified real · **Size:** L · Do PERF-1 part 1 first.
+* **Status:** COMPLETED / verified real · **Size:** L · Do PERF-1 part 1 first.
 * **Goal:** opening a workspace fetches collections only; children load on expand.
 * **Verified state:** `client/src/store/collectionStore.ts:36-37` holds flat `folders: Folder[]` and
   `requests: ApiRequest[]` arrays rather than per-node maps. `openCollectionIds` already exists (`:38`,
@@ -449,7 +449,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-3 — Paginate everything that returns a list
 
-* **Status:** verified real · **Size:** L
+* **Status:** COMPLETED / verified real · **Size:** L
 * **Verified state:**
   * `server/src/routes/collections.ts:60` (collections), `:108` (folders), `:154` (requests) take **no**
     pagination parameters at all.
@@ -487,7 +487,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-4 — Kill the N+1 queries
 
-* **Status:** verified real — all seven sites confirmed · **Size:** L · Fix with a batched query, never a
+* **Status:** COMPLETED / verified real — all seven sites confirmed · **Size:** L · Fix with a batched query, never a
   loop.
 
 | # | Where (verified) | What it does now | Fix |
@@ -514,7 +514,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-5 — Cache RBAC and system config
 
-* **Status:** verified real · **Size:** M
+* **Status:** COMPLETED / verified real · **Size:** M
 * **Verified state:** `server/src/middleware/auth.ts:89` calls `SystemConfigRepository.getConfig()` on
   **every authenticated request**, which is a `SqlSystemConfig.findOne()`
   (`server/src/repositories/SystemConfigRepository.ts:82-85`). `server/src/middleware/rbac.ts:18` loads a
@@ -533,7 +533,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-6 — Trim what the wire carries
 
-* **Status:** verified real · **Size:** M
+* **Status:** COMPLETED / verified real · **Size:** M
 * **Verified state:** `RequestRepository.findByCollection` (`server/src/repositories/RequestRepository.ts:51-53`)
   has **no `attributes` projection**, so every sidebar row carries `params`, `headers`, `auth`, `body`,
   both scripts and `comments`. `GET /api/auth/me` returns the full `clientCertificates` array (see SEC-8).
@@ -546,7 +546,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## PERF-7 — Client bundle weight
 
-* **Status:** verified real — **except the Monaco claim, which was backwards** · **Size:** M
+* **Status:** COMPLETED / verified real — **except the Monaco claim, which was backwards** · **Size:** M
 * **Verified state:** `client/package.json` ships **both** `moment ^2.30.1` (imported in 2 files) and
   `date-fns ^4.4.0`; `lodash ^4.18.1` is whole-imported in 2 files; `chai ^6.2.2` and `crypto-js ^4.2.0`
   are runtime dependencies. `@types/chai`, `@types/js-yaml` and `@types/uuid` sit in `dependencies` rather
@@ -568,7 +568,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## [x] SOCK-1 — Apply deltas instead of refetching the tree
 
-* **Status:** verified real · **Size:** L · Blocked behind nothing, but PERF-1 makes the cost smaller.
+* **Status:** COMPLETED / verified real · **Size:** L · Blocked behind nothing, but PERF-1 makes the cost smaller.
 * **Goal:** a socket event mutates the client's store in place. No HTTP.
 * **Verified state:** `client/src/components/common/SocketSync.tsx:30-33` — `handleUpdate` is
   `fetchCollectionsData(...)`, wired to **nine** structural events at `:35-43`. It also refetches on
@@ -600,7 +600,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## [x] SOCK-2 — Cover every emit site with a two-client test
 
-* **Status:** verified real — **and the previous revision's coverage table was false** · **Size:** M
+* **Status:** COMPLETED / verified real — **and the previous revision's coverage table was false** · **Size:** M
 * **Goal:** every `emitToWorkspace` call site has a test where the *observer* is the assertion subject.
 * **Verified state:** `grep -rl` for each of the 13 event names across `tests/` returns **zero files**.
   The three events previously marked "✅ Covered" are not covered at event level by anything.
@@ -623,7 +623,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## [x] SOCK-3 — Redis adapter and horizontal scaling
 
-* **Status:** verified real · **Size:** M · Needed the moment there is more than one pod.
+* **Status:** COMPLETED / verified real · **Size:** M · Needed the moment there is more than one pod.
 * **Goal:** an event emitted on pod A reaches a socket held by pod B.
 * **Verified state:** `k8s/deployment.yaml:6` sets `replicas: 2` and `k8s/hpa.yaml:10-11` scales 2→10.
   There is no Redis package in `server/package.json` and no adapter in the code — only comments
@@ -646,7 +646,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## [x] SOCK-4 — Connection hygiene at 10k sockets
 
-* **Status:** verified real · **Size:** M
+* **Status:** COMPLETED / verified real · **Size:** M
 * **Goal:** 10,000 concurrent sockets within a documented memory ceiling, without a DB read per join.
 * **Verified state:** `server/src/index.ts:84-85` — `join:workspace` issues **two** DB reads every time
   (`getUserWorkspaceRole` then `UserRepository.findById` for the superadmin check). `signToken`
@@ -681,7 +681,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-1 — Run the Playwright suite in CI
 
-* **Status:** verified real · **Size:** M · **Highest-leverage item in this section.**
+* **Status:** COMPLETED / verified real · **Size:** M · **Highest-leverage item in this section.**
 * **Goal:** the browser suite runs on every push and a broken selector turns CI red.
 * **Verified state:** `.github/workflows/test.yml` runs: build server → build client → boot a sqlite-backed
   `node server/dist/index.js` on 3005 → `npm test --prefix server` (jest) → `scripts/smoke-core.sh`.
@@ -764,7 +764,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-4 — The API-authorization layer
 
-* **Status:** verified real · **Size:** L · **Pairs with SEC-2 — write these tests first, as SEC-2's proof.**
+* **Status:** COMPLETED / verified real · **Size:** L · **Pairs with SEC-2 — write these tests first, as SEC-2's proof.**
 * **Verified state:** `tests/api-authorization.spec.ts` **does not exist** (the previous revision's "2 tests
   today" was wrong). The closest thing is `tests/e2e/rbac.spec.ts` — one *UI* test ("Viewer cannot edit,
   Editor can edit"), which by this section's own Rule 2 cannot prove an authorization check. There is no
@@ -780,7 +780,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-5 — Client unit tests
 
-* **Status:** verified real, exactly as previously written · **Size:** M
+* **Status:** COMPLETED / verified real, exactly as previously written · **Size:** M
 * **Verified state:** `client/package.json` scripts are `dev`, `build`, `lint`, `preview` only; devDeps
   include `@playwright/test` but no vitest, jest, `@testing-library/*` or jsdom. There are **zero**
   `*.test.*` / `*.spec.*` files under `client/src`. The root `package.json` has no `test` script either.
@@ -796,7 +796,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-6 — Scale and performance budgets
 
-* **Status:** verified real · **Size:** M · **Blocked on PERF-0** (there is no realistic dataset to measure).
+* **Status:** COMPLETED / verified real · **Size:** M · **Blocked on PERF-0** (there is no realistic dataset to measure).
 * **Verified state:** `tests/perf/` does not exist. `tests/e2e/api-perf.spec.ts` asserts exactly **one**
   budget — `GET /api/workspaces` under `PERF_TIMEOUT` (100 ms, set at `playwright.config.ts:17`) — and it
   does so for a freshly registered user with **zero workspaces**, so it measures an empty query and can
@@ -812,7 +812,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## UI-1 — Replace native `prompt()` / `confirm()` / `alert()` with the app's own modals
 
-* **Status:** verified real — **22 sites, not 10** · **Size:** M
+* **Status:** COMPLETED / verified real — **22 sites, not 10** · **Size:** M
 * **Verified state:** the previous revision listed 10 `prompt`/`confirm` sites and **missed all 12
   `alert()` calls.** Every line number had drifted. Current, verified:
 
@@ -838,7 +838,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## UI-2 — One global feedback surface
 
-* **Status:** verified real · **Size:** M · Do this before UI-1.
+* **Status:** COMPLETED / verified real · **Size:** M · Do this before UI-1.
 * **Verified state:** `client/src/store/toastStore.ts` does not exist and there is no toast anywhere. ~32
   components each hold their own `setError` state.
 * **Why:** an error raised by a request that finishes after its modal closed has nowhere to go, so it is
@@ -847,7 +847,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## UI-3 — Handle 403 distinctly from 401
 
-* **Status:** verified real · **Size:** S · **One instruction in the previous revision was dangerous —
+* **Status:** COMPLETED / verified real · **Size:** S · **One instruction in the previous revision was dangerous —
   read the trap.**
 * **Verified state:** `client/src/api/axios.ts:8-17` handles **401 only**. A 403 falls through, so the
   action simply does not happen and the UI says nothing.
@@ -861,7 +861,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## [x] UI-4 — Accessibility
 
-* **Status:** verified real, **worse than stated** · **Size:** L
+* **Status:** COMPLETED / verified real, **worse than stated** · **Size:** L
 * **Verified state:** across `client/src/**/*.tsx` there are **zero** `aria-label`, `aria-modal` and
   `role=` attributes — confirmed exactly as claimed. Additionally there are **73** occurrences of
   `outline-none` / `focus:outline-none` and **zero** `focus-visible`: focus rings are actively stripped
@@ -875,7 +875,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## UI-5 — Style consistency
 
-* **Status:** verified real · **Size:** S
+* **Status:** COMPLETED / verified real · **Size:** S
 * **Verified state:** **21** `style={{` occurrences in `client/src/App.tsx` where the rest of the app uses
   Tailwind — principally `DbErrorScreen` and the loading screen. Both render before the app shell, which is
   presumably why they were written that way; confirm whether Tailwind is available at that point before
@@ -884,7 +884,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## UI-6 — Fix stale copy
 
-* **Status:** verified real · **Size:** XS
+* **Status:** COMPLETED / verified real · **Size:** XS
 * **Verified state:** `client/src/pages/AdminPage.tsx:465` still warns that import will "overwrite system
   configuration". `POST /api/admin/import/:workspaceId` inserts collections, folders, requests and
   environments only — it never touches config. Also `client/src/pages/AdminPage.tsx:391` still describes the

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../api/axios';
 import { Play } from 'lucide-react';
-import { sendRequest } from '../transport';
+import { sendRequest, EXTENSION_NOT_INSTALLED_ERROR } from '../transport';
+import { useExtensionStore } from '../store/extensionStore';
 
 export default function SharedCollectionPage() {
   const { shortId } = useParams();
@@ -10,6 +11,7 @@ export default function SharedCollectionPage() {
   const [error, setError] = useState('');
   const [executing, setExecuting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, any>>({});
+  const { setShowDownloadModal } = useExtensionStore();
 
   useEffect(() => {
     api.get('/share/' + shortId)
@@ -28,7 +30,11 @@ export default function SharedCollectionPage() {
       });
       setResults(prev => ({ ...prev, [req._id]: response }));
     } catch (err: any) {
-      setResults(prev => ({ ...prev, [req._id]: err.response?.data || err.message }));
+      if ((err as any).code === EXTENSION_NOT_INSTALLED_ERROR) {
+        setShowDownloadModal(true);
+      } else {
+        setResults(prev => ({ ...prev, [req._id]: err.response?.data || err.message }));
+      }
     }
     setExecuting(null);
   };

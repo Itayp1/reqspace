@@ -60,6 +60,7 @@ jobs:
         run: |
           DB_TYPE=${{ matrix.db }} DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=development PORT=3005 \
             DB_HOST=127.0.0.1 DB_USER=root DB_PASSWORD="" DB_NAME=reqspace_test \
+            CERT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
             node server/dist/index.js > /tmp/server.log 2>&1 &
           echo $! > /tmp/server.pid
           for i in $(seq 1 30); do
