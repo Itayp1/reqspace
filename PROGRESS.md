@@ -22,3 +22,17 @@ One line per completed task: date · id · what was done · files touched.
   · `.gitignore`, `server/patch_admin.js` (deleted), `server/patch_folder.js` (deleted),
   `server/patch_history.js` (deleted), `server/patch_repo.js` (deleted), `server/patch_request.js` (deleted),
   `server/patch_routes_collections.js` (deleted), `server/src/tests/clean8.test.ts`, `README.md`
+* 2026-09-26 · TEST-1 · CI already had a Playwright job and `docker-publish.yml` already gated on it via
+  `workflow_call` (both contrary to the stale spec) — the real blockers were `CERT_ENCRYPTION_KEY` missing
+  from the "Start server" step (server never booted, so nothing after it ever ran) and admin.spec.ts
+  permanently changing the seeded admin's password mid-run, breaking three other specs that hardcode
+  `admin`/`admin`. Fixing the second surfaced a real production bug: `changePasswordSchema` required
+  `currentPassword` unconditionally, so the forced first-login change 400'd for everyone, including the
+  real `ForcePasswordChangeModal.tsx`. Fixed all three; `globalSetup` now walks the seeded admin through the
+  forced change once via API before any spec runs. Also fixed a corrupted (mixed UTF-16/UTF-8)
+  `server/.env.example`. A full local `--project=sqlite` run is 6 passed / 23 failed / 6 didn't run of 35 —
+  the 23 are separate, pre-existing bugs, now tracked under TEST-3 and as FIX-6. · `.github/workflows/test.yml`,
+  `server/.env.example`, `server/src/schemas/auth.schemas.ts`,
+  `server/src/tests/changePasswordSchema.test.ts`, `tests/e2e/global-setup.ts`, `tests/e2e/admin.spec.ts`,
+  `tests/e2e/collection.spec.ts`, `tests/e2e/environments.spec.ts`, `tests/e2e/requests.spec.ts`, `README.md`,
+  `TODO.md`

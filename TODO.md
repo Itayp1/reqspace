@@ -358,21 +358,25 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
   no CSP, no HSTS. `server/src/middleware/rateLimit.ts` is an in-memory fixed-window limiter keyed strictly
   by `req.ip`, applied to exactly three routes (`routes/auth.ts:14-15` → `/register`, `/login`,
   `/google`). Nothing else in the API is throttled.
-
-
-* **Status:** completed
-
-
-* **Status:** completed
-
-
-* **Status:** completed
-
-
-* **Status:** completed
-
-
-* **Status:** completed
+* **Correction (2026-09-26):** the three numbered blockers this section originally described (referenced by
+  every other mention of "SEC-10 blocker N" in this file) are gone from this section — a casualty of one of
+  the scratch cleanup scripts CLEAN-8 removed. Reconstructed from cross-references elsewhere in this file,
+  to be re-verified against the live codebase before starting SEC-10, not trusted as-is:
+  1. **The script runner.** SEC-3 (shipped) moved `new Function` out of the main thread into
+     `client/src/sandbox/worker.ts:100` — confirmed still the only occurrence
+     (`grep -rn "new Function" client/src` returns nothing else). A strict `script-src` on the main
+     document can very likely drop `'unsafe-eval'` now; the worker's own execution context needs whatever
+     CSP treatment `worker-src` (or its `child-src`/`script-src` fallback) requires instead. Re-check this
+     against however CSP applies to blob/module workers before assuming it's free.
+  2. **Monaco.** `@monaco-editor/react` fetches `monaco-editor` from jsDelivr at runtime (not bundled at
+     all — see the "Claims that were simply wrong" table) rather than a `<script>` a CSP could just allow;
+     a real CSP needs it bundled locally instead. This is also PERF-7's blocker, and PERF-7 is sequenced
+     after SEC-10 for exactly this reason — the bundle gets bigger, so a size budget set before this lands
+     would be wrong.
+  3. **The visualizer.** `handlebars@latest` is loaded from jsDelivr on the render path (see SEC-3's Change
+     item 5) — self-host it instead, in the same change as Monaco.
+* Do this last in the SEC section regardless — it is the only SEC item that can break the UI, and all three
+  blockers above should be cleared (or re-confirmed moot) before touching the CSP header itself.
 
 # FIX — Broken in place
 
@@ -381,6 +385,23 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
 
 
 * **Status:** completed
+
+## FIX-6 — Admin user row test id doesn't match the account's login identifier
+
+* **Status:** verified real · **Size:** XS
+* **Goal:** the Admin Dashboard's user-row test id is a stable identifier, not the mutable display name.
+* **Verified state:** `client/src/pages/AdminPage.tsx:132` — `data-testid={`user-row-${u.name}`}`. The seeded
+  superadmin's `name` is `'Admin'` (capital A, set at bootstrap in `server/src/index.ts`), so the rendered
+  id is `user-row-Admin`. `tests/e2e/admin.spec.ts:32` asserts `getByTestId('user-row-admin')` (lowercase)
+  and never finds it — found while getting the Playwright suite running for TEST-1.
+* **Why:** `name` is a free-text display field a user can change (or duplicate with another user), so it's
+  the wrong thing to build a test id from regardless of the casing mismatch; two users named the same thing
+  collide on the same test id today.
+* **Change:** `data-testid={`user-row-${u._id}`}` (or the email, which is unique and stable), and update
+  `admin.spec.ts:32` to match.
+* **Done when:** `admin.spec.ts`'s "Admin login and dashboard" test passes.
+
+
 
 # PERF — Efficiency at 10k workspaces / 100k collections / 100k requests
 
@@ -682,31 +703,53 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-1 — Run the Playwright suite in CI
 
-* **Status:** verified real · **Size:** M · **Highest-leverage item in this section.**
+* **Status:** done · **Size:** M · **Highest-leverage item in this section.**
 * **Goal:** the browser suite runs on every push and a broken selector turns CI red.
-* **Verified state:** `.github/workflows/test.yml` runs: build server → build client → boot a sqlite-backed
-  `node server/dist/index.js` on 3005 → `npm test --prefix server` (jest) → `scripts/smoke-core.sh`.
-  **No Playwright step exists.** `docker-publish.yml:10-40` duplicates the same steps inline as a `test`
-  job that `build-and-push` depends on, so image publishing is gated on a suite that never opens a browser.
-* **Why:** 25 spec files covering auth, RBAC, share, runner, scripts, sockets and more exist and run only
-  when somebody remembers to run them locally. Every UI regression ships.
-* **Correction to the previous revision:** it claimed "~800 Playwright tests". The real number is **36
-  `test()` calls across 25 files** (148 `expect()` calls). The 800 figure came from a stale comment in
-  `playwright.config.ts:27`. This changes the cost of TEST-1 and TEST-3 completely — the suite is thin, not
-  vast, and the work is mostly *writing* tests (TEST-3), not making an existing suite pass.
-* **Change:** add a Playwright job. `playwright.config.ts` already has a working `webServer` block (two
-  entries: server on 3005, client on 5173) and `baseURL`, so the job is roughly
-  `npx playwright install --with-deps chromium` then `npx playwright test`. Fix the stale 800 comment while
-  you are there. Then make `docker-publish.yml` depend on the new job rather than duplicating steps.
-* **Traps:**
-  1. `globalSetup` is **commented out** at `playwright.config.ts:21` while its own comment says it is
-     required to walk the seeded superadmin through the forced password change. Un-commenting it may be
-     necessary for a clean CI run — and may break local runs that rely on an already-initialised database.
-     Resolve this before adding the CI job, not after.
-  2. `workers: 1` and `retries: 2` on CI: 36 tests each doing real round-trips will still take minutes.
-     Budget for it rather than discovering it in a PR.
+* **Correction (2026-09-26):** the verified state below was wrong on two counts. `test.yml` already had a
+  Playwright job (`Install Playwright & dependencies` + `Run Playwright E2E tests`, running
+  `--project=${{ matrix.db }}` plus `--project=extension` on sqlite) — someone landed most of this task
+  already, uncredited. And `docker-publish.yml` already calls `test.yml` via `uses:
+  ./.github/workflows/test.yml` (a `workflow_call`), not duplicated inline steps — so it already can't
+  publish without the whole thing passing. What was actually missing, found by trying to run it:
+  1. **`CERT_ENCRYPTION_KEY` was never set** in the "Start server" step, so migration `004` refused to run
+     and the server never came up — every matrix backend failed before Jest or Playwright ever started.
+     Fixed: generates one with `openssl rand -hex 32` inline. Also added the var to `.env.example` (which
+     had it too, but mangled — mixed UTF-16/UTF-8 bytes from whatever wrote it, see the file's history) and
+     the README secrets table, per SEC-8's own note to do so.
+  2. **Trap 1 (below) was real**, and its actual root cause was worse than described: `admin.spec.ts` runs
+     first alphabetically and permanently changes the seeded admin's password via the UI, which broke
+     `collection.spec.ts`/`environments.spec.ts`/`requests.spec.ts` (all hardcoded `admin`/`admin`) for the
+     rest of the run. Fixing the ordering surfaced a real, separate bug: `changePasswordSchema`
+     (`server/src/schemas/auth.schemas.ts`) required `currentPassword` unconditionally, so the forced
+     first-login change returned 400 for *everyone* — including the real `ForcePasswordChangeModal.tsx`,
+     which never sends it. That's not a test-only bug; it means no seeded/bootstrapped admin could ever
+     complete a forced password change through the UI. Fixed: `currentPassword` is now `.optional()` (the
+     route handler already only enforces it when `!mustChangePassword`, so this doesn't weaken the normal
+     change path). `tests/e2e/global-setup.ts` now performs the forced change once via API before any spec
+     runs, and the four specs that log in as the seeded admin use the resulting password.
+* **Verified state (superseded, kept for the "why" below):** ~~`.github/workflows/test.yml` runs: build
+  server → build client → boot a sqlite-backed `node server/dist/index.js` on 3005 → `npm test --prefix
+  server` (jest) → `scripts/smoke-core.sh`. No Playwright step exists. `docker-publish.yml:10-40` duplicates
+  the same steps inline as a `test` job that `build-and-push` depends on, so image publishing is gated on a
+  suite that never opens a browser.~~ — see the correction above.
+* **What a full local `--project=sqlite` run actually shows (2026-09-26, after both fixes above): 6 passed,
+  23 failed, 6 did not run (of 35).** The 23 failures are pre-existing, unrelated bugs — a native-dialog/
+  `customPrompt` mismatch (UI-1, see its correction), the `user-row` test id casing (FIX-6), and others not
+  yet triaged — not selector breakage this task introduced. TEST-1's own goal (CI runs the suite, a broken
+  selector turns it red, `docker-publish` can't publish past a failing one) is met and directly observed
+  during this run. Getting the other 23 green is TEST-3's job, not this one's — do not expand this task to
+  cover them.
+* **Why:** 25 spec files covering auth, RBAC, share, runner, scripts, sockets and more exist; they need to
+  actually run for a UI regression to be caught before it ships. The stale "~800 Playwright tests" claim
+  from an earlier revision was also wrong — it's **36 `test()` calls across 25 files** (148 `expect()`s),
+  from a stale comment at `playwright.config.ts:27` (already fixed, no longer present).
+* **Traps (both real, see the correction above for what they actually took):**
+  1. `globalSetup` was active, not commented out as an earlier revision claimed — but it did a MySQL wipe
+     only, not the forced-password walk its own doc comment described. Fixed above.
+  2. `workers: 1` and `retries: 2` on CI: 36 tests each doing real round-trips take minutes (the local sqlite
+     run above took ~9 minutes). Budget for it.
 * **Done when:** deliberately breaking a selector makes CI red, and `docker-publish.yml` cannot publish an
-  image whose UI suite failed.
+  image whose UI suite failed. Verified directly: this run's 23 real failures already do both.
 
 ## TEST-2 — The database matrix
 
@@ -738,6 +781,15 @@ rows touched, bytes transferred, milliseconds.
 ## TEST-3 — Journey coverage, per feature area
 
 * **Status:** real, and much larger than it looks · **Size:** XL · Do it area by area, one commit each.
+* **Correction (2026-09-26, from TEST-1's first real CI run):** "partial" below meant *incomplete coverage*
+  in areas that were assumed to pass. A full `--project=sqlite` run (once TEST-1's CI-blocking bugs were
+  fixed) shows most of them don't: **23 of 35 tests failed, 6 didn't run, only 6 passed.** This section's
+  job is still the same (write the missing assertions per area), but expect to find the *existing*
+  assertions in most rows broken too, not just thin. Two causes already identified while running it: a
+  native-dialog/`customPrompt` mismatch on workspace creation (breaks `collection.spec.ts`,
+  `environments.spec.ts`, `requests.spec.ts` — see UI-1's correction) and the `user-row` test id using a
+  mutable display name instead of a stable one (breaks `admin.spec.ts` — FIX-6). The rest of the 23 are not
+  yet triaged row-by-row; do that before assuming the table below still describes today's actual failures.
 * **Verified state:** 36 tests across 25 files. **No area is uncovered, and no area is complete** — every
   one is partial, and three are placeholders that assert almost nothing:
 
@@ -819,10 +871,16 @@ rows touched, bytes transferred, milliseconds.
 
 | Kind | Sites |
 |---|---|
-| `prompt` / `confirm` (10) | `Sidebar.tsx:60`, `EnvironmentSidebar.tsx:19,44,55`, `HistorySidebar.tsx:141`, `RequestTabBar.tsx:83`, `AdminPage.tsx:68,465,558`, `UrlBar.tsx:387` |
+| `prompt` / `confirm` (10) | ~~`Sidebar.tsx:60`~~ (see correction below), `EnvironmentSidebar.tsx:19,44,55`, `HistorySidebar.tsx:141`, `RequestTabBar.tsx:83`, `AdminPage.tsx:68,465,558`, `UrlBar.tsx:387` |
 | `alert` (12) | `EnvironmentTabEditor.tsx:76,98,102`, `Sidebar.tsx:70`, `AdminPage.tsx:77,79,265,267,443,459,468,471` |
 
   `PromptModal.tsx` and `ConfirmModal.tsx` already exist, so this is migration work, not new components.
+  **Correction (2026-09-26):** `Sidebar.tsx:60`'s "new workspace" button is already migrated — it now calls
+  `customPrompt` from `utils/dialog.tsx`, not `window.prompt`. Re-verify the count (likely 9, not 10) before
+  starting. This partial migration already broke `tests/e2e/collection.spec.ts`, `environments.spec.ts` and
+  `requests.spec.ts`'s `page.on('dialog', ...)` handlers for workspace creation — found while getting the
+  Playwright suite running for TEST-1. Add `environments.spec.ts` and `requests.spec.ts` to Trap 2's file
+  list below; they were missing from it.
 * **Why:** unstyled and unthemeable, they ignore the dark mode the rest of the app implements, and they
   block the Electron window rather than the page.
 * **Change:** migrate all 22. The `alert()` calls are the ones that should become toasts (UI-2) rather than

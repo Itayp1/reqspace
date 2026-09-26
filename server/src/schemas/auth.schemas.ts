@@ -12,7 +12,11 @@ export const loginSchema = z.object({
 }).strict();
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string(),
+  // Optional: the forced first-login change (mustChangePassword) is exempt
+  // from proving the current password — see routes/auth.ts's handler. A
+  // required field here rejects that request before the handler ever runs,
+  // which is exactly the case this schema needs to allow.
+  currentPassword: z.string().optional(),
   newPassword: z.string().min(8, 'Password must be at least 8 characters')
 }).strict();
 

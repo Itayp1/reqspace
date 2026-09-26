@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ADMIN_PASSWORD } from './global-setup';
 
 test.describe('Collection Operations', () => {
   // Run serially to reuse state
@@ -8,7 +9,9 @@ test.describe('Collection Operations', () => {
     await page.goto('/login');
     // We assume data-testids exist
     await page.getByTestId('login-email').fill('admin');
-    await page.getByTestId('login-password').fill('admin');
+    // globalSetup already walks the seeded admin through its forced
+    // first-login password change, so this is the post-change password.
+    await page.getByTestId('login-password').fill(ADMIN_PASSWORD);
     await page.getByTestId('login-submit').click();
 
     await expect(page).toHaveURL(/.*\/$/);

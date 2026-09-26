@@ -174,6 +174,7 @@ Set in `server/.env` locally (gitignored) and as a Kubernetes Secret in a cluste
 | Variable | Purpose | Notes |
 |---|---|---|
 | `JWT_SECRET` | Signs and verifies session JWTs | See the warning below |
+| `CERT_ENCRYPTION_KEY` | Seals client TLS certificates at rest (SEC-8) | **Required to boot** — migration `004` refuses to run without it. 64-char hex (32 bytes), e.g. `openssl rand -hex 32` |
 | `ADMIN_EMAIL` | Bootstrap superadmin identity | Defaults to `admin` |
 | `ADMIN_PASSWORD` | Bootstrap superadmin password | Defaults to `admin`; production refuses to bootstrap with that value |
 | `DB_USER` / `DB_PASSWORD` | SQL credentials | `postgres`, `mysql`, `mssql` |
@@ -326,6 +327,7 @@ is the index; `TODO.md` is the detail.
 | `[x]` | FIX-3 | Real migrations (`umzug`) | M | |
 | `[x]` | FIX-4 | History rows rendered "Invalid Date" | XS | |
 | `[x]` | FIX-5 | `/api/auth/config` advertised self-registration the server refused | XS | |
+| `[ ]` | FIX-6 | Admin user row test id built from the mutable display name, not a stable id | XS | Found while wiring TEST-1 |
 
 ### ⚡ Performance — PERF
 
@@ -354,9 +356,9 @@ is the index; `TODO.md` is the detail.
 
 | Done | ID | Task | Size | Notes |
 |---|---|---|---|---|
-| `[ ]` | TEST-1 | Run the Playwright suite in CI | M | **Highest leverage here.** CI runs jest + a smoke script only; no browser test has ever run in CI |
+| `[x]` | TEST-1 | Run the Playwright suite in CI | M | The CI job already existed; the real blocker was `CERT_ENCRYPTION_KEY` missing from the "Start server" step (server never booted) plus a real `changePasswordSchema` bug that broke every forced first-login change. Both fixed. **A full local run is 6 passed / 23 failed / 6 didn't run of 35** — pre-existing app/test bugs, now TEST-3's job |
 | `[ ]` | TEST-2 | The database matrix | M | CI is sqlite-only; 11 specs hardcode `localhost:5173` |
-| `[ ]` | TEST-3 | Journey coverage, per feature area | XL | 14 areas, all partial; Import/Export, Share and Admin are placeholders that assert almost nothing |
+| `[ ]` | TEST-3 | Journey coverage, per feature area | XL | 14 areas, all partial; Import/Export, Share and Admin are placeholders that assert almost nothing. **Most also fail outright when actually run** (see TEST-1's note) — this isn't just thin coverage anymore |
 | `[ ]` | TEST-4 | The API-authorization layer | L | Pairs with SEC-2 — a UI test cannot prove an authz check |
 | `[~]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
 | `[ ]` | TEST-6 | Scale and performance budgets | M | Assert query counts, not milliseconds |

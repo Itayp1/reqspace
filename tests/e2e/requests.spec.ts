@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ADMIN_PASSWORD } from './global-setup';
 
 test.describe('Request Operations', () => {
   test.describe.configure({ mode: 'serial' });
@@ -6,7 +7,9 @@ test.describe('Request Operations', () => {
   test('Login and create workspace', async ({ page }) => {
     await page.goto('/login');
     await page.getByTestId('login-email').fill('admin');
-    await page.getByTestId('login-password').fill('admin');
+    // globalSetup already walks the seeded admin through its forced
+    // first-login password change, so this is the post-change password.
+    await page.getByTestId('login-password').fill(ADMIN_PASSWORD);
     await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
     
