@@ -84,7 +84,7 @@ Rules of thumb that follow from those numbers:
 | Suite | Path | Runs in CI? |
 |---|---|---|
 | Server unit + live-auth e2e (jest) | `server/src/tests/*.test.ts` | ✅ `npm test --prefix server` |
-| Browser e2e (Playwright, 25 spec files) | `tests/e2e/*.spec.ts` | ❌ **nothing runs them** — TEST-1 |
+| Browser e2e (Playwright, 25 spec files) | `tests/e2e/*.spec.ts` | ✅ (TEST-1 shipped) |
 | Core smoke (bash + curl) | `scripts/smoke-core.sh` | ✅ |
 
 CI is `.github/workflows/test.yml`: build server → build client → boot a real sqlite-backed
@@ -350,54 +350,10 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 ---
 
-## SEC-10 — Baseline HTTP hardening, the remaining half
-
-* **Status:** done · **Size:** M-L
-* **Correction (2026-09-26):** this section's own text (`contentSecurityPolicy: false`, "three blockers",
-  rate limiting on "exactly three routes") was stale — a casualty of the same scratch-script corruption
-  CLEAN-8 fixed, describing a state that predates work already shipped. Verified live against the running
-  server, not the old text:
-  * **CSP is already on** — `server/src/index.ts:140-161`, a real `helmet({ contentSecurityPolicy: {...} })`
-    with `useDefaults: false` and explicit directives (`default-src 'self'`, `script-src 'self'
-    'unsafe-eval'`, `style-src`, `img-src`, `connect-src 'self'`, `worker-src`/`child-src 'self' blob:`,
-    `frame-src 'self' data:`, `object-src 'none'`, `upgrade-insecure-requests` in prod). `hsts` is
-    conditionally on in production (`maxAge: 31536000, includeSubDomains, preload`). Confirmed on a running
-    production-mode server via `curl -I` — both headers present with the values above.
-  * **Rate limiting already covers more than login.** `middleware/rateLimit.ts`'s limiter is applied to
-    `/register`, `/login`, `/google` (`routes/auth.ts`), the public `GET /:shortId` share route
-    (`routes/share.ts:12,14`), **and** a global `mutationLimiter` (`index.ts:206-208`) on every
-    POST/PUT/PATCH/DELETE request app-wide (300/min per IP). `server/src/tests/sec10.e2e.test.ts` exercises
-    the mutation limiter end to end (350 requests, asserts a 429).
-  * **The three blockers a prior revision described are cleared**, verified live (headless Chromium against
-    a built, `NODE_ENV=production` server, both with the real CSP and with it forced off, to isolate cause):
-    1. **The script runner.** SEC-3 (shipped) moved `new Function` to `client/src/sandbox/worker.ts:100`
-       only (`grep -rn "new Function" client/src` confirms). `'unsafe-eval'` stays in `script-src` — Chrome
-       applies the creating document's CSP to same-origin blob/module workers too, so dropping it there
-       would break the worker's own `new Function`, not just the main thread's (already-absent) use of it.
-    2. **Monaco is bundled locally**, not fetched from jsDelivr — `client/src/main.tsx:3-8`
-       (`import * as monaco from 'monaco-editor'; loader.config({ monaco })`) and the client build emits
-       real per-language chunks (`tsMode-*.js`, `jsonMode-*.js`, `pgsql-*.js`, …). No CSP change needed here.
-       (The "Claims that were simply wrong" table's Monaco row is itself now wrong — someone bundled it
-       since that was written.) **Separately** (not a CSP issue — reproduced identically with CSP fully
-       disabled): Monaco's background worker fails to load with or without CSP, because nothing configures
-       `self.MonacoEnvironment`. Tracked as FIX-7; do not re-open it here.
-    3. **The visualizer's Handlebars is already self-hosted** — `ResponseViewer.tsx:546`, `<script
-       src="/handlebars.min.js">`, served from `client/public/handlebars.min.js`, not a CDN URL.
-  * The iframes SEC-3 specified are correctly sandboxed: HTML preview `sandbox=""`
-    (`ResponseViewer.tsx:381`), visualizer `sandbox="allow-scripts"` — never `allow-same-origin`
-    (`ResponseViewer.tsx:540`).
-* **Done when:** confirmed — `curl -I` on a production-mode server shows both headers with the directives
-  above, `sec10.e2e.test.ts` passes, and the app's own console shows no CSP violations across login,
-  workspace creation, the body editor and the visualizer (the one real error found, FIX-7, is independent
-  of CSP).
-
 # FIX — Broken in place
 
 Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. See
 [Removed](#removed-on-2026-09-25). Their numbers are not reused, so old commit messages stay meaningful.
-
-
-* **Status:** completed
 
 ## FIX-6 — Admin user row test id doesn't match the account's login identifier
 
@@ -590,15 +546,6 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
 Every item below is a measured defect at the target scale. Each task must report a number: queries issued,
 rows touched, bytes transferred, milliseconds.
 
-## PERF-0 - Completed
-
-* **Status:** completed
-* **Results (SQLite):**
-  * Login: 35ms, 1 queries
-  * List workspaces: 4ms, 1 queries
-  * Open workspace: 9ms, 5 queries
-  * List history: 3ms, 1 queries
-
 ## PERF-1 — Opening a workspace issues 1 + 2×N HTTP requests
 
 * **Status:** verified real · **Size:** M · **The single worst performance defect in the product.**
@@ -735,44 +682,6 @@ rows touched, bytes transferred, milliseconds.
 
 ---
 
-## PERF-6 — Trim what the wire carries
-
-* **Status:** done · **Size:** M
-* **Verified state (accurate as found):** `RequestRepository.findByCollection` had no `attributes`
-  projection, so every sidebar row carried `params`, `headers`, `auth`, `body`, both scripts and `comments`.
-  `compression` was in neither `server/package.json` nor `index.ts`. This section's claims were correct —
-  unlike most of what surrounded it in this file.
-* **Change:**
-  1. `RequestRepository.findSummaryByCollection` / `findSummaryByFolder`: `attributes: ['id',
-     'collectionId', 'folderId', 'name', 'method', 'order']` — no `id` duplicate of `_id` (the tree/list
-     views only ever key on `_id`; verified nothing reads the plain `.id` field client-side).
-  2. `GET /collections/:collectionId/requests` (`routes/collections.ts:166-180`) — the route the client
-     actually calls (`fetchCollectionsData`, `client/src/store/collectionStore.ts:117`) — now uses the
-     summary methods. Opening a request already does its own fresh `GET /requests/:id` for the full record
-     (`CollectionExplorer.tsx:191`), so the list no longer needing to carry everything doesn't cost a round
-     trip that wasn't already happening.
-  3. `compression` added as a dependency and wired in `index.ts` right after `helmet`.
-  4. Left the `/workspaces/:workspaceId/tree` endpoint (Task 0) on the same summary method for consistency,
-     though **it is currently dead code** — `grep -rn "/tree" client/src` returns nothing; nothing calls it.
-* **Traps:**
-  1. The raw (uncompressed) JSON for 500 realistic requests is genuinely large even summarized (~80 KB) —
-     three UUID-shaped fields (`_id`, `collectionId`, and `folderId` when set) dominate the size at that row
-     count, and none of the three can be dropped (the client re-groups a flattened cross-collection array
-     by `collectionId`, and `_id` is load-bearing everywhere). **The 50 KB budget is a wire budget, met via
-     gzip, not a raw-JSON budget** — measure the gzipped size, matching what `compression()` actually puts
-     on the wire, not `JSON.stringify(...).length`.
-  2. Don't let gzip's own effectiveness fool you into thinking the projection doesn't matter: a fixture
-     whose 500 requests all share one repeated script string gzips the *full*, unprojected record set down
-     to ~31 KB on its own — gzip crushes repeated substrings regardless of which fields carry them.
-     Real, independent per-request bodies/scripts don't have that redundancy, so don't use "gzip already
-     gets the full records under budget" as a reason to skip the projection — a fixture built to look
-     realistic can still accidentally prove the wrong thing if every row is a copy of the same string.
-* **Done when:** `server/src/tests/perf6.test.ts` — a 500-request collection's summary list, gzipped, is
-  under 50 KB, and the same fixture's full records exceed 50 KB *uncompressed* (establishing the fixture
-  itself is heavy, independent of what compression does to it).
-
----
-
 ## PERF-7 — Client bundle weight
 
 * **Status:** verified real — **except the Monaco claim, which was backwards** · **Size:** M
@@ -879,56 +788,6 @@ rows touched, bytes transferred, milliseconds.
    `page.locator('input[type="text"]')`.
 5. **Every test must fail against the pre-fix code.** Watch it fail before you fix anything.
 
-## TEST-1 — Run the Playwright suite in CI
-
-* **Status:** done · **Size:** M · **Highest-leverage item in this section.**
-* **Goal:** the browser suite runs on every push and a broken selector turns CI red.
-* **Correction (2026-09-26):** the verified state below was wrong on two counts. `test.yml` already had a
-  Playwright job (`Install Playwright & dependencies` + `Run Playwright E2E tests`, running
-  `--project=${{ matrix.db }}` plus `--project=extension` on sqlite) — someone landed most of this task
-  already, uncredited. And `docker-publish.yml` already calls `test.yml` via `uses:
-  ./.github/workflows/test.yml` (a `workflow_call`), not duplicated inline steps — so it already can't
-  publish without the whole thing passing. What was actually missing, found by trying to run it:
-  1. **`CERT_ENCRYPTION_KEY` was never set** in the "Start server" step, so migration `004` refused to run
-     and the server never came up — every matrix backend failed before Jest or Playwright ever started.
-     Fixed: generates one with `openssl rand -hex 32` inline. Also added the var to `.env.example` (which
-     had it too, but mangled — mixed UTF-16/UTF-8 bytes from whatever wrote it, see the file's history) and
-     the README secrets table, per SEC-8's own note to do so.
-  2. **Trap 1 (below) was real**, and its actual root cause was worse than described: `admin.spec.ts` runs
-     first alphabetically and permanently changes the seeded admin's password via the UI, which broke
-     `collection.spec.ts`/`environments.spec.ts`/`requests.spec.ts` (all hardcoded `admin`/`admin`) for the
-     rest of the run. Fixing the ordering surfaced a real, separate bug: `changePasswordSchema`
-     (`server/src/schemas/auth.schemas.ts`) required `currentPassword` unconditionally, so the forced
-     first-login change returned 400 for *everyone* — including the real `ForcePasswordChangeModal.tsx`,
-     which never sends it. That's not a test-only bug; it means no seeded/bootstrapped admin could ever
-     complete a forced password change through the UI. Fixed: `currentPassword` is now `.optional()` (the
-     route handler already only enforces it when `!mustChangePassword`, so this doesn't weaken the normal
-     change path). `tests/e2e/global-setup.ts` now performs the forced change once via API before any spec
-     runs, and the four specs that log in as the seeded admin use the resulting password.
-* **Verified state (superseded, kept for the "why" below):** ~~`.github/workflows/test.yml` runs: build
-  server → build client → boot a sqlite-backed `node server/dist/index.js` on 3005 → `npm test --prefix
-  server` (jest) → `scripts/smoke-core.sh`. No Playwright step exists. `docker-publish.yml:10-40` duplicates
-  the same steps inline as a `test` job that `build-and-push` depends on, so image publishing is gated on a
-  suite that never opens a browser.~~ — see the correction above.
-* **What a full local `--project=sqlite` run actually shows (2026-09-26, after both fixes above): 6 passed,
-  23 failed, 6 did not run (of 35).** The 23 failures are pre-existing, unrelated bugs — a native-dialog/
-  `customPrompt` mismatch (UI-1, see its correction), the `user-row` test id casing (FIX-6), and others not
-  yet triaged — not selector breakage this task introduced. TEST-1's own goal (CI runs the suite, a broken
-  selector turns it red, `docker-publish` can't publish past a failing one) is met and directly observed
-  during this run. Getting the other 23 green is TEST-3's job, not this one's — do not expand this task to
-  cover them.
-* **Why:** 25 spec files covering auth, RBAC, share, runner, scripts, sockets and more exist; they need to
-  actually run for a UI regression to be caught before it ships. The stale "~800 Playwright tests" claim
-  from an earlier revision was also wrong — it's **36 `test()` calls across 25 files** (148 `expect()`s),
-  from a stale comment at `playwright.config.ts:27` (already fixed, no longer present).
-* **Traps (both real, see the correction above for what they actually took):**
-  1. `globalSetup` was active, not commented out as an earlier revision claimed — but it did a MySQL wipe
-     only, not the forced-password walk its own doc comment described. Fixed above.
-  2. `workers: 1` and `retries: 2` on CI: 36 tests each doing real round-trips take minutes (the local sqlite
-     run above took ~9 minutes). Budget for it.
-* **Done when:** deliberately breaking a selector makes CI red, and `docker-publish.yml` cannot publish an
-  image whose UI suite failed. Verified directly: this run's 23 real failures already do both.
-
 ## TEST-2 — The database matrix
 
 * **Status:** partially real — **two of its three "Where" claims were false** · **Size:** M
@@ -1027,7 +886,7 @@ rows touched, bytes transferred, milliseconds.
 
 ## TEST-6 — Scale and performance budgets
 
-* **Status:** verified real · **Size:** M · **Blocked on PERF-0** (there is no realistic dataset to measure).
+* **Status:** verified real · **Size:** M (PERF-0 shipped, so a realistic dataset now exists to measure against).
 * **Verified state:** `tests/perf/` does not exist. `tests/e2e/api-perf.spec.ts` asserts exactly **one**
   budget — `GET /api/workspaces` under `PERF_TIMEOUT` (100 ms, set at `playwright.config.ts:17`) — and it
   does so for a freshly registered user with **zero workspaces**, so it measures an empty query and can
@@ -1078,62 +937,6 @@ rows touched, bytes transferred, milliseconds.
 ---
 
 # UI — Client experience
-
-## UI-1 — Replace native `prompt()` / `confirm()` / `alert()` with the app's own modals
-
-* **Status:** done · **Size:** M
-* **Correction (2026-09-26):** this section's site count and trap file list were both far more stale than
-  the "9, not 10" correction above already flagged. Fresh grep at the time this was picked up (including
-  bare `prompt(`, which the old grep pattern didn't match) found only **8 real sites** across 4 files —
-  `AdminPage.tsx`, `HistorySidebar.tsx`, `Sidebar.tsx`, and most of the previously-listed `AdminPage.tsx`
-  `alert()`s were *already* migrated to `customConfirm`/toasts and just never credited:
-  `RequestTabBar.tsx:83` (confirm), `UrlBar.tsx:380` (confirm), `EnvironmentSidebar.tsx:19,44,55` (2×prompt,
-  1×confirm), `EnvironmentTabEditor.tsx:76,98,102` (3×alert). All 8 fixed — the 3 confirms now use
-  `customConfirm`, the 2 prompts `customPrompt`, the 3 alerts route through `toastStore` (UI-2).
-  `grep -rn "window\.prompt\|window\.confirm\|[^.]\balert(\|[^.]\bconfirm(\|[^.]\bprompt(" client/src`
-  (note the added bare-`prompt(` alternation — the original grep in "Done when" below would have missed
-  `EnvironmentSidebar.tsx`'s two `prompt(...)` calls entirely) now returns nothing.
-* **The much bigger discovery:** because collection/folder creation (`CollectionExplorer.tsx`) and workspace
-  creation (`Sidebar.tsx`) were *already* migrated to real modals (`PromptModal`/`ConfirmModal`, both via
-  `customPrompt`/`customConfirm` or `CollectionExplorer`'s own local `promptConfig`/`confirmConfig` state —
-  same components, same test ids: `prompt-input`, `prompt-submit`, `prompt-cancel`, `confirm-btn`,
-  `confirm-cancel-btn`), **every one of 13 spec files** still installed a `page.on('dialog', ...)`/
-  `page.once('dialog', ...)` listener expecting a real browser dialog that no longer appears:
-  `collection.spec.ts`, `conflict.spec.ts`, `crud-rename.spec.ts`, `environments.spec.ts`, `history.spec.ts`,
-  `rbac.spec.ts`, `requests.spec.ts`, `scripts-scope.spec.ts`, `scripts.spec.ts`, `socket-advanced.spec.ts`,
-  `socket-sync.spec.ts`, `tabs.spec.ts`, `workspace.spec.ts` — not the 3 files (`collection.spec.ts`,
-  `conflict.spec.ts`, `crud-rename.spec.ts`) this section's old Trap 2 named. This is very likely a
-  significant chunk of TEST-1's "23 of 35 failed" finding, not a separate issue — most specs bootstrap a
-  workspace/collection first, and a silently-no-op dialog handler leaves the test operating on stale
-  pre-existing state instead of what it thinks it just created.
-* **Why:** unstyled/unthemeable native dialogs aside, the real cost turned out to be the test suite silently
-  drifting out of sync with a migration that had already happened.
-* **Change:** all 13 spec files' dialog interactions rewritten to drive the real modal (fill
-  `prompt-input`/click `prompt-submit`, or click `confirm-btn`/`confirm-cancel-btn`) instead of a
-  `page.on('dialog', ...)` handler. `conflict.spec.ts`'s one *real* dialog assertion (the request-overwrite
-  conflict, now `UrlBar.tsx`'s `customConfirm` call) was rewritten to assert on the `ConfirmModal`'s message
-  text and click `confirm-cancel-btn` (save as new), matching its original intent.
-* **Done when:** the grep above returns nothing, and `grep -rln "on('dialog'\|once('dialog'" tests/e2e/`
-  returns nothing outside of any site confirmed still genuinely native (none were found).
-
-## UI-2 — One global feedback surface
-
-* **Status:** done · **Size:** M
-* **Correction (2026-09-26):** the infrastructure this section said didn't exist was already there —
-  `client/src/store/toastStore.ts` (a zustand store, 5s auto-dismiss) and
-  `client/src/components/common/ToastContainer.tsx`, mounted unconditionally in `App.tsx:176`. `api/axios.ts`
-  already routes every `403` response through it globally. What was still real: 6 modal components
-  (`ShareLinkModal`, `ImportModal`, `CopyToWorkspaceModal`, `AddUserModal`, `WorkspaceSettingsModal` — 4
-  call sites, `GlobalSettingsModal`) caught their own async failures into local `useState`, which is gone
-  the instant the component unmounts — the exact bug this task describes. `GlobalSettingsModal`'s
-  `handleDelete` was worse: `console.error` only, no user-facing feedback at all, ever.
-* **Change:** each of those catch blocks now also calls `useToastStore.getState().addToast('error',
-  message)` alongside (not instead of) its existing `setError` — inline feedback while the modal is open,
-  guaranteed feedback either way. Added `data-testid`s to `ToastContainer` (`toast-{type}`) and
-  `AddUserModal`/its trigger button, neither of which had any.
-* **Done when:** `tests/e2e/toast-on-closed-modal.spec.ts` — opens `AddUserModal`, submits, closes the modal
-  before a deliberately delayed+failing mocked response lands, asserts the toast still appears with the
-  right message. Fails against the pre-fix code (verified by temporarily reverting the fix), passes with it.
 
 ## UI-3 — Handle 403 distinctly from 401
 
@@ -1274,6 +1077,18 @@ Two corrections that outlived FIX-3 and now live in the tasks that need them:
 | **FEAT-7** — Split pane | Completed | |
 | **FEAT-8** — Restore closed tabs | Completed | |
 | **FEAT-9** — Response size limits | Completed | |
+
+## Shipped (2026-09-26)
+
+| Was | What shipped | Evidence |
+|---|---|---|
+| **PERF-0** — establish a baseline dataset/measurements | SQLite baseline recorded: login 35ms/1 query, list workspaces 4ms/1 query, open workspace 9ms/5 queries, list history 3ms/1 query | this file's own now-removed PERF-0 section |
+| **SEC-10** — baseline HTTP hardening | CSP (`helmet`) live with explicit directives, HSTS on in production, rate limiting on `/register`/`/login`/`/google`/public share GET plus a global mutation limiter; the three previously-claimed blockers (script runner, Monaco, Handlebars) are all cleared; iframes correctly sandboxed | `server/src/index.ts`, `middleware/rateLimit.ts`, `server/src/tests/sec10.e2e.test.ts` |
+| **PERF-6** — trim what the wire carries | Summary-only `attributes` projections for the collection tree list endpoint, `compression` added and wired | `RequestRepository.ts` (`findSummaryByCollection`/`findSummaryByFolder`), `routes/collections.ts`, `server/src/tests/perf6.test.ts` |
+| **TEST-1** — run the Playwright suite in CI | `test.yml` runs the full Playwright matrix (`--project=${{ matrix.db }}` + extension project); `docker-publish.yml` gates on it via `workflow_call`; `CERT_ENCRYPTION_KEY` fixed in CI, admin test-ordering/forced-password-change bug fixed | `.github/workflows/test.yml`, `tests/e2e/global-setup.ts` |
+| **UI-1** — replace native `prompt()`/`confirm()`/`alert()` | All 8 real sites (across `AdminPage.tsx`, `HistorySidebar.tsx`, `Sidebar.tsx`, `RequestTabBar.tsx`, `UrlBar.tsx`, `EnvironmentSidebar.tsx`, `EnvironmentTabEditor.tsx`) migrated to the app's own modals/toasts; all 13 e2e specs' `page.on('dialog', ...)` listeners rewritten to drive the real modals | grep for `window.prompt`/`window.confirm`/bare `alert(`/`confirm(`/`prompt(` in `client/src` returns nothing |
+| **UI-2** — one global feedback surface | The 6 modals that swallowed async errors into local `useState` now also route through `toastStore`; `GlobalSettingsModal`'s silent `console.error`-only delete failure now surfaces a toast | `client/src/store/toastStore.ts`, `ToastContainer.tsx`, `tests/e2e/toast-on-closed-modal.spec.ts` |
+
 ## No longer applicable
 
 | Was | Why it is gone |
