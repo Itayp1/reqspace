@@ -352,31 +352,44 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 
 ## SEC-10 — Baseline HTTP hardening, the remaining half
 
-* **Status:** verified real, **with three blockers that must be cleared first** · **Size:** M-L ·
-  **Do this last in the SEC section** — it is the only item here that can break the UI.
-* **Verified state:** `server/src/index.ts:115` is `app.use(helmet({ contentSecurityPolicy: false }))` —
-  no CSP, no HSTS. `server/src/middleware/rateLimit.ts` is an in-memory fixed-window limiter keyed strictly
-  by `req.ip`, applied to exactly three routes (`routes/auth.ts:14-15` → `/register`, `/login`,
-  `/google`). Nothing else in the API is throttled.
-* **Correction (2026-09-26):** the three numbered blockers this section originally described (referenced by
-  every other mention of "SEC-10 blocker N" in this file) are gone from this section — a casualty of one of
-  the scratch cleanup scripts CLEAN-8 removed. Reconstructed from cross-references elsewhere in this file,
-  to be re-verified against the live codebase before starting SEC-10, not trusted as-is:
-  1. **The script runner.** SEC-3 (shipped) moved `new Function` out of the main thread into
-     `client/src/sandbox/worker.ts:100` — confirmed still the only occurrence
-     (`grep -rn "new Function" client/src` returns nothing else). A strict `script-src` on the main
-     document can very likely drop `'unsafe-eval'` now; the worker's own execution context needs whatever
-     CSP treatment `worker-src` (or its `child-src`/`script-src` fallback) requires instead. Re-check this
-     against however CSP applies to blob/module workers before assuming it's free.
-  2. **Monaco.** `@monaco-editor/react` fetches `monaco-editor` from jsDelivr at runtime (not bundled at
-     all — see the "Claims that were simply wrong" table) rather than a `<script>` a CSP could just allow;
-     a real CSP needs it bundled locally instead. This is also PERF-7's blocker, and PERF-7 is sequenced
-     after SEC-10 for exactly this reason — the bundle gets bigger, so a size budget set before this lands
-     would be wrong.
-  3. **The visualizer.** `handlebars@latest` is loaded from jsDelivr on the render path (see SEC-3's Change
-     item 5) — self-host it instead, in the same change as Monaco.
-* Do this last in the SEC section regardless — it is the only SEC item that can break the UI, and all three
-  blockers above should be cleared (or re-confirmed moot) before touching the CSP header itself.
+* **Status:** done · **Size:** M-L
+* **Correction (2026-09-26):** this section's own text (`contentSecurityPolicy: false`, "three blockers",
+  rate limiting on "exactly three routes") was stale — a casualty of the same scratch-script corruption
+  CLEAN-8 fixed, describing a state that predates work already shipped. Verified live against the running
+  server, not the old text:
+  * **CSP is already on** — `server/src/index.ts:140-161`, a real `helmet({ contentSecurityPolicy: {...} })`
+    with `useDefaults: false` and explicit directives (`default-src 'self'`, `script-src 'self'
+    'unsafe-eval'`, `style-src`, `img-src`, `connect-src 'self'`, `worker-src`/`child-src 'self' blob:`,
+    `frame-src 'self' data:`, `object-src 'none'`, `upgrade-insecure-requests` in prod). `hsts` is
+    conditionally on in production (`maxAge: 31536000, includeSubDomains, preload`). Confirmed on a running
+    production-mode server via `curl -I` — both headers present with the values above.
+  * **Rate limiting already covers more than login.** `middleware/rateLimit.ts`'s limiter is applied to
+    `/register`, `/login`, `/google` (`routes/auth.ts`), the public `GET /:shortId` share route
+    (`routes/share.ts:12,14`), **and** a global `mutationLimiter` (`index.ts:206-208`) on every
+    POST/PUT/PATCH/DELETE request app-wide (300/min per IP). `server/src/tests/sec10.e2e.test.ts` exercises
+    the mutation limiter end to end (350 requests, asserts a 429).
+  * **The three blockers a prior revision described are cleared**, verified live (headless Chromium against
+    a built, `NODE_ENV=production` server, both with the real CSP and with it forced off, to isolate cause):
+    1. **The script runner.** SEC-3 (shipped) moved `new Function` to `client/src/sandbox/worker.ts:100`
+       only (`grep -rn "new Function" client/src` confirms). `'unsafe-eval'` stays in `script-src` — Chrome
+       applies the creating document's CSP to same-origin blob/module workers too, so dropping it there
+       would break the worker's own `new Function`, not just the main thread's (already-absent) use of it.
+    2. **Monaco is bundled locally**, not fetched from jsDelivr — `client/src/main.tsx:3-8`
+       (`import * as monaco from 'monaco-editor'; loader.config({ monaco })`) and the client build emits
+       real per-language chunks (`tsMode-*.js`, `jsonMode-*.js`, `pgsql-*.js`, …). No CSP change needed here.
+       (The "Claims that were simply wrong" table's Monaco row is itself now wrong — someone bundled it
+       since that was written.) **Separately** (not a CSP issue — reproduced identically with CSP fully
+       disabled): Monaco's background worker fails to load with or without CSP, because nothing configures
+       `self.MonacoEnvironment`. Tracked as FIX-7; do not re-open it here.
+    3. **The visualizer's Handlebars is already self-hosted** — `ResponseViewer.tsx:546`, `<script
+       src="/handlebars.min.js">`, served from `client/public/handlebars.min.js`, not a CDN URL.
+  * The iframes SEC-3 specified are correctly sandboxed: HTML preview `sandbox=""`
+    (`ResponseViewer.tsx:381`), visualizer `sandbox="allow-scripts"` — never `allow-same-origin`
+    (`ResponseViewer.tsx:540`).
+* **Done when:** confirmed — `curl -I` on a production-mode server shows both headers with the directives
+  above, `sec10.e2e.test.ts` passes, and the app's own console shows no CSP violations across login,
+  workspace creation, the body editor and the visualizer (the one real error found, FIX-7, is independent
+  of CSP).
 
 # FIX — Broken in place
 
@@ -400,6 +413,30 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
 * **Change:** `data-testid={`user-row-${u._id}`}` (or the email, which is unique and stable), and update
   `admin.spec.ts:32` to match.
 * **Done when:** `admin.spec.ts`'s "Admin login and dashboard" test passes.
+
+## FIX-7 — Monaco's background worker fails to load (broken independently of CSP)
+
+* **Status:** verified real · **Size:** S
+* **Goal:** Monaco's editor worker (syntax highlighting, validation, language features) actually starts.
+* **Verified state:** `client/src/main.tsx:8` — `loader.config({ monaco })` bundles Monaco's core locally
+  (real, this part of PERF-7/SEC-10's "blocker 2" is done — `monaco-editor` is a genuine dependency and the
+  client build emits its per-language chunks), but nothing sets `self.MonacoEnvironment.getWorker` /
+  `getWorkerUrl`. Reproduced live: open the body editor (`monaco-editor-container`) in a built, served
+  (production-mode) client and the console shows `Failed to resolve module specifier
+  "../../../base/common/worker/webWorkerBootstrap.js". Invalid relative url or base scheme isn't
+  hierarchical.` — Monaco's default worker bootstrap tries to `import()` a relative module from inside a
+  `data:` URL, which has no base to resolve against. **Confirmed independent of CSP**: identical error with
+  `contentSecurityPolicy: false`. Do not spend SEC-10 effort on this — it is not a CSP problem, and adding
+  `data:` to `worker-src`/`child-src` (tried, then reverted) does not fix it.
+* **Why:** without its worker, Monaco falls back to (or simply lacks) syntax highlighting, diagnostics and
+  language features in `BodyEditor.tsx`, `ScriptEditor.tsx` and `ResponseViewer.tsx` — it degrades to a
+  plain textarea with Monaco's styling, silently, with no error surfaced to the user.
+* **Change:** configure `self.MonacoEnvironment` in `main.tsx` (or a Vite plugin like
+  `vite-plugin-monaco-editor`) to serve real bundled worker files via `new Worker(new URL(...), {type:
+  'module'})` per language (json/typescript/css/html + the default editor worker), instead of relying on
+  Monaco's AMD-style default bootstrap.
+* **Done when:** the same reproduction (open the body editor, watch the console) shows no worker-load error,
+  and a test asserts Monaco's language service actually responds (e.g. a JSON syntax error is underlined).
 
 
 
@@ -573,11 +610,14 @@ rows touched, bytes transferred, milliseconds.
   `date-fns ^4.4.0`; `lodash ^4.18.1` is whole-imported in 2 files; `chai ^6.2.2` and `crypto-js ^4.2.0`
   are runtime dependencies. `@types/chai`, `@types/js-yaml` and `@types/uuid` sit in `dependencies` rather
   than `devDependencies`. The current build emits a single ~985 KB JS chunk (289 KB gzipped).
-* **Correction:** the previous revision said "Monaco is loaded eagerly". It is not bundled **at all** —
-  `monaco-editor` is not a dependency, and `@monaco-editor/react` fetches it from jsDelivr at runtime. The
-  action is therefore the **opposite** of trimming: SEC-10 blocker 2 requires bundling it locally, which
-  makes the bundle substantially bigger. Sequence PERF-7 **after** SEC-10 and set the budget with the real
-  Monaco payload included, or the budget will be wrong the day CSP lands.
+* **Correction (2026-09-26):** both the original claim and this section's own prior correction are now
+  stale. `monaco-editor` **is** a bundled dependency (`client/src/main.tsx:3-8`,
+  `client/package.json:31`) — someone bundled it since this note was written, and SEC-10 (verified done)
+  confirms it. The client build already emits its per-language chunks (`tsMode-*.js`, `jsonMode-*.js`,
+  `pgsql-*.js`, …), so the "substantially bigger bundle" this section warned about sequencing after SEC-10
+  is already the current, measured baseline — set the budget from what the build emits today, not from an
+  assumption that Monaco is still to be added. Separately, its worker doesn't actually load correctly
+  (FIX-7) — irrelevant to bundle size, but don't be surprised the feature is half-broken while sizing it.
 * **Change:** drop `moment` in favour of `date-fns` (or the reverse — pick one), import `lodash` per
   function or replace the few uses outright, move the `@types/*` packages to `devDependencies`, lazy-load
   the editors and the runner modal, and set a CI budget on the initial chunk.
@@ -859,6 +899,27 @@ rows touched, bytes transferred, milliseconds.
   assertion is the wrong shape as well as the wrong scope).
 * **Done when:** the budgets run in CI and reintroducing a deliberate N+1 turns it red.
 
+## TEST-7 — `sec10.e2e.test.ts`'s flood pollutes every other jest suite that runs after it
+
+* **Status:** verified real · **Size:** S
+* **Goal:** running the full jest suite doesn't produce spurious 429s in unrelated tests.
+* **Verified state:** `sec10.e2e.test.ts` fires up to 350 POST requests at `/api/workspaces` to trigger the
+  global `mutationLimiter` (`index.ts:206`, 300/min, keyed by `req.ip`). Every other e2e suite shares the
+  same server process and the same loopback IP, so its bucket is still full when they run next. Jest's
+  default file order is lexicographic, which puts `sec10.e2e.test.ts` right before `sec11.e2e.test.ts` and
+  `sec9.e2e.test.ts`/`share.e2e.test.ts` shortly after (`'1' < '9'` as characters) — both intermittently get
+  a 429 where they expect a 403/400/200. Reproduced directly: `npm test` full run → 9 failures across 5
+  suites, all "Received: 429"; the same run with `--testPathIgnorePatterns='sec10\.e2e'` → clean (only the
+  3 pre-existing FEAT-10 failures). Found while verifying SEC-10 — not a SEC-10 defect, the limiter is
+  working exactly as designed; the test that exercises it is the one leaking state.
+* **Why:** this is exactly the kind of test-suite flakiness that makes people ignore real CI failures ("it's
+  probably just that flaky rate-limit thing").
+* **Change:** give `sec10.e2e.test.ts`'s flood request a distinguishing header/IP the limiter's `keyBy` can
+  isolate on (the limiter already accepts a `keyBy` option), or run it in its own jest project/last, so its
+  bucket exhaustion can't bleed into a sibling suite.
+* **Done when:** the full suite passes twice in a row with no 429-related failure, run back to back without
+  restarting the server.
+
 ---
 
 # UI — Client experience
@@ -1070,7 +1131,7 @@ Corrected in place, listed here because each one would have sent an implementer 
 | `routes/admin.ts` sends SMTP mail | Nothing does. `grep -rn "nodemailer\|createTransport\|sendMail" server/src` returns nothing; only the config fields exist |
 | PERF-4 #5 does `find` + `countDocuments` | There is no count query; it loads the whole users table and reports `users.length`. Worse than described |
 | History sorts by `executedAt` | That column does not exist. The model and route use `createdAt` (see FIX-4) |
-| "Monaco is loaded eagerly" (PERF-7) | `monaco-editor` is not bundled at all — `@monaco-editor/react` fetches it from jsDelivr at runtime. The fix is the opposite: bundle it (SEC-10 blocker 2) |
+| "Monaco is loaded eagerly" (PERF-7) | Superseded twice: first corrected to "not bundled at all, fetched from jsDelivr", then (2026-09-26, SEC-10) found bundled locally after all — someone shipped it in between. Re-verify against the code, not either past claim, before touching PERF-7 |
 | UI-1 covers 10 native dialog sites | 22 — the 12 `alert()` calls were missed entirely |
 | UI-3: "remove the double `AuthGuard` on /admin" | **Dangerous.** The inner guard at `App.tsx:229` carries the superadmin check. Removing it exposes the admin page to any logged-in user |
 | SEC-9: add `params: Record<string, string>` to `AuthRequest` | Already present at `middleware/auth.ts:15` |

@@ -36,3 +36,13 @@ One line per completed task: date · id · what was done · files touched.
   `server/src/tests/changePasswordSchema.test.ts`, `tests/e2e/global-setup.ts`, `tests/e2e/admin.spec.ts`,
   `tests/e2e/collection.spec.ts`, `tests/e2e/environments.spec.ts`, `tests/e2e/requests.spec.ts`, `README.md`,
   `TODO.md`
+* 2026-09-26 · SEC-10 · Found already shipped (its own spec section was stale, describing
+  `contentSecurityPolicy: false` and login-only rate limiting — neither true). Verified live with a headless
+  browser, both with the real CSP and with it force-disabled to isolate cause: CSP+HSTS are on
+  (`server/src/index.ts:140-161`), rate limiting covers login/register/OAuth/the public share route/every
+  mutation app-wide (with a passing `sec10.e2e.test.ts`), and all three feared breakages (script runner,
+  Monaco, the Handlebars visualizer) are already non-issues. No production code changed — added a headers
+  regression test since none existed. Two new bugs found and filed separately, not fixed here: FIX-7
+  (Monaco's worker fails to load, confirmed independent of CSP) and TEST-7 (`sec10.e2e.test.ts`'s flood
+  pollutes the shared rate limiter for whatever suite runs next). · `server/src/tests/sec10-headers.test.ts`,
+  `README.md`, `TODO.md`

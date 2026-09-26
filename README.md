@@ -314,7 +314,7 @@ is the index; `TODO.md` is the detail.
 | `[x]` | SEC-7 | Stop leaking `dbError` to anonymous callers | S | |
 | `[x]` | SEC-8 | Encrypt client certificates at rest | M | `server/src/utils/cryptoBox.ts` |
 | `[~]` | SEC-9 | Validate every request body with Zod | L | `middleware/validate.ts` + 5 schema files exist. **Verify coverage across all 33 POST/PUT/PATCH routes before ticking** |
-| `[ ]` | SEC-10 | CSP, HSTS and rate limiting beyond login | M-L | **Read SEC-10.0 first** — the obvious CSP breaks Monaco, the visualizer and the script runner |
+| `[x]` | SEC-10 | CSP, HSTS and rate limiting beyond login | M-L | Already shipped, just not marked — a real CSP, HSTS in prod, and rate limiting on login/register/OAuth/share/every mutation were all live. Verified with a headless browser, both with and without CSP, that none of the three feared breakages (script runner, Monaco, visualizer) actually happen. One real, CSP-unrelated bug found and filed separately: FIX-7 |
 | `[x]` | SEC-11 | OAuth `state` / CSRF | S-M | **Unverified end-to-end** — a real Google login was never exercised. Confirm before trusting it |
 | `[~]` | SEC-12 | Remove the NTLM auth option | S | Owner deferred. Still referenced in `AuthEditor.tsx` and `collections.schemas.ts` |
 | `[x]` | SEC-13 | Self-registration granted superadmin | XS | `auth.ts` now creates users with `isSuperAdmin: false`. **Audit the `users` table** — accounts created while this was live keep the flag |
@@ -328,6 +328,7 @@ is the index; `TODO.md` is the detail.
 | `[x]` | FIX-4 | History rows rendered "Invalid Date" | XS | |
 | `[x]` | FIX-5 | `/api/auth/config` advertised self-registration the server refused | XS | |
 | `[ ]` | FIX-6 | Admin user row test id built from the mutable display name, not a stable id | XS | Found while wiring TEST-1 |
+| `[ ]` | FIX-7 | Monaco's background worker fails to load — confirmed independent of CSP | S | Found while verifying SEC-10; not a CSP fix, don't try to fix it there |
 
 ### ⚡ Performance — PERF
 
@@ -340,7 +341,7 @@ is the index; `TODO.md` is the detail.
 | `[~]` | PERF-4 | Kill the N+1 queries | L | Reorder rewritten to `bulkCreate`; the other six sites need checking |
 | `[~]` | PERF-5 | Cache RBAC and system config | M | |
 | `[ ]` | PERF-6 | Trim what the wire carries | M | |
-| `[ ]` | PERF-7 | Client bundle weight | M | **Sequence after SEC-10** — bundling Monaco locally makes the bundle bigger, so a budget set now would be wrong |
+| `[ ]` | PERF-7 | Client bundle weight | M | Monaco is already bundled locally (found while verifying SEC-10) — set the budget from what the build emits today, not from an assumption it still needs adding |
 
 ### 🔌 Realtime — SOCK
 
@@ -362,6 +363,7 @@ is the index; `TODO.md` is the detail.
 | `[ ]` | TEST-4 | The API-authorization layer | L | Pairs with SEC-2 — a UI test cannot prove an authz check |
 | `[~]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
 | `[ ]` | TEST-6 | Scale and performance budgets | M | Assert query counts, not milliseconds |
+| `[ ]` | TEST-7 | `sec10.e2e.test.ts`'s 350-request flood pollutes the shared rate limiter for other suites | S | Found while verifying SEC-10 — not a SEC-10 defect |
 
 ### 🎨 Interface — UI
 
