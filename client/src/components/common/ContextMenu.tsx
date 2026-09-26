@@ -57,6 +57,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       {items.map((item, i) => (
         <button
           key={i}
+          data-testid="context-menu-item"
           className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
             item.danger ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'
           }`}

@@ -438,7 +438,104 @@ Numbering note: FIX-2, FIX-3, FIX-4 and FIX-5 are absent because they shipped. S
 * **Done when:** the same reproduction (open the body editor, watch the console) shows no worker-load error,
   and a test asserts Monaco's language service actually responds (e.g. a JSON syntax error is underlined).
 
+## FIX-8 — User search returns nothing for any email containing `_`, on SQLite
 
+* **Status:** verified real · **Size:** S
+* **Goal:** `GET /api/users/search` matches on SQLite the same way it does on Postgres/MySQL.
+* **Verified state:** `server/src/utils/escapeLike.ts` escapes `_`/`%` as `\_`/`\%` for a Sequelize `Op.like`
+  (`UserRepository.search`, `server/src/repositories/UserRepository.ts:120-134`). Postgres and MySQL both
+  default `LIKE`'s escape character to `\`, so this works there. **SQLite has no default `LIKE` escape
+  character at all** — without an explicit `ESCAPE '\'` clause (which Sequelize's `Op.like` never adds),
+  SQLite reads `\_` as two literal characters, a backslash then a wildcard `_`, not an escaped literal
+  underscore. Reproduced directly against a live sqlite-backed server: `?q=viewer` (name match, no
+  underscore) → 1 result; `?q=viewer_` (a valid literal prefix of a real user's email) → `[]`. Found
+  independently twice — once verifying UI-3, once by the UI-1 migration subagent hitting it via
+  `user-autocomplete-input` in `conflict.spec.ts`/`rbac.spec.ts`/`socket-advanced.spec.ts`/`socket-sync.spec.ts`.
+* **Why:** almost every email contains `_` or is likely to. On the default database backend, workspace
+  member invite search, and anything else built on `UserRepository.search`, silently returns nothing for
+  most real inputs.
+* **Change:** add the dialect-appropriate `ESCAPE` clause. Sequelize doesn't expose this via `Op.like`
+  directly — either drop to `sequelize.literal`/a raw `WHERE ... LIKE ? ESCAPE '\'` for the sqlite/postgres/
+  mysql path (keep `escapeLike`'s existing mssql bracket-form branch as is, it doesn't use backslash), or
+  find whichever Sequelize option surfaces the escape clause per dialect.
+* **Done when:** `UserRepository.search('someone_with_underscore')` finds an exact match on all three
+  supported SQL backends, not just Postgres/MySQL.
+
+## FIX-9 — Switching workspaces can silently show the wrong (or no) collections
+
+* **Status:** verified real · **Size:** S
+* **Goal:** the collection tree shown always corresponds to the currently-selected workspace.
+* **Verified state:** `client/src/components/collection/CollectionExplorer.tsx:646-650` —
+  `useEffect(() => fetchCollectionsData(activeWorkspace._id), [activeWorkspace?._id])`. In dev
+  (`<StrictMode>`, `client/src/main.tsx:11`) this effect runs twice per change, and on a workspace switch
+  there is a brief window where a fetch for the *previous* workspace is still in flight alongside the new
+  one; `fetchCollectionsData` (`client/src/store/collectionStore.ts:99-145`) does `set({ collections:
+  serverCols })` unconditionally, with no check that `workspaceId` still matches the currently-active
+  workspace and no request cancellation. Whichever response resolves last wins, regardless of which
+  workspace it was for. Reproduced directly: logged the actual network responses during a real
+  invite-then-switch flow — a fetch for the *old* workspace (correctly empty) sometimes resolves after the
+  fetch for the newly-selected one (correctly populated), and the tree is left showing "No collections yet"
+  for a workspace that has one. Not reproducible if the previous fetch is given time to fully settle before
+  switching, which is what makes it intermittent rather than constant.
+* **Why:** a real user switching workspaces in quick succession (or right after being invited to one) can
+  see a wrong, silently-stale collection tree with no indication anything is wrong.
+* **Change:** guard the `set()` calls in `fetchCollectionsData` on `workspaceId === get().activeWorkspaceId`
+  (or thread an AbortController per call and cancel the previous one on a new call), so a stale response is
+  dropped instead of applied.
+* **Done when:** a test switches workspaces twice in quick succession and asserts the tree always matches
+  the *last* selection, never an intermediate one.
+
+## FIX-10 — Renaming a workspace right after creating it can silently revert the name
+
+* **Status:** verified real (found by a subagent while migrating tests/e2e off native dialogs) · **Size:** S
+* **Verified state:** `client/src/components/workspace/WorkspaceSettingsModal.tsx`'s mount `useEffect` GETs
+  the workspace and calls `setName(res.data.name)` after the modal opens. If a test (or a fast user) types a
+  new name into the name field before that GET resolves, the GET's `setName` fires afterward and stomps the
+  typed value back to the original — the ensuing Save then saves the *old* name. Reproduced deterministically
+  in both `workspace.spec.ts` and `crud-rename.spec.ts` (both rename a workspace immediately after creating
+  it): the workspace stays unrenamed after Save + Close.
+* **Why:** a real user who edits the name field quickly after opening workspace settings can have their edit
+  silently discarded.
+* **Change:** only apply the GET's `setName` if the field hasn't been touched yet (e.g. track a `dirty`
+  flag, or skip the GET's own `setName` once the user's input differs from the initial value), or fetch
+  before rendering the field instead of after.
+* **Done when:** a test types a new workspace name immediately (no artificial wait) after opening settings,
+  saves, and asserts the new name persisted.
+
+## FIX-11 — Saving an edited request can 400 on the request's own save payload
+
+* **Status:** verified real (found by a subagent while migrating tests/e2e off native dialogs) · **Size:** M
+* **Verified state:** `UrlBar.tsx`'s `handleSaveClick` sends the in-memory `activeRequest` object straight to
+  `PUT /requests/:id`. That object carries client-only fields (`_id`, `collectionId`, `tabId`, `isDirty`,
+  …) alongside the real update. Reproduced directly: the server responds `400 {"message":"Invalid request
+  body","issues":[...\"Unrecognized key(s)…'_id','collectionId','tabId','isDirty'\"]}` — the `.strict()` Zod
+  schema (SEC-9) rejects them. This blocks the conflict-resolution scenario in `conflict.spec.ts`,
+  `socket-sync.spec.ts` and `socket-advanced.spec.ts` from ever reaching the point of producing a real
+  conflict, since the *first* save in the scenario already 400s.
+* **Why:** this isn't just a test problem — it means saving an edited request from the UI can fail outright
+  depending on which fields happen to be present on `activeRequest` client-side, most likely intermittently
+  as the client state shape evolves.
+* **Change:** build the `PUT /requests/:id` payload as an explicit allowlist of writable fields (matching
+  the pattern already used elsewhere, e.g. `routes/requests.ts`'s own handlers), not a spread of the whole
+  client-side request object.
+* **Done when:** saving an edited request whose in-memory object carries `_id`/`collectionId`/`tabId`/
+  `isDirty` succeeds, and a test asserts the exact payload sent has none of the client-only fields.
+
+## FIX-12 — Creating a request inside a folder doesn't refresh the sidebar tree
+
+* **Status:** verified real (found by a subagent while migrating tests/e2e off native dialogs) · **Size:** S
+* **Verified state:** reproduced directly while fixing `scripts-scope.spec.ts`'s folder/request creation
+  flow: `POST /requests` (via the folder-scoped "new request" action) returns `201` with the correct
+  `name`/`folderId`/`collectionId` every time, but the sidebar never renders the new node — `node-<name>`
+  never appears, confirming the create succeeded server-side and the client simply doesn't reflect it for a
+  folder-scoped creation. Collection-scoped request creation (not inside a folder) doesn't show this.
+* **Why:** likely the same missing-refresh/stale-tree class of bug as FIX-9, scoped to whatever code path
+  handles folder-nested request creation specifically — a real user creating a request inside a folder
+  would not see it appear without a manual refresh.
+* **Change:** find the folder-scoped "new request" handler (`CollectionExplorer.tsx`, the
+  `action-menu-new-request`-style action under a folder node) and confirm it updates local/store state (or
+  triggers a refetch) the same way collection-scoped creation does.
+* **Done when:** a test creates a request inside a folder and asserts the node appears without a page reload.
 
 # PERF — Efficiency at 10k workspaces / 100k collections / 100k requests
 
@@ -920,41 +1017,63 @@ rows touched, bytes transferred, milliseconds.
 * **Done when:** the full suite passes twice in a row with no 429-related failure, run back to back without
   restarting the server.
 
+## TEST-8 — Multi-`test()` spec files assume a shared login that Playwright doesn't give them
+
+* **Status:** verified real (found by a subagent while migrating tests/e2e off native dialogs) · **Size:** M
+* **Verified state:** several spec files split one scenario across multiple `test()` blocks with a comment
+  like "Run serially to reuse state" (e.g. `collection.spec.ts`, `environments.spec.ts`, `requests.spec.ts`)
+  — but Playwright gives every `test()` its own fresh, unauthenticated browser context by default; nothing
+  shares cookies between them. Reproduced directly: after test 1 logs in and the block ends, test 2's page
+  has zero cookies and `/` immediately redirects to `/login`. `test.describe.configure({ mode: 'serial' })`
+  (present in some of these files) only orders execution — it does not share browser state.
+* **Why:** these files' later tests in the sequence don't actually test what they claim to (continuing an
+  authenticated session); they silently fail at the login boundary instead.
+* **Change:** use Playwright's `storageState` (save it after test 1's login, load it for subsequent tests in
+  the same file) or restructure each file's scenario into a single `test()`, matching what
+  `permission-toast.spec.ts` and `conflict.spec.ts` already do with one long test per scenario.
+* **Done when:** every multi-`test()` spec file in this state either shares login via `storageState` or is
+  restructured into one test, and none of them redirect to `/login` partway through.
+
 ---
 
 # UI — Client experience
 
 ## UI-1 — Replace native `prompt()` / `confirm()` / `alert()` with the app's own modals
 
-* **Status:** verified real — **22 sites, not 10** · **Size:** M
-* **Verified state:** the previous revision listed 10 `prompt`/`confirm` sites and **missed all 12
-  `alert()` calls.** Every line number had drifted. Current, verified:
-
-| Kind | Sites |
-|---|---|
-| `prompt` / `confirm` (10) | ~~`Sidebar.tsx:60`~~ (see correction below), `EnvironmentSidebar.tsx:19,44,55`, `HistorySidebar.tsx:141`, `RequestTabBar.tsx:83`, `AdminPage.tsx:68,465,558`, `UrlBar.tsx:387` |
-| `alert` (12) | `EnvironmentTabEditor.tsx:76,98,102`, `Sidebar.tsx:70`, `AdminPage.tsx:77,79,265,267,443,459,468,471` |
-
-  `PromptModal.tsx` and `ConfirmModal.tsx` already exist, so this is migration work, not new components.
-  **Correction (2026-09-26):** `Sidebar.tsx:60`'s "new workspace" button is already migrated — it now calls
-  `customPrompt` from `utils/dialog.tsx`, not `window.prompt`. Re-verify the count (likely 9, not 10) before
-  starting. This partial migration already broke `tests/e2e/collection.spec.ts`, `environments.spec.ts` and
-  `requests.spec.ts`'s `page.on('dialog', ...)` handlers for workspace creation — found while getting the
-  Playwright suite running for TEST-1. Add `environments.spec.ts` and `requests.spec.ts` to Trap 2's file
-  list below; they were missing from it.
-* **Why:** unstyled and unthemeable, they ignore the dark mode the rest of the app implements, and they
-  block the Electron window rather than the page.
-* **Change:** migrate all 22. The `alert()` calls are the ones that should become toasts (UI-2) rather than
-  modals — a dismissible notification, not a dialog that demands a click. Do UI-2 first and this becomes
-  mostly mechanical.
-* **Traps:**
-  1. The "Done when" grep must include `alert(` — the previous revision's did not, so it would have passed
-     with 12 sites remaining.
-  2. Playwright specs install dialog handlers to get past these today: `tests/e2e/collection.spec.ts:17`,
-     `conflict.spec.ts:33,59,86`, `crud-rename.spec.ts:25,55`. Those handlers must be replaced with modal
-     interactions in the same commit, or the tests will hang waiting for a dialog that never appears.
-* **Done when:** `grep -rn "window.prompt\|window.confirm\|[^.]\balert(\|[^.]\bconfirm(" client/src` returns
-  nothing, and the specs above drive the real modals.
+* **Status:** done · **Size:** M
+* **Correction (2026-09-26):** this section's site count and trap file list were both far more stale than
+  the "9, not 10" correction above already flagged. Fresh grep at the time this was picked up (including
+  bare `prompt(`, which the old grep pattern didn't match) found only **8 real sites** across 4 files —
+  `AdminPage.tsx`, `HistorySidebar.tsx`, `Sidebar.tsx`, and most of the previously-listed `AdminPage.tsx`
+  `alert()`s were *already* migrated to `customConfirm`/toasts and just never credited:
+  `RequestTabBar.tsx:83` (confirm), `UrlBar.tsx:380` (confirm), `EnvironmentSidebar.tsx:19,44,55` (2×prompt,
+  1×confirm), `EnvironmentTabEditor.tsx:76,98,102` (3×alert). All 8 fixed — the 3 confirms now use
+  `customConfirm`, the 2 prompts `customPrompt`, the 3 alerts route through `toastStore` (UI-2).
+  `grep -rn "window\.prompt\|window\.confirm\|[^.]\balert(\|[^.]\bconfirm(\|[^.]\bprompt(" client/src`
+  (note the added bare-`prompt(` alternation — the original grep in "Done when" below would have missed
+  `EnvironmentSidebar.tsx`'s two `prompt(...)` calls entirely) now returns nothing.
+* **The much bigger discovery:** because collection/folder creation (`CollectionExplorer.tsx`) and workspace
+  creation (`Sidebar.tsx`) were *already* migrated to real modals (`PromptModal`/`ConfirmModal`, both via
+  `customPrompt`/`customConfirm` or `CollectionExplorer`'s own local `promptConfig`/`confirmConfig` state —
+  same components, same test ids: `prompt-input`, `prompt-submit`, `prompt-cancel`, `confirm-btn`,
+  `confirm-cancel-btn`), **every one of 13 spec files** still installed a `page.on('dialog', ...)`/
+  `page.once('dialog', ...)` listener expecting a real browser dialog that no longer appears:
+  `collection.spec.ts`, `conflict.spec.ts`, `crud-rename.spec.ts`, `environments.spec.ts`, `history.spec.ts`,
+  `rbac.spec.ts`, `requests.spec.ts`, `scripts-scope.spec.ts`, `scripts.spec.ts`, `socket-advanced.spec.ts`,
+  `socket-sync.spec.ts`, `tabs.spec.ts`, `workspace.spec.ts` — not the 3 files (`collection.spec.ts`,
+  `conflict.spec.ts`, `crud-rename.spec.ts`) this section's old Trap 2 named. This is very likely a
+  significant chunk of TEST-1's "23 of 35 failed" finding, not a separate issue — most specs bootstrap a
+  workspace/collection first, and a silently-no-op dialog handler leaves the test operating on stale
+  pre-existing state instead of what it thinks it just created.
+* **Why:** unstyled/unthemeable native dialogs aside, the real cost turned out to be the test suite silently
+  drifting out of sync with a migration that had already happened.
+* **Change:** all 13 spec files' dialog interactions rewritten to drive the real modal (fill
+  `prompt-input`/click `prompt-submit`, or click `confirm-btn`/`confirm-cancel-btn`) instead of a
+  `page.on('dialog', ...)` handler. `conflict.spec.ts`'s one *real* dialog assertion (the request-overwrite
+  conflict, now `UrlBar.tsx`'s `customConfirm` call) was rewritten to assert on the `ConfirmModal`'s message
+  text and click `confirm-cancel-btn` (save as new), matching its original intent.
+* **Done when:** the grep above returns nothing, and `grep -rln "on('dialog'\|once('dialog'" tests/e2e/`
+  returns nothing outside of any site confirmed still genuinely native (none were found).
 
 ## UI-2 — One global feedback surface
 

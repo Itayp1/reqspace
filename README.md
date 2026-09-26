@@ -329,6 +329,11 @@ is the index; `TODO.md` is the detail.
 | `[x]` | FIX-5 | `/api/auth/config` advertised self-registration the server refused | XS | |
 | `[ ]` | FIX-6 | Admin user row test id built from the mutable display name, not a stable id | XS | Found while wiring TEST-1 |
 | `[ ]` | FIX-7 | Monaco's background worker fails to load — confirmed independent of CSP | S | Found while verifying SEC-10; not a CSP fix, don't try to fix it there |
+| `[ ]` | FIX-8 | User search returns nothing for any email containing `_`, on SQLite only | S | `escapeLike` needs an `ESCAPE '\'` clause SQLite doesn't default to. Found twice independently while doing UI-1/UI-3 |
+| `[ ]` | FIX-9 | Switching workspaces can race and show the wrong/no collections | S | `fetchCollectionsData` applies whichever response lands last with no staleness guard |
+| `[ ]` | FIX-10 | Renaming a workspace right after creating it can silently revert the name | S | `WorkspaceSettingsModal`'s own fetch-after-open stomps a fast edit |
+| `[ ]` | FIX-11 | Saving an edited request can 400 on its own save payload | M | `UrlBar.tsx` sends client-only fields (`_id`, `tabId`, …) straight to the `.strict()` schema |
+| `[ ]` | FIX-12 | Creating a request inside a folder doesn't refresh the sidebar tree | S | Create succeeds server-side (`201`); the client just never shows it |
 
 ### ⚡ Performance — PERF
 
@@ -364,14 +369,15 @@ is the index; `TODO.md` is the detail.
 | `[~]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
 | `[ ]` | TEST-6 | Scale and performance budgets | M | Assert query counts, not milliseconds |
 | `[ ]` | TEST-7 | `sec10.e2e.test.ts`'s 350-request flood pollutes the shared rate limiter for other suites | S | Found while verifying SEC-10 — not a SEC-10 defect |
+| `[ ]` | TEST-8 | Multi-`test()` spec files assume a shared login Playwright doesn't give them | M | `storageState` or restructure into one test per scenario |
 
 ### 🎨 Interface — UI
 
 | Done | ID | Task | Size | Notes |
 |---|---|---|---|---|
-| `[ ]` | UI-1 | Replace native `prompt` / `confirm` / `alert` | M | **22 sites**, including 12 `alert()` calls. Playwright specs install dialog handlers that must be replaced in the same commit |
+| `[x]` | UI-1 | Replace native `prompt` / `confirm` / `alert` | M | Site count was stale both ways — most were already migrated and uncredited, 8 genuinely remained (fixed). The much bigger find: 13 spec files (not 3) still drove now-nonexistent native dialogs |
 | `[x]` | UI-2 | One global feedback surface (toasts) | M | The store/container already existed and wasn't credited. 6 modals still lost async errors to local state on unmount — fixed, each now also toasts |
-| `[ ]` | UI-3 | Handle 403 distinctly from 401 | S | **Do not remove the inner `AuthGuard` on `/admin`** — it carries the superadmin check |
+| `[x]` | UI-3 | Handle 403 distinctly from 401 | S | Already correctly done in `api/axios.ts` and uncredited — verified the `/admin` `AuthGuard` is still intact, added a Playwright test for the 403 toast (a viewer's own attempted edit, not a synthetic call) |
 | `[ ]` | UI-4 | Accessibility | L | Zero `aria-label`/`role`, and 73 `outline-none` with no `focus-visible` — start by restoring a focus ring |
 | `[ ]` | UI-5 | Style consistency | S | 21 inline `style={{}}` blocks in `App.tsx` |
 | `[ ]` | UI-6 | Fix stale copy | XS | `AdminPage.tsx` still mentions config overwrite and traffic capture |

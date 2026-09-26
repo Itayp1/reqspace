@@ -93,19 +93,22 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
         </div>
 
         <div className="flex border-b border-border">
-          <button 
+          <button
+            data-testid="workspace-general-tab"
             className={`px-4 py-2 font-medium ${activeTab === 'general' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
             onClick={() => setActiveTab('general')}
           >
             General
           </button>
-          <button 
+          <button
+            data-testid="workspace-members-tab"
             className={`px-4 py-2 font-medium ${activeTab === 'members' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
             onClick={() => setActiveTab('members')}
           >
             Members
           </button>
-          <button 
+          <button
+            data-testid="workspace-activity-tab"
             className={`px-4 py-2 font-medium ${activeTab === 'activity' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
             onClick={() => setActiveTab('activity')}
           >

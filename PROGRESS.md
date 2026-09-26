@@ -62,3 +62,28 @@ One line per completed task: date · id · what was done · files touched.
   `client/src/components/workspace/WorkspaceSettingsModal.tsx`,
   `client/src/components/common/GlobalSettingsModal.tsx`, `client/src/pages/AdminPage.tsx`,
   `tests/e2e/toast-on-closed-modal.spec.ts`, `README.md`, `TODO.md`
+* 2026-09-26 · UI-1 · Fresh grep found only 8 real native-dialog sites across 4 files (not 22 across 5) —
+  most were already migrated to `customPrompt`/`customConfirm` and never credited. Fixed the 8 remaining
+  (3×`window.confirm`, 2×bare `prompt()`, 3×`alert()` → toasts). The much larger finding: because
+  collection/folder creation and workspace creation were already migrated to real modals, **13** spec files
+  (not the 3 the old spec named) still drove `page.on('dialog', ...)` listeners for a native dialog that no
+  longer appears — delegated the mechanical swap-to-real-modal migration of all 13 files to a subagent, which
+  also independently rediscovered the SQLite `escapeLike` bug (FIX-8) and found four more separate,
+  pre-existing bugs while verifying (FIX-9 through FIX-12, TEST-8) — none of them fixed, all filed. ·
+  `client/src/components/request/RequestTabBar.tsx`, `client/src/components/request/UrlBar.tsx`,
+  `client/src/components/environment/EnvironmentSidebar.tsx`,
+  `client/src/components/environment/EnvironmentTabEditor.tsx`, 13 `tests/e2e/*.spec.ts` files
+  (collection, conflict, crud-rename, environments, history, rbac, requests, scripts-scope, scripts,
+  socket-advanced, socket-sync, tabs, workspace), `README.md`, `TODO.md`
+* 2026-09-26 · UI-3 · `api/axios.ts` already handled 401 vs 403 distinctly (401 → `unauthorized` event
+  and redirect; 403 → toast) and was never credited; the `/admin` route's inner `AuthGuard
+  requireSuperAdmin` (the trap this task's spec warned not to remove) is intact. Added
+  `permission-toast.spec.ts`: a real viewer (invited as viewer, not superadmin-bypassed) right-clicks and
+  renames a collection the UI never hides the action for, and asserts the resulting 403's actual server
+  message ("Requires editor role...") appears as a toast. Getting this test stable surfaced two more real,
+  separate bugs, filed not fixed: FIX-8 (independently re-confirmed) and FIX-9 (a workspace-switch race
+  that intermittently left the viewer's tree empty). Added missing `data-testid`s along the way
+  (`ContextMenu.tsx` menu items, `WorkspaceSettingsModal.tsx`'s three tabs — the latter already assumed by
+  `conflict.spec.ts` before this task, just never actually present). ·
+  `client/src/components/common/ContextMenu.tsx`, `client/src/components/workspace/WorkspaceSettingsModal.tsx`,
+  `tests/e2e/permission-toast.spec.ts`, `README.md`, `TODO.md`
