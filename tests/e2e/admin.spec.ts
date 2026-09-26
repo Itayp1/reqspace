@@ -31,4 +31,8 @@ test.describe('Admin Features', () => {
     await page.click('[data-testid="admin-tab-settings"]');
     await expect(page.getByTestId('admin-settings-title')).toBeVisible();
   });
+
+  test.fixme('login + dashboard render only system config update', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

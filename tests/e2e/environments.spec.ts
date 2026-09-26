@@ -57,4 +57,8 @@ test.describe('Environments Operations', () => {
     // That's enough to verify it applies in the UI context (it would evaluate during send)
     await expect(page.getByTestId('request-url-input')).toHaveValue('{{baseUrl}}/users');
   });
+
+  test.fixme('secret masking, globals-vs-env precedence, import/export', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

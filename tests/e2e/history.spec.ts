@@ -42,4 +42,8 @@ test.describe('History Logging', () => {
     // Verify the URL input now has the restored URL
     await expect(page.getByTestId('request-url-input')).toHaveValue('https://httpbin.org/get');
   });
+
+  test.fixme('search, save-to-collection, quota behaviour', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

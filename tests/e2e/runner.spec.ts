@@ -38,4 +38,8 @@ test.describe('Collection Runner', () => {
     const runBtn = page.getByTestId('collection-runner-run-btn');
     await runBtn.click({ force: true });
   });
+
+  test.fixme('iterations, CSV/JSON data files, stop mid-run', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

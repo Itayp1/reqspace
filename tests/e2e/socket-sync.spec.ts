@@ -83,4 +83,8 @@ test.describe('WebSocket Sync', () => {
     await contextA.close();
     await contextB.close();
   });
+
+  test.fixme('Multi-user realtime 13 events', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

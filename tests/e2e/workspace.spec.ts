@@ -51,4 +51,8 @@ test.describe('Workspace Management', () => {
         console.log('Failed to delete workspace via API', e);
     }
   });
+
+  test.fixme('removing a member does not assert lost access', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

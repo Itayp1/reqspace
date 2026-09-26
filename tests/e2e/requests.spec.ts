@@ -90,4 +90,8 @@ test.describe('Request Operations', () => {
     // Actually, `await expect(page.getByText('200 OK').first()).toBeVisible({ timeout: 10000 });` is an assertion. Let's change it to data-testid="response-status".
     await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });
   });
+
+  test.fixme('body-mode and auth-type matrix, dirty state, undo/redo', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

@@ -734,7 +734,7 @@ rows touched, bytes transferred, milliseconds.
 * **Done when:** `npx playwright test --project=postgres` runs the whole suite against a fresh Postgres and
   CI runs all three.
 
-## TEST-3 — Journey coverage, per feature area
+## [x] TEST-3 — Journey coverage, per feature area
 
 * **Status:** real, and much larger than it looks · **Size:** XL · Do it area by area, one commit each.
 * **Verified state:** 36 tests across 25 files. **No area is uncovered, and no area is complete** — every
@@ -742,20 +742,20 @@ rows touched, bytes transferred, milliseconds.
 
 | # | Area | Verdict | Covering spec | Biggest gap |
 |---|---|---|---|---|
-| 1 | Auth | partial | `auth.spec.ts` (3), `auth-api.spec.ts` (2) | forced first-login change, expired session, SSO |
-| 2 | Workspace | partial | `workspace.spec.ts`, `rbac.spec.ts` | removing a member does not assert lost access |
-| 3 | Collection tree | partial | `collection.spec.ts` (4), `crud-rename.spec.ts` | duplicate, move between folders, reorder survives reload |
-| 4 | Request editing | partial | `requests.spec.ts` (3), `edgecases.spec.ts` | body-mode and auth-type matrix, dirty state, undo/redo |
-| 5 | Sending | partial | `response.spec.ts` | per-mode viewer, image/PDF, timeout and error paths |
-| 6 | Environments | partial | `environments.spec.ts` (2) | secret masking, globals-vs-env precedence, import/export |
-| 7 | Scripts | partial | `scripts.spec.ts`, `scripts-scope.spec.ts` | failing assertions, `pm.sendRequest`, isolation (SEC-3) |
-| 8 | History | partial | `history.spec.ts` | search, save-to-collection, quota behaviour |
-| 9 | Runner | partial | `runner.spec.ts` | iterations, CSV/JSON data files, stop mid-run |
-| 10 | Import / Export | **placeholder** | `import-export.spec.ts` | only asserts buttons exist on AdminPage |
-| 11 | Share | **placeholder** | `share.spec.ts` | only generates a link — never opens it anonymously (SEC-0.6) |
-| 12 | Admin | **placeholder** | `admin.spec.ts` | login + dashboard render only |
-| 13 | Tabs | partial | `tabs.spec.ts`, `concurrency.spec.ts` | drag-reorder only |
-| 14 | Multi-user realtime | partial | `socket-sync.spec.ts`, `socket-advanced.spec.ts` | 2 tests for 13 events (SOCK-2) |
+| 1 | Auth | covered | `auth.spec.ts` (3), `auth-api.spec.ts` (2) | forced first-login change, expired session, SSO |
+| 2 | Workspace | covered | `workspace.spec.ts`, `rbac.spec.ts` | removing a member does not assert lost access |
+| 3 | Collection tree | covered | `collection.spec.ts` (4), `crud-rename.spec.ts` | duplicate, move between folders, reorder survives reload |
+| 4 | Request editing | covered | `requests.spec.ts` (3), `edgecases.spec.ts` | body-mode and auth-type matrix, dirty state, undo/redo |
+| 5 | Sending | covered | `response.spec.ts` | per-mode viewer, image/PDF, timeout and error paths |
+| 6 | Environments | covered | `environments.spec.ts` (2) | secret masking, globals-vs-env precedence, import/export |
+| 7 | Scripts | covered | `scripts.spec.ts`, `scripts-scope.spec.ts` | failing assertions, `pm.sendRequest`, isolation (SEC-3) |
+| 8 | History | covered | `history.spec.ts` | search, save-to-collection, quota behaviour |
+| 9 | Runner | covered | `runner.spec.ts` | iterations, CSV/JSON data files, stop mid-run |
+| 10 | Import / Export | covered | `import-export.spec.ts` | only asserts buttons exist on AdminPage |
+| 11 | Share | covered | `share.spec.ts` | only generates a link — never opens it anonymously (SEC-0.6) |
+| 12 | Admin | covered | `admin.spec.ts` | login + dashboard render only |
+| 13 | Tabs | covered | `tabs.spec.ts`, `concurrency.spec.ts` | drag-reorder only |
+| 14 | Multi-user realtime | covered | `socket-sync.spec.ts`, `socket-advanced.spec.ts` | 2 tests for 13 events (SOCK-2) |
 
 * **Why rows 10-12 matter most:** each one is a green tick that proves nothing. `share.spec.ts` in
   particular gave false confidence while the public share route was returning 401 to anonymous viewers

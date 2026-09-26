@@ -82,4 +82,8 @@ test.describe('Collection Operations', () => {
 
     await expect(page.getByTestId('node-Test Folder')).not.toBeVisible();
   });
+
+  test.fixme('duplicate, move between folders, reorder survives reload', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

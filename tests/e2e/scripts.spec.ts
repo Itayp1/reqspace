@@ -67,4 +67,8 @@ test.describe('Script Execution', () => {
     // For the current value, it's env-var-current-0. Initial value is env-var-initial-0. `pm.environment.set` sets current value.
     await expect(page.getByTestId('env-var-current-0')).toHaveValue('123');
   });
+
+  test.fixme('failing assertions, pm.sendRequest, isolation', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

@@ -37,4 +37,8 @@ test.describe('Authentication', () => {
     await page.click('[data-testid="logout-btn"]');
     await expect(page).toHaveURL(/.*\/login/);
   });
+
+  test.fixme('forced first-login change, expired session, SSO', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

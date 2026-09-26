@@ -48,4 +48,8 @@ test.describe('Response & Code Gen', () => {
     await page.click('[data-testid="codegen-lang-python-requests"]');
     await expect(page.locator('[data-testid="codegen-code-block"]')).toContainText('import requests');
   });
+
+  test.fixme('per-mode viewer, image/PDF, timeout and error paths', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });

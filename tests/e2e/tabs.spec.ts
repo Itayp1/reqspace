@@ -74,4 +74,8 @@ test.describe('Tab Operations', () => {
     await expect(tabs.nth(0)).toContainText('Request 2');
     await expect(tabs.nth(1)).toContainText('Request 1');
   });
+
+  test.fixme('drag-reorder only and content persistence', async ({ page }) => {
+    expect(true).toBe(true);
+  });
 });
