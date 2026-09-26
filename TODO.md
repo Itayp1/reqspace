@@ -96,8 +96,10 @@ without it. That is expected, not a regression.
 
 # SEC — Security
 
+## SEC-13 — Self-registration silently grants superadmin
 
-
+* **Priority: do this one first, before anything else in this file.** Requested explicitly by the owner
+  on 2026-09-26.
 * **Status:** verified real, **UNFIXED** · **Size:** XS (one word) · **Severity: critical — this is the most
   severe open item in this file.**
 * **Goal:** a self-registered user is an ordinary user.
@@ -122,10 +124,24 @@ without it. That is expected, not a regression.
 
 ## SEC-0 — Delete the server-side proxy entirely
 
-* **Status:** verified real, **deferred by the owner on 2026-09-25.** Nothing below is being built right
-  now. It stays in this file because half the other tasks reference it and because the decision it records
-  must not be re-litigated from scratch. **Do not start any SEC-0 subtask without saying so explicitly.**
+* **Status: APPROVED to start, 2026-09-26.** The prior deferral ("do not start any SEC-0 subtask without
+  saying so explicitly") is lifted — the owner explicitly asked for this to be built. Do it after SEC-13.
 * **Size:** XL — the largest item in this file by an order of magnitude.
+* **Execution order (do not reshuffle without a reason):**
+  1. **SEC-0.0** — already decided below (Electron + Chrome extension). Nothing to build here, just read it
+     before touching any other subtask so the "why" of every later step makes sense.
+  2. **SEC-0.1** — already done (inventory table below). Just confirms scope; skip straight to 0.2.
+  3. **SEC-0.2** — build the client transport abstraction (`client/src/transport/`). Do this first among the
+     buildable subtasks: every other step migrates a caller onto it.
+  4. **SEC-0.3** — move history writing to a client-driven endpoint. Depends on 0.2 existing.
+  5. **SEC-0.6** — harden/replace the share-link route. Independent of the rest of SEC-0 — can be pulled
+     forward or done in parallel by someone else if that's useful, but do not skip it.
+  6. **SEC-0.4** — delete the old proxy routes and dead dependencies. Do this **last**, only once nothing
+     calls them any more (0.2/0.3 fully migrated), or you delete a route still in use.
+  7. **SEC-0.7** — the Chrome extension transport. Biggest, most self-contained subtask; can be started in
+     parallel with 0.2-0.4 by a separate person, since it does not touch server code.
+* Each subtask below already has its own **Goal / Verified state / Change / Done when** — follow those, not
+  a paraphrase of them.
 
 **Owner's decision:** the Reqspace server must never issue an HTTP request on a user's behalf. Request
 sending belongs to the client. This one change removes an entire class of vulnerability: the anonymous open
@@ -205,10 +221,10 @@ in commit `36b3331`. Only stale *copy* remains, which is now a CLEAN row:
 `client/src/pages/AdminPage.tsx:391` still tells admins the setting affects "every user's Send / share-link
 / capture requests".
 
+### SEC-0.6 — Harden the public share-link route
 
-
-* **Status:** verified real — and this one is worth doing **even though the rest of SEC-0 is deferred.**
-  It is independent of the transport decision.
+* **Status:** verified real — independent of the rest of SEC-0, no longer blocked on anything.
+* **Goal:** a public share link exposes only what a viewer needs, can be revoked, and can't be brute-forced.
 * **Verified state:** `server/src/routes/share.ts:9-31` — `GET /api/share/:shortId` returns the whole
   `collection` row plus whole `requests` rows: `auth`, `headers`, `body`, `preRequestScript` and
   `testScript`. The short id is `crypto.randomBytes(6)` at `:49`. The file contains **only two routes** —
