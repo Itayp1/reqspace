@@ -81,9 +81,9 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
 
   const importReqSpaceCollection = async (json: any) => {
     if (!activeWorkspace) return;
-    const { fetchCollectionsData } = useCollectionStore.getState();
+    const { loadWorkspace } = useCollectionStore.getState();
     await api.post('/collections/import', { workspaceId: activeWorkspace._id, collection: json });
-    await fetchCollectionsData(activeWorkspace._id);
+    await loadWorkspace(activeWorkspace._id);
   };
 
   const importReqSpaceEnvironment = async (json: any) => {
@@ -112,7 +112,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
 
   const importOpenApiSpec = async (spec: any) => {
     if (!activeWorkspace || !spec) return;
-    const { createCollection, fetchCollectionsData, toggleCollectionOpen } = useCollectionStore.getState();
+    const { createCollection, loadWorkspace, toggleCollectionOpen } = useCollectionStore.getState();
 
     const title = spec.info?.title || 'OpenAPI Import';
     const collection = await createCollection(activeWorkspace._id, title);
@@ -220,7 +220,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
       }
     }
 
-    await fetchCollectionsData(activeWorkspace._id);
+    await loadWorkspace(activeWorkspace._id);
   };
 
   const handleImport = async () => {
@@ -266,8 +266,8 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
       } else if (activeTab === 'wsdl') {
         if (!wsdlUrl.trim()) { setError('Please enter a WSDL URL.'); setLoading(false); return; }
         await api.post(`/import/wsdl`, { url: wsdlUrl, workspaceId: activeWorkspace._id });
-        const { fetchCollectionsData } = useCollectionStore.getState();
-        await fetchCollectionsData(activeWorkspace._id);
+        const { loadWorkspace } = useCollectionStore.getState();
+        await loadWorkspace(activeWorkspace._id);
       }
       onClose();
     } catch (err: any) {

@@ -21,14 +21,14 @@ export function SocketSync() {
     socket.on('connect', () => {
       socket.emit('join:workspace', activeWorkspace._id);
       // On reconnect after sleep, fetch full tree to be safe
-      useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
+      useCollectionStore.getState().loadWorkspace(activeWorkspace._id);
     });
 
 
     socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:deleted', (id) => useCollectionStore.getState().applyCollectionDeleted(id));
-    socket.on('collection:fork-synced', () => { if (activeWorkspace) useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id); });
+    socket.on('collection:fork-synced', () => { if (activeWorkspace) useCollectionStore.getState().loadWorkspace(activeWorkspace._id); });
     socket.on('folder:created', (data) => useCollectionStore.getState().applyFolderUpserted(data));
     socket.on('folder:updated', (data) => useCollectionStore.getState().applyFolderUpserted(data));
     socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));
@@ -96,7 +96,7 @@ export function SocketSync() {
   useEffect(() => {
     const onFocus = () => {
       if (activeWorkspace) {
-        useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
+        useCollectionStore.getState().loadWorkspace(activeWorkspace._id);
       }
     };
     window.addEventListener('focus', onFocus);
