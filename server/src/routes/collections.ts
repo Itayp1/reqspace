@@ -9,6 +9,7 @@ import { RequestRepository } from '../repositories/RequestRepository';
 import { logAudit } from '../repositories/AuditLogRepository';
 export type UserRole = 'viewer' | 'editor' | 'owner';
 import { emitToWorkspace } from '../socketUtils';
+import { workspaceIdCache } from '../utils/cache';
 import { v4 as uuidv4 } from 'uuid';
 // Lazy import to avoid circular deps: forks.ts → collections.ts
 let _syncForks: ((id: string) => Promise<void>) | null = null;
@@ -22,20 +23,30 @@ type ItemKind = 'collection' | 'folder' | 'request';
 const ROLE_RANK: Record<UserRole, number> = { viewer: 1, editor: 2, owner: 3 };
 
 async function resolveWorkspaceId(kind: ItemKind, id: string): Promise<string | null> {
+  const cacheKey = `${kind}:${id}`;
+  const cached = workspaceIdCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  let workspaceId: string | null = null;
   if (kind === 'collection') {
     const c = await CollectionRepository.findById(id);
-    return c ? c.workspaceId : null;
-  }
-  if (kind === 'folder') {
+    workspaceId = c ? c.workspaceId : null;
+  } else if (kind === 'folder') {
     const f = await FolderRepository.findById(id);
-    if (!f) return null;
-    const c = await CollectionRepository.findById(f.collectionId);
-    return c ? c.workspaceId : null;
+    if (f) {
+      const c = await CollectionRepository.findById(f.collectionId);
+      workspaceId = c ? c.workspaceId : null;
+    }
+  } else {
+    const r = await RequestRepository.findById(id);
+    if (r) {
+      const c = await CollectionRepository.findById(r.collectionId);
+      workspaceId = c ? c.workspaceId : null;
+    }
   }
-  const r = await RequestRepository.findById(id);
-  if (!r) return null;
-  const c = await CollectionRepository.findById(r.collectionId);
-  return c ? c.workspaceId : null;
+  
+  workspaceIdCache.set(cacheKey, workspaceId);
+  return workspaceId;
 }
 
 function checkPermission(kind: ItemKind, minRole: UserRole) {
@@ -113,6 +124,7 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
   await FolderRepository.deleteByCollection(req.params.id);
   await RequestRepository.deleteByCollection(req.params.id);
   await CollectionRepository.delete(req.params.id);
+  workspaceIdCache.delete(`collection:${req.params.id}`);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:deleted', req.params.id);
   return res.json({ message: 'Collection deleted' });
 });
@@ -145,6 +157,7 @@ router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: A
   await FolderRepository.deleteByParent(req.params.id);
   await RequestRepository.deleteByFolder(req.params.id);
   await FolderRepository.delete(req.params.id);
+  workspaceIdCache.delete(`folder:${req.params.id}`);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:deleted', req.params.id);
   return res.json({ message: 'Folder deleted' });
 });
@@ -189,6 +202,7 @@ router.put('/requests/:id', validate(schemas.updateRequestSchema), checkPermissi
 
 router.delete('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
   await RequestRepository.delete(req.params.id);
+  workspaceIdCache.delete(`request:${req.params.id}`);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:deleted', req.params.id);
   return res.json({ message: 'Request deleted' });
 });

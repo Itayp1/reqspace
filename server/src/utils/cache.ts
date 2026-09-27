@@ -28,3 +28,4 @@ export class TtlCache<T> {
 }
 
 export const roleCache = new TtlCache<{ role: string | null; isSuperAdmin: boolean }>(30000);
+export const workspaceIdCache = new TtlCache<string | null>(30000);

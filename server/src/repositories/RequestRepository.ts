@@ -127,13 +127,7 @@ export const RequestRepository = {
     return SqlRequest.count({ where: { collectionId, folderId: folderId ?? null } });
   },
 
-  async searchInWorkspace(query: string, collectionIds: string[]): Promise<IRequestRecord[]> {
-    const { Op } = await import('sequelize');
-    const term = escapeLike(String(query).slice(0, MAX_SEARCH_LENGTH));
-    if (!term || !collectionIds.length) return [];
-    return (await SqlRequest.findAll({
-      where: {
-        collectionId: { [Op.in]: collectionIds },
+  
         [Op.or]: [{ name: { [Op.like]: `%${term}%` } }, { url: { [Op.like]: `%${term}%` } }],
       },
       limit: 200,
