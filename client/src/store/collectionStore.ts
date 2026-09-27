@@ -33,21 +33,23 @@ export interface ApiRequest extends CollectionItem {
 
 interface CollectionStore {
   collections: Collection[];
-  folders: Folder[];
-  requests: ApiRequest[];
+  foldersByCollection: Record<string, Folder[] | 'loading'>;
+  requestsByFolder: Record<string, ApiRequest[] | 'loading'>;
   openCollectionIds: Set<string>;
 
   // Basic setters
   setCollections: (collections: Collection[]) => void;
-  setFolders: (folders: Folder[]) => void;
-  setRequests: (requests: ApiRequest[]) => void;
+  setFoldersByCollection: (folders: Record<string, Folder[] | 'loading'>) => void;
+  setRequestsByFolder: (requests: Record<string, ApiRequest[] | 'loading'>) => void;
 
   // Open/close tree nodes
   toggleCollectionOpen: (id: string) => void;
   openCollection: (id: string) => void;
 
   // Fetch
-  fetchCollectionsData: (workspaceId: string) => Promise<void>;
+  loadWorkspace: (workspaceId: string) => Promise<void>;
+  loadCollectionChildren: (collectionId: string) => Promise<void>;
+  loadFolderChildren: (collectionId: string, folderId: string) => Promise<void>;
 
   // Collection CRUD
   createCollection: (workspaceId: string, name: string) => Promise<Collection>;
@@ -82,13 +84,13 @@ interface CollectionStore {
 
 export const useCollectionStore = create<CollectionStore>((set, get) => ({
   collections: [],
-  folders: [],
-  requests: [],
+  foldersByCollection: {},
+  requestsByFolder: {},
   openCollectionIds: new Set<string>(),
 
   setCollections: (collections) => set({ collections }),
-  setFolders: (folders) => set({ folders }),
-  setRequests: (requests) => set({ requests }),
+  setFoldersByCollection: (foldersByCollection) => set({ foldersByCollection }),
+  setRequestsByFolder: (requestsByFolder) => set({ requestsByFolder }),
 
   // Socket reducers implementation
   applyCollectionUpserted: (c) => set((state) => {
@@ -97,45 +99,74 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       ? { collections: state.collections.map(col => col._id === c._id ? { ...col, ...c } : col) }
       : { collections: [...state.collections, c] };
   }),
-  applyCollectionDeleted: (id) => set((state) => ({
-    collections: state.collections.filter(c => c._id !== id),
-    folders: state.folders.filter(f => f.collectionId !== id),
-    requests: state.requests.filter(r => r.collectionId !== id),
-  })),
+  applyCollectionDeleted: (id) => set((state) => {
+    const nextF = { ...state.foldersByCollection };
+    delete nextF[id];
+    const nextR = { ...state.requestsByFolder };
+    delete nextR[id];
+    return {
+      collections: state.collections.filter(c => c._id !== id),
+      foldersByCollection: nextF,
+      requestsByFolder: nextR,
+    };
+  }),
   applyFolderUpserted: (f) => set((state) => {
-    const existing = state.folders.find(fol => fol._id === f._id);
-    return existing
-      ? { folders: state.folders.map(fol => fol._id === f._id ? { ...fol, ...f } : fol) }
-      : { folders: [...state.folders, f] };
+    const parentId = f.parentFolderId || f.collectionId;
+    const arr = state.foldersByCollection[parentId];
+    if (!Array.isArray(arr)) return {};
+    const existing = arr.find(fol => fol._id === f._id);
+    const nextArr = existing ? arr.map(fol => fol._id === f._id ? { ...fol, ...f } : fol) : [...arr, f].sort((a, b) => (a.order || 0) - (b.order || 0));
+    return { foldersByCollection: { ...state.foldersByCollection, [parentId]: nextArr } };
   }),
-  applyFolderDeleted: (id) => set((state) => ({
-    folders: state.folders.filter(f => f._id !== id),
-    // We should ideally remove subfolders and requests but backend might send separate events for them, 
-    // or cascading is handled by a refresh. For simplicity, we just filter what we match.
-    requests: state.requests.filter(r => r.folderId !== id), // basic cascade
-  })),
+  applyFolderDeleted: (id) => set((state) => {
+    const nextF = { ...state.foldersByCollection };
+    for (const key of Object.keys(nextF)) {
+      if (Array.isArray(nextF[key])) {
+        nextF[key] = nextF[key].filter(f => f._id !== id);
+      }
+    }
+    const nextR = { ...state.requestsByFolder };
+    delete nextR[id];
+    return { foldersByCollection: nextF, requestsByFolder: nextR };
+  }),
   applyRequestUpserted: (r) => set((state) => {
-    const existing = state.requests.find(req => req._id === r._id);
-    return existing
-      ? { requests: state.requests.map(req => req._id === r._id ? { ...req, ...r } : req) }
-      : { requests: [...state.requests, r] };
+    const parentId = r.folderId || r.collectionId;
+    const arr = state.requestsByFolder[parentId];
+    if (!Array.isArray(arr)) return {};
+    const existing = arr.find(req => req._id === r._id);
+    const nextArr = existing ? arr.map(req => req._id === r._id ? { ...req, ...r } : req) : [...arr, r].sort((a, b) => (a.order || 0) - (b.order || 0));
+    return { requestsByFolder: { ...state.requestsByFolder, [parentId]: nextArr } };
   }),
-  applyRequestDeleted: (id) => set((state) => ({
-    requests: state.requests.filter(r => r._id !== id),
-  })),
+  applyRequestDeleted: (id) => set((state) => {
+    const nextR = { ...state.requestsByFolder };
+    for (const key of Object.keys(nextR)) {
+      if (Array.isArray(nextR[key])) {
+        nextR[key] = nextR[key].filter(r => r._id !== id);
+      }
+    }
+    return { requestsByFolder: nextR };
+  }),
   applyWorkspaceReordered: (payload) => set((state) => {
-    let newState = { ...state };
+    let newState = { ...state, foldersByCollection: { ...state.foldersByCollection }, requestsByFolder: { ...state.requestsByFolder } };
     if (payload.collections) {
       const updates = new Map(payload.collections.map(c => [c._id, c]));
-      newState.collections = newState.collections.map(c => updates.has(c._id) ? { ...c, ...updates.get(c._id)! } : c);
+      newState.collections = newState.collections.map(c => updates.has(c._id) ? { ...c, ...updates.get(c._id)! } : c).sort((a, b) => (a.order || 0) - (b.order || 0));
     }
     if (payload.folders) {
       const updates = new Map(payload.folders.map(f => [f._id, f]));
-      newState.folders = newState.folders.map(f => updates.has(f._id) ? { ...f, ...updates.get(f._id)! } : f);
+      for (const key of Object.keys(newState.foldersByCollection)) {
+        if (Array.isArray(newState.foldersByCollection[key])) {
+           newState.foldersByCollection[key] = newState.foldersByCollection[key].map((f: any) => updates.has(f._id) ? { ...f, ...updates.get(f._id)! } : f).sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+        }
+      }
     }
     if (payload.requests) {
       const updates = new Map(payload.requests.map(r => [r._id, r]));
-      newState.requests = newState.requests.map(r => updates.has(r._id) ? { ...r, ...updates.get(r._id)! } : r);
+      for (const key of Object.keys(newState.requestsByFolder)) {
+        if (Array.isArray(newState.requestsByFolder[key])) {
+           newState.requestsByFolder[key] = newState.requestsByFolder[key].map((r: any) => updates.has(r._id) ? { ...r, ...updates.get(r._id)! } : r).sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+        }
+      }
     }
     return newState;
   }),
@@ -155,36 +186,99 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     return { openCollectionIds: new Set(state.openCollectionIds).add(id) };
   }),
 
-  fetchCollectionsData: async (workspaceId: string) => {
+  loadWorkspace: async (workspaceId: string) => {
     try {
       const { db } = await import('../db');
       
-      // 1. Optimistic local load
       const localCols = await db.collections.where('workspaceId').equals(workspaceId).toArray();
       set({ collections: localCols });
+
+      const res = await api.get(`/workspaces/${workspaceId}/collections`);
+      set({ collections: res.data });
+      await db.collections.bulkPut(res.data.map((c: any) => ({ ...c, workspaceId })));
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  loadCollectionChildren: async (collectionId: string) => {
+    const state = get();
+    if (state.foldersByCollection[collectionId] || state.requestsByFolder[collectionId]) return;
+    
+    set((s) => ({
+      foldersByCollection: { ...s.foldersByCollection, [collectionId]: 'loading' },
+      requestsByFolder: { ...s.requestsByFolder, [collectionId]: 'loading' }
+    }));
+
+    try {
+      const { db } = await import('../db');
+      const localFolders = await db.folders.where('collectionId').equals(collectionId).toArray();
+      const rootFolders = localFolders.filter(f => !f.parentFolderId);
+      const localReqs = await db.requests.where('collectionId').equals(collectionId).filter(r => !r.folderId).toArray();
       
-      const colIds = localCols.map(c => c._id);
-      if (colIds.length > 0) {
-        const [localFolders, localReqs] = await Promise.all([
-          db.folders.where('collectionId').anyOf(colIds).toArray(),
-          db.requests.where('collectionId').anyOf(colIds).toArray()
-        ]);
-        set({ folders: localFolders, requests: localReqs });
+      if (rootFolders.length > 0 || localReqs.length > 0) {
+        set((s) => ({
+          foldersByCollection: { ...s.foldersByCollection, [collectionId]: rootFolders },
+          requestsByFolder: { ...s.requestsByFolder, [collectionId]: localReqs }
+        }));
       }
 
-      // 2. Fetch from server
-      const treeRes = await api.get(`/workspaces/${workspaceId}/tree`);
-      const { collections: serverCols, folders: allFolders, requests: allRequests } = treeRes.data;
+      const [fRes, rRes] = await Promise.all([
+        api.get(`/collections/${collectionId}/folders`),
+        api.get(`/collections/${collectionId}/requests?folderId=null`)
+      ]);
+      
+      const newFolders = fRes.data;
+      const rootFoldersNet = newFolders.filter((f: any) => !f.parentFolderId);
+      
+      set((s) => {
+        // Also populate subfolders if they came down in the response
+        const nextF = { ...s.foldersByCollection, [collectionId]: rootFoldersNet };
+        const grouped = new Map<string, any[]>();
+        for (const f of newFolders) {
+          if (f.parentFolderId) {
+             if (!grouped.has(f.parentFolderId)) grouped.set(f.parentFolderId, []);
+             grouped.get(f.parentFolderId)!.push(f);
+          }
+        }
+        for (const [pId, arr] of grouped.entries()) {
+           nextF[pId] = arr;
+        }
+        return {
+          foldersByCollection: nextF,
+          requestsByFolder: { ...s.requestsByFolder, [collectionId]: rRes.data }
+        };
+      });
 
-      set({ collections: serverCols, folders: allFolders, requests: allRequests });
-      
-      // Update local db
-      await db.collections.bulkPut(serverCols.map((c: any) => ({ ...c, workspaceId })));
-      
-      // Update local db
-      await db.folders.bulkPut(allFolders);
-      await db.requests.bulkPut(allRequests);
-      
+      await db.folders.bulkPut(fRes.data);
+      await db.requests.bulkPut(rRes.data);
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  loadFolderChildren: async (collectionId: string, folderId: string) => {
+    const state = get();
+    if (state.requestsByFolder[folderId]) return;
+
+    set((s) => ({
+      requestsByFolder: { ...s.requestsByFolder, [folderId]: 'loading' }
+    }));
+
+    try {
+      const { db } = await import('../db');
+      const localReqs = await db.requests.where('folderId').equals(folderId).toArray();
+      if (localReqs.length > 0) {
+        set((s) => ({
+          requestsByFolder: { ...s.requestsByFolder, [folderId]: localReqs }
+        }));
+      }
+
+      const rRes = await api.get(`/collections/${collectionId}/requests?folderId=${folderId}`);
+      set((s) => ({
+        requestsByFolder: { ...s.requestsByFolder, [folderId]: rRes.data }
+      }));
+      await db.requests.bulkPut(rRes.data);
     } catch (e) {
       console.error(e);
     }
@@ -196,7 +290,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const res = await api.post(`/workspaces/${workspaceId}/collections`, { name });
     const { db } = await import('../db');
     await db.collections.put({ ...res.data, workspaceId });
-    set((state) => ({ collections: [...state.collections, res.data] }));
+    set((state) => ({ collections: [...state.collections, res.data], foldersByCollection: { ...state.foldersByCollection, [res.data._id]: [] }, requestsByFolder: { ...state.requestsByFolder, [res.data._id]: [] } }));
     return res.data;
   },
 
@@ -209,11 +303,17 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   },
 
   deleteCollection: async (id) => {
-    set((state) => ({
-      collections: state.collections.filter(c => c._id !== id),
-      folders: state.folders.filter(f => f.collectionId !== id),
-      requests: state.requests.filter(r => r.collectionId !== id),
-    }));
+    set((state) => {
+      const nextF = { ...state.foldersByCollection };
+      delete nextF[id];
+      const nextR = { ...state.requestsByFolder };
+      delete nextR[id];
+      return {
+        collections: state.collections.filter(c => c._id !== id),
+        foldersByCollection: nextF,
+        requestsByFolder: nextR,
+      };
+    });
     import('../db').then(async ({ db }) => {
       await db.collections.delete(id);
       await db.folders.where('collectionId').equals(id).delete();
@@ -223,7 +323,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   },
 
   duplicateCollection: async (id, workspaceId) => {
-    const { collections, folders, requests } = get();
+    const { collections, foldersByCollection, requestsByFolder } = get();
     const source = collections.find(c => c._id === id);
     if (!source) return;
 
@@ -234,27 +334,27 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const newCol: Collection = newColRes.data;
 
     // Duplicate top-level requests (no folder)
-    const topRequests = requests.filter(r => r.collectionId === id && !r.folderId);
+    const topRequests = Array.isArray(requestsByFolder[id]) ? requestsByFolder[id] as ApiRequest[] : [];
     for (const req of topRequests) {
       const res = await api.post(`/collections/${newCol._id}/requests`, {
         name: req.name, method: req.method, url: req.url || '',
       });
-      set((state) => ({ requests: [...state.requests, res.data] }));
+      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newCol._id]: [...(state.requestsByFolder[newCol._id] as ApiRequest[] || []), res.data] } }));
     }
 
     // Duplicate top-level folders (simplified — one level)
-    const topFolders = folders.filter(f => f.collectionId === id && !f.parentFolderId);
+    const topFolders = Array.isArray(foldersByCollection[id]) ? foldersByCollection[id] as Folder[] : [];
     for (const folder of topFolders) {
       const fRes = await api.post(`/collections/${newCol._id}/folders`, { name: folder.name });
       const newFolder: Folder = fRes.data;
-      set((state) => ({ folders: [...state.folders, newFolder] }));
+      set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [newCol._id]: [...(state.foldersByCollection[newCol._id] as Folder[] || []), newFolder] } }));
 
-      const folderRequests = requests.filter(r => r.folderId === folder._id);
+      const folderRequests = Array.isArray(requestsByFolder[folder._id]) ? requestsByFolder[folder._id] as ApiRequest[] : [];
       for (const req of folderRequests) {
         const rRes = await api.post(`/collections/${newCol._id}/requests`, {
           name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
         });
-        set((state) => ({ requests: [...state.requests, rRes.data] }));
+        set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: [...(state.requestsByFolder[newFolder._id] as ApiRequest[] || []), rRes.data] } }));
       }
     }
 
@@ -267,23 +367,36 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const res = await api.post(`/collections/${collectionId}/folders`, { name, parentFolderId });
     const { db } = await import('../db');
     await db.folders.put(res.data);
-    set((state) => ({ folders: [...state.folders, res.data] }));
+    set((state) => {
+      const parentId = res.data.parentFolderId || res.data.collectionId;
+      const arr = state.foldersByCollection[parentId];
+      return { foldersByCollection: { ...state.foldersByCollection, [parentId]: Array.isArray(arr) ? [...arr, res.data] : [res.data] } };
+    });
     get().openCollection(collectionId);
   },
 
   renameFolder: async (id, name) => {
     set((state) => ({
-      folders: state.folders.map(f => f._id === id ? { ...f, name } : f)
+      foldersByCollection: Object.fromEntries(
+        Object.entries(state.foldersByCollection).map(([k, v]) => [k, Array.isArray(v) ? v.map((f: any) => f._id === id ? { ...f, name } : f) : v])
+      )
     }));
     import('../db').then(({ db }) => db.folders.update(id, { name }));
     api.put(`/folders/${id}`, { name }).catch(console.error);
   },
 
   deleteFolder: async (id) => {
-    set((state) => ({
-      folders: state.folders.filter(f => f._id !== id && f.parentFolderId !== id),
-      requests: state.requests.filter(r => r.folderId !== id),
-    }));
+    set((state) => {
+      const nextF = { ...state.foldersByCollection };
+      for (const key of Object.keys(nextF)) {
+        if (Array.isArray(nextF[key])) {
+          nextF[key] = (nextF[key] as Folder[]).filter(f => f._id !== id && f.parentFolderId !== id);
+        }
+      }
+      const nextR = { ...state.requestsByFolder };
+      delete nextR[id];
+      return { foldersByCollection: nextF, requestsByFolder: nextR };
+    });
     import('../db').then(async ({ db }) => {
       await db.folders.delete(id);
       await db.folders.where('parentFolderId').equals(id).delete();
@@ -293,21 +406,24 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   },
 
   duplicateFolder: async (id, collectionId, parentFolderId = null) => {
-    const { folders, requests } = get();
-    const source = folders.find(f => f._id === id);
+    const { foldersByCollection, requestsByFolder } = get();
+    let source: Folder | undefined;
+    for (const arr of Object.values(foldersByCollection)) {
+      if (Array.isArray(arr)) { source = (arr as Folder[]).find(f => f._id === id); if (source) break; }
+    }
     if (!source) return;
     const fRes = await api.post(`/collections/${collectionId}/folders`, {
       name: `Copy of ${source.name}`, parentFolderId
     });
     const newFolder: Folder = fRes.data;
-    set((state) => ({ folders: [...state.folders, newFolder] }));
+    set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [newCol._id]: [...(state.foldersByCollection[newCol._id] as Folder[] || []), newFolder] } }));
 
-    const folderRequests = requests.filter(r => r.folderId === id);
+    const folderRequests = Array.isArray(requestsByFolder[id]) ? requestsByFolder[id] as ApiRequest[] : [];
     for (const req of folderRequests) {
       const rRes = await api.post(`/collections/${collectionId}/requests`, {
         name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
       });
-      set((state) => ({ requests: [...state.requests, rRes.data] }));
+      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: [...(state.requestsByFolder[newFolder._id] as ApiRequest[] || []), rRes.data] } }));
     }
   },
 
@@ -319,30 +435,45 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     });
     const { db } = await import('../db');
     await db.requests.put(res.data);
-    set((state) => ({ requests: [...state.requests, res.data] }));
+    set((state) => {
+      const parentId = res.data.folderId || res.data.collectionId;
+      const arr = state.requestsByFolder[parentId];
+      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: Array.isArray(arr) ? [...arr, res.data] : [res.data] } };
+    });
     get().openCollection(collectionId);
     return res.data;
   },
 
   renameRequest: async (id, name) => {
     set((state) => ({
-      requests: state.requests.map(r => r._id === id ? { ...r, name } : r)
+      requestsByFolder: Object.fromEntries(
+        Object.entries(state.requestsByFolder).map(([k, v]) => [k, Array.isArray(v) ? v.map((req: any) => req._id === id ? { ...req, name } : req) : v])
+      )
     }));
     import('../db').then(({ db }) => db.requests.update(id, { name }));
     api.put(`/requests/${id}`, { name }).catch(console.error);
   },
 
   deleteRequest: async (id) => {
-    set((state) => ({
-      requests: state.requests.filter(r => r._id !== id)
-    }));
+    set((state) => {
+      const nextR = { ...state.requestsByFolder };
+      for (const key of Object.keys(nextR)) {
+        if (Array.isArray(nextR[key])) {
+          nextR[key] = (nextR[key] as ApiRequest[]).filter(r => r._id !== id);
+        }
+      }
+      return { requestsByFolder: nextR };
+    });
     import('../db').then(({ db }) => db.requests.delete(id));
     api.delete(`/requests/${id}`).catch(console.error);
   },
 
   duplicateRequest: async (id) => {
-    const { requests } = get();
-    const source = requests.find(r => r._id === id);
+    const { requestsByFolder } = get();
+    let source: ApiRequest | undefined;
+    for (const arr of Object.values(requestsByFolder)) {
+      if (Array.isArray(arr)) { source = (arr as ApiRequest[]).find(r => r._id === id); if (source) break; }
+    }
     if (!source) return;
     const res = await api.post(`/collections/${source.collectionId}/requests`, {
       name: `${source.name} (Copy)`,
@@ -350,24 +481,64 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       url: source.url || '',
       folderId: source.folderId,
     });
-    set((state) => ({ requests: [...state.requests, res.data] }));
+    set((state) => {
+      const parentId = res.data.folderId || res.data.collectionId;
+      const arr = state.requestsByFolder[parentId];
+      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: Array.isArray(arr) ? [...arr, res.data] : [res.data] } };
+    });
   },
 
   moveRequest: async (id, newCollectionId, newFolderId) => {
     const { db } = await import('../db');
     await db.requests.update(id, { collectionId: newCollectionId, folderId: newFolderId });
-    set((state) => ({
-      requests: state.requests.map(r => r._id === id ? { ...r, collectionId: newCollectionId, folderId: newFolderId } : r)
-    }));
+    set((state) => {
+      const nextR = { ...state.requestsByFolder };
+      let req: ApiRequest | undefined;
+      for (const key of Object.keys(nextR)) {
+        if (Array.isArray(nextR[key])) {
+          const idx = (nextR[key] as ApiRequest[]).findIndex(r => r._id === id);
+          if (idx !== -1) {
+            req = (nextR[key] as ApiRequest[])[idx];
+            nextR[key] = (nextR[key] as ApiRequest[]).filter(r => r._id !== id);
+            break;
+          }
+        }
+      }
+      if (req) {
+        req = { ...req, collectionId: newCollectionId, folderId: newFolderId };
+        const pId = newFolderId || newCollectionId;
+        if (Array.isArray(nextR[pId])) nextR[pId] = [...(nextR[pId] as ApiRequest[]), req];
+        else nextR[pId] = [req];
+      }
+      return { requestsByFolder: nextR };
+    });
     await api.put(`/requests/${id}`, { collectionId: newCollectionId, folderId: newFolderId });
   },
 
   moveFolder: async (id, newCollectionId, newParentFolderId) => {
     const { db } = await import('../db');
     await db.folders.update(id, { collectionId: newCollectionId, parentFolderId: newParentFolderId });
-    set((state) => ({
-      folders: state.folders.map(f => f._id === id ? { ...f, collectionId: newCollectionId, parentFolderId: newParentFolderId } : f)
-    }));
+    set((state) => {
+      const nextF = { ...state.foldersByCollection };
+      let fol: Folder | undefined;
+      for (const key of Object.keys(nextF)) {
+        if (Array.isArray(nextF[key])) {
+          const idx = (nextF[key] as Folder[]).findIndex(f => f._id === id);
+          if (idx !== -1) {
+            fol = (nextF[key] as Folder[])[idx];
+            nextF[key] = (nextF[key] as Folder[]).filter(f => f._id !== id);
+            break;
+          }
+        }
+      }
+      if (fol) {
+        fol = { ...fol, collectionId: newCollectionId, parentFolderId: newParentFolderId };
+        const pId = newParentFolderId || newCollectionId;
+        if (Array.isArray(nextF[pId])) nextF[pId] = [...(nextF[pId] as Folder[]), fol];
+        else nextF[pId] = [fol];
+      }
+      return { foldersByCollection: nextF };
+    });
     await api.put(`/folders/${id}`, { collectionId: newCollectionId, parentFolderId: newParentFolderId });
   },
 
@@ -384,20 +555,32 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       }));
       for (const item of items) await db.collections.update(item.id, { order: item.order });
     } else if (type === 'folder') {
-      set(state => ({
-        folders: state.folders.map(f => {
-          const item = items.find(i => i.id === f._id);
-          return item ? { ...f, order: item.order } : f;
-        }).sort((a, b) => (a.order || 0) - (b.order || 0))
-      }));
+      set(state => {
+        const nextF = { ...state.foldersByCollection };
+        for (const key of Object.keys(nextF)) {
+          if (Array.isArray(nextF[key])) {
+            nextF[key] = (nextF[key] as Folder[]).map((f: Folder) => {
+              const item = items.find(i => i.id === f._id);
+              return item ? { ...f, order: item.order } : f;
+            }).sort((a, b) => (a.order || 0) - (b.order || 0));
+          }
+        }
+        return { foldersByCollection: nextF };
+      });
       for (const item of items) await db.folders.update(item.id, { order: item.order });
     } else if (type === 'request') {
-      set(state => ({
-        requests: state.requests.map(r => {
-          const item = items.find(i => i.id === r._id);
-          return item ? { ...r, order: item.order } : r;
-        }).sort((a, b) => (a.order || 0) - (b.order || 0))
-      }));
+      set(state => {
+        const nextR = { ...state.requestsByFolder };
+        for (const key of Object.keys(nextR)) {
+          if (Array.isArray(nextR[key])) {
+            nextR[key] = (nextR[key] as ApiRequest[]).map((r: ApiRequest) => {
+              const item = items.find(i => i.id === r._id);
+              return item ? { ...r, order: item.order } : r;
+            }).sort((a, b) => (a.order || 0) - (b.order || 0));
+          }
+        }
+        return { requestsByFolder: nextR };
+      });
       for (const item of items) await db.requests.update(item.id, { order: item.order });
     }
 

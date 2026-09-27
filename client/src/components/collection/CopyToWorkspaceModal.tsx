@@ -63,7 +63,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
         
         // If we copied to the currently active workspace, we should refresh the collections
         if (selectedWorkspaceId === activeWorkspace?._id) {
-          useCollectionStore.getState().fetchCollectionsData(selectedWorkspaceId);
+          useCollectionStore.getState().loadWorkspace(selectedWorkspaceId);
         }
       }
       onClose();

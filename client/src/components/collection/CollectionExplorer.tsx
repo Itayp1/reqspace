@@ -293,10 +293,18 @@ const FolderNode = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const { showContextMenu } = useContextMenu();
-  const { folders, requests, createFolder, createRequest, renameFolder, duplicateRequest, moveRequest, moveFolder } = useCollectionStore();
+  const { foldersByCollection, requestsByFolder, createFolder, createRequest, renameFolder, duplicateRequest, moveRequest, moveFolder, loadFolderChildren } = useCollectionStore();
 
-  const childFolders = folders.filter(f => f.parentFolderId === folder._id).sort((a, b) => (a.order || 0) - (b.order || 0));
-  const childRequests = requests.filter(r => r.folderId === folder._id).sort((a, b) => (a.order || 0) - (b.order || 0));
+  const childFolders = Array.isArray(foldersByCollection[folder._id]) ? foldersByCollection[folder._id] as Folder[] : [];
+  const childRequests = Array.isArray(requestsByFolder[folder._id]) ? requestsByFolder[folder._id] as ApiRequest[] : [];
+  const isLoading = requestsByFolder[folder._id] === 'loading' || foldersByCollection[folder._id] === 'loading';
+  
+  useEffect(() => {
+    if (isOpen) {
+      loadFolderChildren(collectionId, folder._id);
+    }
+  }, [isOpen, folder._id, collectionId, loadFolderChildren]);
+
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -331,8 +339,8 @@ const FolderNode = ({
   };
 
   const handleSort = async () => {
-    const childFolders = folders.filter(f => f.parentFolderId === folder._id);
-    const childReqs = requests.filter(r => r.folderId === folder._id);
+    const childFolders = Array.isArray(foldersByCollection[folder._id]) ? foldersByCollection[folder._id] as Folder[] : [];
+    const childReqs = Array.isArray(requestsByFolder[folder._id]) ? requestsByFolder[folder._id] as ApiRequest[] : [];
     const reorderFolders = childFolders.sort((a, b) => a.name.localeCompare(b.name)).map((f, i) => ({ id: f._id!, order: i }));
     const reorderReqs = childReqs.sort((a, b) => a.name.localeCompare(b.name)).map((r, i) => ({ id: r._id!, order: i }));
     if (reorderFolders.length) await useCollectionStore.getState().reorderItems('folder', reorderFolders);
@@ -400,7 +408,8 @@ const FolderNode = ({
 
       {isOpen && (
         <div className="pl-3 ml-2 border-l border-gray-800/50 mt-0.5">
-          {childFolders.map(childFolder => (
+          {isLoading && <div className=\"text-gray-500 text-xs py-1 px-2 ml-4\">Loading...</div>}
+          {!isLoading && childFolders.map(childFolder => (
             <FolderNode
               key={childFolder._id}
               folder={childFolder}
@@ -424,6 +433,7 @@ const FolderNode = ({
           <div
             className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-400 cursor-pointer rounded hover:bg-gray-800 mt-0.5"
             onClick={() => onPrompt({ title: 'Request name:', placeholder: 'My Request', onSubmit: async (name) => await createRequest(collectionId, name, folder._id) })}
+            style={{ display: isLoading ? 'none' : 'flex' }}
           >
             <FilePlus size={11} />
             <span>Add Request</span>
@@ -456,10 +466,18 @@ const CollectionNode = ({
   const [isRenaming, setIsRenaming] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const { showContextMenu } = useContextMenu();
-  const { folders, requests, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder } = useCollectionStore();
+  const { foldersByCollection, requestsByFolder, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder, loadCollectionChildren } = useCollectionStore();
 
-  const childFolders = folders.filter(f => f.collectionId === collection._id && !f.parentFolderId).sort((a, b) => (a.order || 0) - (b.order || 0));
-  const childRequests = requests.filter(r => r.collectionId === collection._id && !r.folderId).sort((a, b) => (a.order || 0) - (b.order || 0));
+  const childFolders = Array.isArray(foldersByCollection[collection._id]) ? foldersByCollection[collection._id] as Folder[] : [];
+  const childRequests = Array.isArray(requestsByFolder[collection._id]) ? requestsByFolder[collection._id] as ApiRequest[] : [];
+  const isLoading = foldersByCollection[collection._id] === 'loading' || requestsByFolder[collection._id] === 'loading';
+
+  useEffect(() => {
+    if (isOpen) {
+      loadCollectionChildren(collection._id);
+    }
+  }, [isOpen, collection._id, loadCollectionChildren]);
+
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -494,8 +512,8 @@ const CollectionNode = ({
   };
 
   const handleSort = async () => {
-    const childFolders = folders.filter(f => f.collectionId === collection._id && !f.parentFolderId);
-    const childReqs = requests.filter(r => r.collectionId === collection._id && !r.folderId);
+    const childFolders = Array.isArray(foldersByCollection[collection._id]) ? foldersByCollection[collection._id] as Folder[] : [];
+    const childReqs = Array.isArray(requestsByFolder[collection._id]) ? requestsByFolder[collection._id] as ApiRequest[] : [];
     const reorderFolders = childFolders.sort((a, b) => a.name.localeCompare(b.name)).map((f, i) => ({ id: f._id!, order: i }));
     const reorderReqs = childReqs.sort((a, b) => a.name.localeCompare(b.name)).map((r, i) => ({ id: r._id!, order: i }));
     if (reorderFolders.length) await useCollectionStore.getState().reorderItems('folder', reorderFolders);
@@ -577,7 +595,8 @@ const CollectionNode = ({
 
       {isOpen && (
         <div className="ml-4 border-l border-gray-800 pl-2">
-          {childFolders.map(folder => (
+          {isLoading && <div className=\"text-gray-500 text-xs py-1 px-2 ml-4\">Loading...</div>}
+          {!isLoading && childFolders.map(folder => (
             <FolderNode
               key={folder._id}
               folder={folder}
@@ -612,6 +631,7 @@ const CollectionNode = ({
           <div
             className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-400 cursor-pointer rounded hover:bg-gray-800 mt-0.5"
             onClick={() => onPrompt({ title: 'Request name:', placeholder: 'My Request', onSubmit: async (name) => await createRequest(collection._id, name) })}
+            style={{ display: isLoading ? 'none' : 'flex' }}
           >
             <FilePlus size={11} />
             <span>Add Request</span>
@@ -626,10 +646,11 @@ const CollectionNode = ({
 
 export const CollectionExplorer: React.FC = () => {
   const {
-    collections, folders, requests,
+    collections, foldersByCollection, requestsByFolder,
     createCollection, openCollectionIds, toggleCollectionOpen,
     deleteCollection, deleteFolder, deleteRequest,
     duplicateCollection, duplicateFolder,
+    loadWorkspace
   } = useCollectionStore();
   const { activeWorkspace } = useAuthStore();
 
@@ -669,7 +690,7 @@ export const CollectionExplorer: React.FC = () => {
   // Fetch collections when workspace changes
   useEffect(() => {
     if (activeWorkspace?._id) {
-      useCollectionStore.getState().fetchCollectionsData(activeWorkspace._id);
+      loadWorkspace(activeWorkspace._id);
     }
   }, [activeWorkspace?._id]);
 
@@ -749,15 +770,15 @@ export const CollectionExplorer: React.FC = () => {
       window.removeEventListener('share-collection', handleShareCollection);
       window.removeEventListener('fork-collection', handleForkCollection);
     };
-  }, [deleteFolder, deleteRequest, folders, requests, collections]);
+  }, [deleteFolder, deleteRequest, foldersByCollection, requestsByFolder, collections]);
 
 
 
   const exportCollection = (id: string, name: string) => {
     const collection = collections.find(c => c._id === id);
     if (!collection) return;
-    const colFolders = folders.filter(f => f.collectionId === id);
-    const colRequests = requests.filter(r => r.collectionId === id);
+    const colFolders = Object.values(foldersByCollection).flat().filter((f: any) => f && f.collectionId === id) as Folder[];
+    const colRequests = Object.values(requestsByFolder).flat().filter((r: any) => r && r.collectionId === id) as ApiRequest[];
 
     // Build ReqSpace Collection v2.1 format
     const buildItems = (parentFolderId: string | null): any[] => {
@@ -921,7 +942,7 @@ export const CollectionExplorer: React.FC = () => {
     if (type === 'collection' && activeWorkspace) {
       await duplicateCollection(id, activeWorkspace._id);
     } else if (type === 'folder') {
-      const folder = folders.find(f => f._id === id);
+      const folder = Object.values(foldersByCollection).flat().find((f: any) => f && f._id === id) as Folder | undefined;
       if (folder) await duplicateFolder(id, folder.collectionId, folder.parentFolderId);
     }
   };
@@ -946,10 +967,10 @@ export const CollectionExplorer: React.FC = () => {
   const filteredCollections = filterLower
     ? collections.filter(col => {
         if (col.name.toLowerCase().includes(filterLower)) return true;
-        const colRequests = requests.filter(r => r.collectionId === col._id);
-        if (colRequests.some(r => r.name?.toLowerCase().includes(filterLower) || r.url?.toLowerCase().includes(filterLower))) return true;
-        const colFolders = folders.filter(f => f.collectionId === col._id);
-        if (colFolders.some(f => f.name?.toLowerCase().includes(filterLower))) return true;
+        const colRequests = Object.values(requestsByFolder).flat().filter((r: any) => r && r.collectionId === col._id) as ApiRequest[];
+        if (colRequests.some((r: any) => r.name?.toLowerCase().includes(filterLower) || r.url?.toLowerCase().includes(filterLower))) return true;
+        const colFolders = Object.values(foldersByCollection).flat().filter((f: any) => f && f.collectionId === col._id) as Folder[];
+        if (colFolders.some((f: any) => f.name?.toLowerCase().includes(filterLower))) return true;
         return false;
       })
     : collections;
