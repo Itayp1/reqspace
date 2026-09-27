@@ -96,6 +96,22 @@ test.describe('Environments Operations', () => {
     // 4. Select Environment
     await page.getByTestId('env-select').selectOption({ label: 'Precedence Env' });
 
+    // 4.5. Test Precedence by sending a request
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-url-input').fill('https://httpbin.org/get?test_key={{api_key}}');
+    await page.getByTestId('request-send-btn').click();
+    
+    await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });
+    
+    // The rendered response in Monaco should contain the env value, proving it overrode globals
+    const responseEditor = page.locator('.monaco-editor').last();
+    await expect(responseEditor).toContainText('env_secret');
+    await expect(responseEditor).not.toContainText('global_secret');
+
+    // Go back to the Environments tab to export
+    await page.getByTestId('tab-environments').click();
+    await page.getByTestId('env-node-Precedence Env').click();
+
     // 5. Export Environment
     const downloadPromise = page.waitForEvent('download');
     await page.getByTitle('Export Environment JSON').click();
