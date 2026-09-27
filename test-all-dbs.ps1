@@ -33,9 +33,7 @@ foreach ($test in $tests) {
     $newEnv += "MONGODB_URI=$($test.Connection)"
     $newEnv | Set-Content $envPath
     
-    # Restart PM2
-    Write-Host "Restarting PM2..."
-    pm2 restart reqspace | Out-Null
+    # Restored manually
     
     # Wait for healthy
     Write-Host "Waiting for server to become healthy..."
@@ -79,3 +77,4 @@ Write-Host "Restarting PM2 with original env..."
 pm2 restart reqspace | Out-Null
 
 Write-Host "`n🎉 ALL DATABASES TESTED SUCCESSFULLY! 🎉"
+

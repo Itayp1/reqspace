@@ -1,5 +1,6 @@
 export {};
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('FEAT-10: Server-side collection export/import', () => {
   let cookie = '';
@@ -124,3 +125,5 @@ describe('FEAT-10: Server-side collection export/import', () => {
     expect(token.value).toBe('secret-token-123');
   });
 });
+
+

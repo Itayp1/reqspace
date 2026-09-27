@@ -12,6 +12,39 @@ import { RequestRepository } from '../repositories/RequestRepository';
 const router = Router();
 router.use(authenticate);
 
+// ── POST /api/workspaces/:workspaceId/history ───────────────────────────────
+router.post('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
+  const { workspaceId } = req.params;
+  const userId = req.user!._id || req.user!.id;
+  const {
+    requestSnapshot,
+    responseBody,
+    responseStatus,
+    responseStatusText,
+    responseHeaders,
+    responseTime,
+    responseSize,
+    testResults = []
+  } = req.body;
+
+  try {
+    await saveHistoryEntry(userId, workspaceId, {
+      requestSnapshot,
+      responseBody,
+      responseStatus,
+      responseStatusText,
+      responseHeaders,
+      responseTime,
+      responseSize,
+      testResults
+    });
+    return res.status(201).json({ message: 'History saved' });
+  } catch (error) {
+    console.error('Error saving history', error);
+    return res.status(500).json({ message: 'Failed to save history' });
+  }
+});
+
 // ── GET /api/workspaces/:workspaceId/history ────────────────────────────────
 // Require workspace membership — previously this filtered on userId only, with
 // no membership check (CR#11).

@@ -228,25 +228,48 @@ export function UrlBar() {
       const abortController = new AbortController();
       (window as any).__abortController = abortController;
 
-      const res = await api.post('/proxy', {
+      const { sendRequest } = await import('../../transport');
+      const reqPayload = {
         method: activeRequest.method,
         url: finalUrl,
         headers: reqHeaders,
         body: requestBody,
-        workspaceId: useAuthStore.getState().activeWorkspace?._id,
         followRedirects: activeRequest.settings?.followRedirects ?? useSettingsStore.getState().settings.followRedirects,
         verifySsl: activeRequest.settings?.verifySsl ?? useSettingsStore.getState().settings.verifySsl,
         timeout: activeRequest.settings?.timeout ?? useSettingsStore.getState().settings.timeout,
         localProxy: getLocalProxyConfig(),
-        saveHistory: useSettingsStore.getState().settings.saveHistory,
-        clientCertPath: useSettingsStore.getState().settings.clientCertPath,
-      }, { signal: abortController.signal });
+      };
+      
+      const res = await sendRequest(reqPayload);
       const endTime = Date.now();
-      const responseTime = res.data?.time || (endTime - startTime);
-      const responseBody = typeof res.data?.body === 'string'
-        ? res.data.body
-        : JSON.stringify(res.data?.body || res.data, null, 2);
-      const isBase64 = !!res.data?.isBase64;
+      const responseTime = res.responseTime || (endTime - startTime);
+      const responseBody = typeof res.body === 'string'
+        ? res.body
+        : JSON.stringify(res.body || res, null, 2);
+      const isBase64 = !!res.isBase64;
+
+      // Manually save history if enabled
+      const saveHistory = useSettingsStore.getState().settings.saveHistory;
+      const workspaceId = useAuthStore.getState().activeWorkspace?._id;
+      if (saveHistory && workspaceId) {
+        // Send asynchronously
+        api.post(`/workspaces/${workspaceId}/history`, {
+          requestSnapshot: {
+            method: activeRequest.method,
+            url: finalUrl,
+            headers: reqHeaders,
+            body: requestBody,
+          },
+          responseBody,
+          responseStatus: res.status,
+          responseStatusText: res.statusText,
+          responseHeaders: res.headers,
+          responseTime,
+          responseSize: res.size || 0,
+          testResults: [], // populated later? No, history on server didn't have test results from test script because it ran on server before test script.
+        }).catch(err => console.error('Failed to save history', err));
+      }
+
 
       // 3. Run combined Test script
       const scriptReturn = await runTestScript(testScripts.join('\n\n'), {

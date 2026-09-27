@@ -42,6 +42,7 @@ import bcrypt from 'bcryptjs';
 const JWT_SECRET = resolveJwtSecret();
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // ג”€ג”€ DB state (updated during bootstrap) ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
@@ -217,6 +218,12 @@ const mutationLimiter = rateLimit({ windowMs: 60_000, max: 300, message: 'Too ma
 app.use('/api', (req, res, next) =>
   ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? mutationLimiter(req, res, next) : next()
 );
+// SEC-10: a high ceiling covering reads too (tree/list/history GETs), so a scripted
+// attacker hammering read endpoints is still caught. Deliberately generous — even a
+// workspace with hundreds of collections expanding many tree nodes in a burst stays
+// far under this; it exists to catch automated abuse, not to throttle real usage.
+const readLimiter = rateLimit({ windowMs: 60_000, max: 2000, message: 'Too many requests - please slow down.' });
+app.use('/api', (req, res, next) => (req.method === 'GET' ? readLimiter(req, res, next) : next()));
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);
 // Mounted before the generic-'/api' routers below: their own `router.use(authenticate)`
@@ -351,3 +358,4 @@ export { app };
 export const _setDbStatusForTest = (status: 'starting' | 'ok' | 'error') => {
   dbStatus = status;
 };
+

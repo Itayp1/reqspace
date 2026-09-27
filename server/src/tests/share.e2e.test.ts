@@ -1,6 +1,7 @@
 // Using native Node fetch
 export {};
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('E2E Share - SEC-0.6', () => {
   let cookie = '';
@@ -117,3 +118,5 @@ describe('E2E Share - SEC-0.6', () => {
     expect(getRes.status).toBe(404);
   });
 });
+
+

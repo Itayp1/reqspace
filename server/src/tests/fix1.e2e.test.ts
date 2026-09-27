@@ -1,5 +1,6 @@
 export {};
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('FIX-1: Admin workspace export/import', () => {
   let cookie = '';
@@ -39,7 +40,15 @@ describe('FIX-1: Admin workspace export/import', () => {
     const newWs = await newWsRes.json() as any;
     const targetWorkspaceId = newWs.id || newWs._id || newWs.workspace?.id;
 
-    // 2. Export original workspace (it has a collection from SEC-9 test)
+    // Create a collection so the workspace isn't empty
+    const colRes = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ name: 'Export Test Col' })
+    });
+    expect(colRes.status).toBe(201);
+
+    // 2. Export original workspace
     const exportRes = await fetch(`${BASE_URL}/api/admin/export/${workspaceId}`, { headers: { cookie } });
     expect(exportRes.status).toBe(200);
     const dump = await exportRes.json() as any;
@@ -87,3 +96,5 @@ describe('FIX-1: Admin workspace export/import', () => {
     expect(finalDump.environments.length).toBe(dump.environments.length);
   });
 });
+
+

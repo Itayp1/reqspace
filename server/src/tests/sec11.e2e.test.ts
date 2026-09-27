@@ -1,5 +1,6 @@
 export {};
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('SEC-11: OAuth state / CSRF', () => {
   it('GET /api/auth/state should set oauth_state cookie and return state', async () => {
@@ -37,3 +38,5 @@ describe('SEC-11: OAuth state / CSRF', () => {
     expect(data.message).toBe('Invalid or expired OAuth state');
   });
 });
+
+

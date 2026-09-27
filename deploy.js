@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const path = require('path');
 
 console.log("Starting PM2 deployment script...");
@@ -12,8 +12,23 @@ try {
 
   console.log("Starting Server...");
   process.chdir(path.join(__dirname, 'server'));
-  const { spawnSync } = require('child_process');
-  spawnSync('node', ['dist/index.js'], { stdio: 'inherit' });
+  
+  const child = spawn('node', ['dist/index.js'], { stdio: 'inherit' });
+
+  child.on('close', (code) => {
+    console.log(`Server process exited with code ${code}`);
+    process.exit(code || 0);
+  });
+
+  const cleanup = () => {
+    console.log("Received kill signal. Shutting down server...");
+    child.kill('SIGKILL');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+  
 } catch (error) {
   console.error("Deployment failed:", error);
   process.exit(1);

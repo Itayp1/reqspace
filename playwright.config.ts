@@ -71,11 +71,11 @@ export default defineConfig({
   webServer: [
     {
       command: 'npm run dev --prefix server',
-      url: 'http://localhost:3005',
+      url: 'http://localhost:3006',
       reuseExistingServer: true,
       env: {
         DB_TYPE: process.env.DB_TYPE || 'sqlite',
-        PORT: '3005',
+        PORT: '3006',
         ALLOW_DEFAULT_ADMIN: 'true',
         CERT_ENCRYPTION_KEY: process.env.CERT_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
       }
@@ -87,3 +87,4 @@ export default defineConfig({
     }
   ],
 });
+

@@ -1,5 +1,6 @@
 export {};
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('SEC-10: Rate limiting', () => {
   it('should rate limit POST requests after 300 attempts', async () => {
@@ -26,4 +27,23 @@ describe('SEC-10: Rate limiting', () => {
     
     expect(hit429).toBe(true);
   }, 20000);
+
+  it('should rate limit GET requests after 2000 attempts (high ceiling, reads included)', async () => {
+    let hit429 = false;
+    const batchSize = 100;
+    for (let batch = 0; batch < 21 && !hit429; batch++) {
+      const results = await Promise.all(
+        Array.from({ length: batchSize }, () =>
+          fetch(`${BASE_URL}/api/auth/config`, {
+            headers: { 'x-forwarded-for': '10.0.0.100' },
+          })
+        )
+      );
+      if (results.some((res) => res.status === 429)) hit429 = true;
+    }
+
+    expect(hit429).toBe(true);
+  }, 30000);
 });
+
+

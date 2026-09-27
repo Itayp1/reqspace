@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('SEC-1: Self-registered users are not superadmins', () => {
   let cookie: string;
@@ -42,3 +43,5 @@ describe('SEC-1: Self-registered users are not superadmins', () => {
     expect(adminRes.status).toBe(403);
   });
 });
+
+

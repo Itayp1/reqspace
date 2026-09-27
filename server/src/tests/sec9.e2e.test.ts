@@ -1,6 +1,7 @@
 // Using native Node fetch
 export {};
-const BASE_URL = 'http://127.0.0.1:3005';
+const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('E2E SEC-9', () => {
   let cookie = '';
@@ -50,3 +51,5 @@ describe('E2E SEC-9', () => {
     expect(data.issues[0].code).toBe('unrecognized_keys');
   });
 });
+
+
