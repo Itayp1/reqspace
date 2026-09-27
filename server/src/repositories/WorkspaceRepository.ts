@@ -17,6 +17,7 @@ export interface IWorkspaceRecord {
   ownerId: string;
   members: IWorkspaceMemberRecord[];
   isPublic: boolean;
+  isPersonal: boolean;
   createdAt: Date;
   updatedAt: Date;
   myRole?: string;
@@ -32,6 +33,7 @@ function sqlToRecord(w: SqlWorkspace): IWorkspaceRecord {
     ownerId: w.ownerId,
     members,
     isPublic: w.isPublic,
+    isPersonal: !!w.isPersonal,
     createdAt: w.createdAt,
     updatedAt: w.updatedAt,
   };
@@ -55,7 +57,7 @@ export const WorkspaceRepository = {
     return ws.map(sqlToRecord);
   },
 
-  async create(data: { name: string; description?: string; ownerId: string; isPublic?: boolean }): Promise<IWorkspaceRecord> {
+  async create(data: { name: string; description?: string; ownerId: string; isPublic?: boolean; isPersonal?: boolean }): Promise<IWorkspaceRecord> {
     const id = uuidv4();
     const members: IWorkspaceMemberRecord[] = [{ userId: data.ownerId, role: 'owner', joinedAt: new Date() }];
     const w = await SqlWorkspace.create({
@@ -65,8 +67,17 @@ export const WorkspaceRepository = {
       ownerId: data.ownerId,
       members: JSON.stringify(members),
       isPublic: data.isPublic ?? false,
+      isPersonal: data.isPersonal ?? false,
     });
     return sqlToRecord(w);
+  },
+
+  /** The workspace createPersonalWorkspace made for this user at signup. At
+   *  most one should exist, but this returns the earliest if more than one
+   *  somehow does, rather than throwing. */
+  async findPersonalForUser(userId: string): Promise<IWorkspaceRecord | null> {
+    const w = await SqlWorkspace.findOne({ where: { ownerId: userId, isPersonal: true }, order: [['createdAt', 'ASC']] });
+    return w ? sqlToRecord(w) : null;
   },
 
   async update(id: string, data: Partial<{ name: string; description: string; isPublic: boolean; members: IWorkspaceMemberRecord[] }>): Promise<IWorkspaceRecord | null> {

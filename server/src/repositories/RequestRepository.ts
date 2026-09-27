@@ -1,4 +1,4 @@
-﻿import { SqlRequest } from '../db/sql-models';
+import { SqlRequest } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 
@@ -127,7 +127,13 @@ export const RequestRepository = {
     return SqlRequest.count({ where: { collectionId, folderId: folderId ?? null } });
   },
 
-  
+  async searchInWorkspace(term: string, collectionIds: string[]): Promise<IRequestRecord[]> {
+    if (!term || !collectionIds.length) return [];
+    const { Op } = await import('sequelize');
+    term = escapeLike(term.substring(0, MAX_SEARCH_LENGTH));
+    return (await SqlRequest.findAll({
+      where: {
+        collectionId: { [Op.in]: collectionIds },
         [Op.or]: [{ name: { [Op.like]: `%${term}%` } }, { url: { [Op.like]: `%${term}%` } }],
       },
       limit: 200,

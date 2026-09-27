@@ -80,6 +80,7 @@ export async function createPersonalWorkspace(user: any) {
     name: `${user.name}'s Workspace`,
     description: 'Personal workspace',
     ownerId: user.id || user._id,
+    isPersonal: true,
   });
   const { EnvironmentRepository } = await import('../repositories/EnvironmentRepository');
   await EnvironmentRepository.upsertGlobal(workspace.id || (workspace as any)._id, []);

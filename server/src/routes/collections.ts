@@ -13,9 +13,25 @@ import { workspaceIdCache } from '../utils/cache';
 import { v4 as uuidv4 } from 'uuid';
 // Lazy import to avoid circular deps: forks.ts → collections.ts
 let _syncForks: ((id: string) => Promise<void>) | null = null;
-async function syncForksAsync(collectionId: string) {
-  if (!_syncForks) { const m = await import('./forks'); _syncForks = m.syncForksOfCollection; }
-  _syncForks(collectionId).catch(() => {});
+let _cleanupForkRecords: ((id: string) => Promise<void>) | null = null;
+async function loadForksModule() {
+  const m = await import('./forks');
+  _syncForks = m.syncForksOfCollection;
+  _cleanupForkRecords = m.cleanupForkRecordsForCollection;
+}
+// Fire-and-forget: propagate a source-side change to any forks of this
+// collection. Called after every collection/folder/request create, update,
+// or delete so forks stay in sync (CR: this was previously defined but never
+// called from any route, so auto-sync never actually ran).
+function syncForksAsync(collectionId: string) {
+  (async () => {
+    if (!_syncForks) await loadForksModule();
+    await _syncForks!(collectionId);
+  })().catch(() => {});
+}
+async function cleanupForkRecords(collectionId: string) {
+  if (!_cleanupForkRecords) await loadForksModule();
+  await _cleanupForkRecords!(collectionId);
 }
 
 const router = Router();
@@ -117,6 +133,7 @@ router.put('/collections/:id', validate(schemas.updateCollectionSchema), checkPe
   for (const [k, v] of Object.entries({ name, description, variables, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
   const collection = await CollectionRepository.update(req.params.id, patch);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
+  syncForksAsync(req.params.id);
   return res.json(collection);
 });
 
@@ -124,6 +141,7 @@ router.delete('/collections/:id', checkPermission('collection', 'editor'), async
   await FolderRepository.deleteByCollection(req.params.id);
   await RequestRepository.deleteByCollection(req.params.id);
   await CollectionRepository.delete(req.params.id);
+  await cleanupForkRecords(req.params.id);
   workspaceIdCache.delete(`collection:${req.params.id}`);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:deleted', req.params.id);
   return res.json({ message: 'Collection deleted' });
@@ -140,6 +158,7 @@ router.post('/collections/:collectionId/folders', validate(schemas.createFolderS
   const order = await FolderRepository.countInCollection(req.params.collectionId, parentFolderId ?? null);
   const folder = await FolderRepository.create({ collectionId: req.params.collectionId, parentFolderId: parentFolderId ?? null, name, description, preRequestScript, testScript, order });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:created', folder);
+  syncForksAsync(req.params.collectionId);
   return res.status(201).json(folder);
 });
 
@@ -150,15 +169,18 @@ router.put('/folders/:id', validate(schemas.updateFolderSchema), checkPermission
   const folder = await FolderRepository.update(req.params.id, patch);
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
+  syncForksAsync(folder.collectionId);
   return res.json(folder);
 });
 
 router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
+  const folder = await FolderRepository.findById(req.params.id);
   await FolderRepository.deleteByParent(req.params.id);
   await RequestRepository.deleteByFolder(req.params.id);
   await FolderRepository.delete(req.params.id);
   workspaceIdCache.delete(`folder:${req.params.id}`);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:deleted', req.params.id);
+  if (folder) syncForksAsync(folder.collectionId);
   return res.json({ message: 'Folder deleted' });
 });
 
@@ -181,6 +203,7 @@ router.post('/collections/:collectionId/requests', validate(schemas.createReques
   const request = await RequestRepository.create({ name: name || 'New Request', method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId: folderId ?? null, collectionId: req.params.collectionId, order, createdBy: String(req.user!._id) });
   logAudit(String(req.user!._id), 'create_request', { targetType: 'Request', targetId: String(request._id), details: { requestId: request._id, requestName: request.name } }).catch(() => {});
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:created', request);
+  syncForksAsync(req.params.collectionId);
   return res.status(201).json(request);
 });
 
@@ -197,13 +220,16 @@ router.put('/requests/:id', validate(schemas.updateRequestSchema), checkPermissi
   const request = await RequestRepository.update(req.params.id, patch);
   if (!request) return res.status(404).json({ message: 'Request not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
+  syncForksAsync(request.collectionId);
   return res.json(request);
 });
 
 router.delete('/requests/:id', checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
+  const request = await RequestRepository.findById(req.params.id);
   await RequestRepository.delete(req.params.id);
   workspaceIdCache.delete(`request:${req.params.id}`);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:deleted', req.params.id);
+  if (request) syncForksAsync(request.collectionId);
   return res.json({ message: 'Request deleted' });
 });
 

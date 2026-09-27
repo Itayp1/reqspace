@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCollectionStore } from '../../store/collectionStore';
 import type { Collection, Folder, ApiRequest } from '../../store/collectionStore';
@@ -17,7 +17,7 @@ import { ShareLinkModal } from './ShareLinkModal';
 import { ForkModal } from './ForkModal';
 import { useContextMenu } from '../common/ContextMenuProvider';
 import {
-  ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X
+  ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X, AlertTriangle
 } from 'lucide-react';
 
 // ג”€ג”€ Shared Types ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
@@ -408,7 +408,7 @@ const FolderNode = ({
 
       {isOpen && (
         <div className="pl-3 ml-2 border-l border-gray-800/50 mt-0.5">
-          {isLoading && <div className=\"text-gray-500 text-xs py-1 px-2 ml-4\">Loading...</div>}
+          {isLoading && <div className="text-gray-500 text-xs py-1 px-2 ml-4">Loading...</div>}
           {!isLoading && childFolders.map(childFolder => (
             <FolderNode
               key={childFolder._id}
@@ -465,7 +465,9 @@ const CollectionNode = ({
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [forkSyncError, setForkSyncError] = useState<string | null>(null);
   const { showContextMenu } = useContextMenu();
+  const { activeWorkspace } = useAuthStore();
   const { foldersByCollection, requestsByFolder, createFolder, createRequest, renameCollection, duplicateRequest, duplicateFolder, moveRequest, moveFolder, loadCollectionChildren } = useCollectionStore();
 
   const childFolders = Array.isArray(foldersByCollection[collection._id]) ? foldersByCollection[collection._id] as Folder[] : [];
@@ -477,6 +479,17 @@ const CollectionNode = ({
       loadCollectionChildren(collection._id);
     }
   }, [isOpen, collection._id, loadCollectionChildren]);
+
+  // Fetched once per node, not on every open/close — this is a cheap, single
+  // indexed lookup, and a broken fork sync previously had zero UI signal
+  // (only a console.error on the server).
+  useEffect(() => {
+    let cancelled = false;
+    api.get(`/collections/${collection._id}/fork-status`)
+      .then(res => { if (!cancelled) setForkSyncError(res.data?.lastSyncError ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [collection._id]);
 
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -530,6 +543,18 @@ const CollectionNode = ({
       window.dispatchEvent(event);
     }},
     { label: 'Duplicate / Fork', onClick: () => onDuplicate('collection', collection._id) },
+    // Smart fork only makes sense from a shared workspace — the server
+    // enforces "shared → the fork owner's own personal workspace" (see
+    // routes/forks.ts), so offering it from inside the personal workspace
+    // itself would just be a menu item that always errors.
+    ...(!activeWorkspace?.isPersonal ? [{ label: 'Fork (Auto-sync)', onClick: () => {
+      // The smart fork (auto-syncing copy — see ForkModal) vs. the plain
+      // one-off duplicate above: this was previously only wired up as an
+      // event listener with nothing anywhere dispatching it, making the
+      // feature unreachable from the UI.
+      const event = new CustomEvent('fork-collection', { detail: { id: collection._id, name: collection.name } });
+      window.dispatchEvent(event);
+    }}] : []),
     { label: 'Fork to Workspace', onClick: () => {
       const event = new CustomEvent('copy-to-workspace', { detail: { type: 'collection', id: collection._id, name: collection.name } });
       window.dispatchEvent(event);
@@ -586,6 +611,14 @@ const CollectionNode = ({
         ) : (
           <span data-testid={`node-${collection.name}`} className="flex-1 truncate text-sm font-medium text-gray-200">{collection.name}</span>
         )}
+        {!isRenaming && forkSyncError && (
+          <AlertTriangle
+            size={13}
+            className="text-amber-400 shrink-0 mx-1"
+            data-testid={`fork-sync-error-${collection.name}`}
+            title={`Fork sync is failing: ${forkSyncError}`}
+          />
+        )}
         {!isRenaming && (
           <div className="opacity-30 group-hover:opacity-100 flex items-center shrink-0">
             <ActionMenu options={menuOptions} />
@@ -595,7 +628,7 @@ const CollectionNode = ({
 
       {isOpen && (
         <div className="ml-4 border-l border-gray-800 pl-2">
-          {isLoading && <div className=\"text-gray-500 text-xs py-1 px-2 ml-4\">Loading...</div>}
+          {isLoading && <div className="text-gray-500 text-xs py-1 px-2 ml-4">Loading...</div>}
           {!isLoading && childFolders.map(folder => (
             <FolderNode
               key={folder._id}

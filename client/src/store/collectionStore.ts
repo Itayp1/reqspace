@@ -49,6 +49,7 @@ interface CollectionStore {
   // Fetch
   loadWorkspace: (workspaceId: string) => Promise<void>;
   loadCollectionChildren: (collectionId: string) => Promise<void>;
+  refreshCollectionChildren: (collectionId: string) => Promise<void>;
   loadFolderChildren: (collectionId: string, folderId: string) => Promise<void>;
 
   // Collection CRUD
@@ -255,6 +256,21 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     } catch (e) {
       console.error(e);
     }
+  },
+
+  // loadCollectionChildren no-ops once a collection's children are cached, so
+  // an already-open collection never sees a background change (e.g. a fork
+  // auto-sync updating a folder the user isn't actively looking at) — evict
+  // the cache first so the subsequent load actually hits the network.
+  refreshCollectionChildren: async (collectionId: string) => {
+    set((s) => {
+      const foldersByCollection = { ...s.foldersByCollection };
+      const requestsByFolder = { ...s.requestsByFolder };
+      delete foldersByCollection[collectionId];
+      delete requestsByFolder[collectionId];
+      return { foldersByCollection, requestsByFolder };
+    });
+    await get().loadCollectionChildren(collectionId);
   },
 
   loadFolderChildren: async (collectionId: string, folderId: string) => {

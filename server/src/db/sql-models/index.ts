@@ -33,6 +33,7 @@ export class SqlWorkspace extends Model {
   declare ownerId: string;
   declare members: string; // JSON array
   declare isPublic: boolean;
+  declare isPersonal: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -208,6 +209,7 @@ export class SqlCollectionFork extends Model {
   declare forkedByUserId: string;
   declare forkedAt: Date;
   declare lastSyncAt: Date | null;
+  declare lastSyncError: string | null;
 }
 
 // -------------------------------------------------
@@ -247,6 +249,10 @@ export function initSqlModels() {
     ownerId: { type: DataTypes.STRING(36), allowNull: false },
     members: { type: DataTypes.TEXT, defaultValue: '[]' },
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // The auto-created workspace every user gets on signup (see
+    // createPersonalWorkspace) — the only valid fork *target*, per the fork
+    // restriction in routes/forks.ts. Not user-editable.
+    isPersonal: { type: DataTypes.BOOLEAN, defaultValue: false },
   }, { sequelize: sq, tableName: 'workspaces', timestamps: true, indexes: [{ fields: ['ownerId'] }] });
 
   SqlCollection.init({
@@ -384,6 +390,7 @@ export function initSqlModels() {
     forkedByUserId: { type: DataTypes.STRING(36), allowNull: false },
     forkedAt: { type: DataTypes.DATE, allowNull: false },
     lastSyncAt: { type: DataTypes.DATE, allowNull: true },
+    lastSyncError: { type: DataTypes.TEXT, allowNull: true },
   }, { sequelize: sq, tableName: 'collection_forks', timestamps: false, createdAt: false, updatedAt: false,
     indexes: [{ fields: ['sourceCollectionId'] }, { fields: ['forkedCollectionId'], unique: true }] });
 
@@ -395,7 +402,7 @@ export function initSqlModels() {
     sourceItemId: { type: DataTypes.STRING(36), allowNull: false },
     baseHash: { type: DataTypes.STRING(32), allowNull: false },
   }, { sequelize: sq, tableName: 'fork_item_hashes', timestamps: false, createdAt: false, updatedAt: false,
-    indexes: [{ fields: ['forkId'] }, { fields: ['itemId'] }] });
+    indexes: [{ fields: ['forkId'] }, { fields: ['itemId'] }, { fields: ['forkId', 'sourceItemId'], unique: true, name: 'uniq_fork_item_hashes_fork_source' }] });
 }
 
 

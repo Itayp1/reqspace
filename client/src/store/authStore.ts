@@ -16,6 +16,7 @@ export interface Workspace {
   name: string;
   myRole: string;
   isPublic?: boolean;
+  isPersonal?: boolean;
 }
 
 interface AuthState {

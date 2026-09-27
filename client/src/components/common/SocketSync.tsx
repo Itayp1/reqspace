@@ -28,7 +28,13 @@ export function SocketSync() {
     socket.on('collection:created', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:updated', (data) => useCollectionStore.getState().applyCollectionUpserted(data));
     socket.on('collection:deleted', (id) => useCollectionStore.getState().applyCollectionDeleted(id));
-    socket.on('collection:fork-synced', () => { if (activeWorkspace) useCollectionStore.getState().loadWorkspace(activeWorkspace._id); });
+    socket.on('collection:fork-synced', (data: any) => {
+      if (activeWorkspace) useCollectionStore.getState().loadWorkspace(activeWorkspace._id);
+      // loadWorkspace only refreshes the top-level collection list — an
+      // already-open fork's cached folder/request children wouldn't otherwise
+      // pick up a background sync until the user collapses and reopens it.
+      if (data?.collectionId) useCollectionStore.getState().refreshCollectionChildren(data.collectionId);
+    });
     socket.on('folder:created', (data) => useCollectionStore.getState().applyFolderUpserted(data));
     socket.on('folder:updated', (data) => useCollectionStore.getState().applyFolderUpserted(data));
     socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));
