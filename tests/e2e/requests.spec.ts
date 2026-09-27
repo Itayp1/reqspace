@@ -91,40 +91,198 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });
   });
 
-  test('Body mode and auth type matrix', async ({ page }) => {
+  test('Bearer auth persists and resolves after save+reload', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
 
-    // -- Test Auth Types --
     await page.getByTestId('req-tab-auth').click();
-
-    // Bearer Token
     await page.getByTestId('auth-type-select').selectOption('bearer');
     await page.getByTestId('auth-bearer-token').fill('my-super-secret-token');
 
-    // Basic Auth
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('Bearer Test');
+    const createColBtn = page.getByTestId('new-collection-empty-btn');
+    if (await createColBtn.isVisible()) {
+      await createColBtn.click();
+      page.on('dialog', async (dialog) => {
+        await dialog.accept('Test Collection');
+      });
+      await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    }
+    await page.getByTestId('save-req-submit-btn').click();
+    await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
+
+    await page.reload();
+    await page.getByTestId('node-Bearer Test').click();
+
+    await page.getByTestId('req-tab-auth').click();
+    await expect(page.getByTestId('auth-type-select')).toHaveValue('bearer');
+    await expect(page.getByTestId('auth-bearer-token')).toHaveValue('my-super-secret-token');
+
+    const requestPromise = page.waitForRequest(req => req.url().includes('/echo'));
+    await page.route('**/echo', route => route.fulfill({ status: 200, body: 'ok' }));
+    await page.getByTestId('request-send-btn').click();
+    const req = await requestPromise;
+    expect(req.headers()['authorization']).toBe('Bearer my-super-secret-token');
+  });
+
+  test('Basic auth persists and resolves after save+reload', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
+
+    await page.getByTestId('req-tab-auth').click();
     await page.getByTestId('auth-type-select').selectOption('basic');
     await page.getByTestId('auth-basic-username').fill('admin');
     await page.getByTestId('auth-basic-password').fill('password123');
 
-    // -- Test Body Modes --
-    await page.getByTestId('req-tab-body').click();
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('Basic Test');
+    const createColBtn = page.getByTestId('new-collection-empty-btn');
+    if (await createColBtn.isVisible()) {
+      await createColBtn.click();
+      page.on('dialog', async (dialog) => {
+        await dialog.accept('Test Collection');
+      });
+      await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    }
+    await page.getByTestId('save-req-submit-btn').click();
+    await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
 
-    // JSON (Raw)
+    await page.reload();
+    await page.getByTestId('node-Basic Test').click();
+
+    await page.getByTestId('req-tab-auth').click();
+    await expect(page.getByTestId('auth-type-select')).toHaveValue('basic');
+    await expect(page.getByTestId('auth-basic-username')).toHaveValue('admin');
+    await expect(page.getByTestId('auth-basic-password')).toHaveValue('password123');
+
+    const requestPromise = page.waitForRequest(req => req.url().includes('/echo'));
+    await page.route('**/echo', route => route.fulfill({ status: 200, body: 'ok' }));
+    await page.getByTestId('request-send-btn').click();
+    const req = await requestPromise;
+    const authHeader = req.headers()['authorization'];
+    expect(authHeader).toBe('Basic YWRtaW46cGFzc3dvcmQxMjM=');
+  });
+
+  test('Raw JSON body persists after save+reload and is sent as the request body', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('method-select').selectOption('POST');
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
+
+    await page.getByTestId('req-tab-body').click();
     await page.getByTestId('body-mode-raw').click();
     await page.getByTestId('body-raw-language-select').selectOption('json');
     await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.type('{"key":"value"}');
+    await page.keyboard.type('{"mykey":"myval"}');
 
-    // Form-Data
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('JSON Test');
+    const createColBtn = page.getByTestId('new-collection-empty-btn');
+    if (await createColBtn.isVisible()) {
+      await createColBtn.click();
+      page.on('dialog', async (dialog) => {
+        await dialog.accept('Test Collection');
+      });
+      await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    }
+    await page.getByTestId('save-req-submit-btn').click();
+    await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
+
+    await page.reload();
+    await page.getByTestId('node-JSON Test').click();
+
+    await page.getByTestId('req-tab-body').click();
+    await expect(page.getByTestId('body-raw-language-select')).toHaveValue('json');
+    await expect(page.getByTestId('monaco-editor-container')).toContainText('"mykey"');
+
+    const requestPromise = page.waitForRequest(req => req.url().includes('/echo'));
+    await page.route('**/echo', route => route.fulfill({ status: 200, body: 'ok' }));
+    await page.getByTestId('request-send-btn').click();
+    const req = await requestPromise;
+    expect(req.postData()).toContain('"mykey"');
+    expect(req.headers()['content-type']).toContain('application/json');
+  });
+
+  test('Form-data body persists and sends multipart fields correctly', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('method-select').selectOption('POST');
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
+
+    await page.getByTestId('req-tab-body').click();
     await page.getByTestId('body-mode-form-data').click();
     await page.getByTestId('kv-key-0').fill('formField');
     await page.getByTestId('kv-val-0').fill('formValue');
 
-    // URL-Encoded
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('Form Test');
+    const createColBtn = page.getByTestId('new-collection-empty-btn');
+    if (await createColBtn.isVisible()) {
+      await createColBtn.click();
+      page.on('dialog', async (dialog) => {
+        await dialog.accept('Test Collection');
+      });
+      await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    }
+    await page.getByTestId('save-req-submit-btn').click();
+    await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
+
+    await page.reload();
+    await page.getByTestId('node-Form Test').click();
+
+    await page.getByTestId('req-tab-body').click();
+    await expect(page.getByTestId('kv-key-0')).toHaveValue('formField');
+    await expect(page.getByTestId('kv-val-0')).toHaveValue('formValue');
+
+    const requestPromise = page.waitForRequest(req => req.url().includes('/echo'));
+    await page.route('**/echo', route => route.fulfill({ status: 200, body: 'ok' }));
+    await page.getByTestId('request-send-btn').click();
+    const req = await requestPromise;
+    expect(req.headers()['content-type']).toContain('multipart/form-data');
+    expect(req.postData()).toContain('formField');
+    expect(req.postData()).toContain('formValue');
+  });
+
+  test('URL-encoded body persists and sends as application/x-www-form-urlencoded', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('method-select').selectOption('POST');
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
+
+    await page.getByTestId('req-tab-body').click();
     await page.getByTestId('body-mode-urlencoded').click();
     await page.getByTestId('kv-key-0').fill('urlField');
     await page.getByTestId('kv-val-0').fill('urlValue');
+
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('UrlEncoded Test');
+    const createColBtn = page.getByTestId('new-collection-empty-btn');
+    if (await createColBtn.isVisible()) {
+      await createColBtn.click();
+      page.on('dialog', async (dialog) => {
+        await dialog.accept('Test Collection');
+      });
+      await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    }
+    await page.getByTestId('save-req-submit-btn').click();
+    await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
+
+    await page.reload();
+    await page.getByTestId('node-UrlEncoded Test').click();
+
+    await page.getByTestId('req-tab-body').click();
+    await expect(page.getByTestId('kv-key-0')).toHaveValue('urlField');
+    await expect(page.getByTestId('kv-val-0')).toHaveValue('urlValue');
+
+    const requestPromise = page.waitForRequest(req => req.url().includes('/echo'));
+    await page.route('**/echo', route => route.fulfill({ status: 200, body: 'ok' }));
+    await page.getByTestId('request-send-btn').click();
+    const req = await requestPromise;
+    expect(req.headers()['content-type']).toContain('application/x-www-form-urlencoded');
+    expect(req.postData()).toContain('urlField=urlValue');
   });
 
   test('Dirty state indicators and undo/redo', async ({ page }) => {
