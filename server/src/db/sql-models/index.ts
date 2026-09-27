@@ -1,4 +1,4 @@
-﻿import { DataTypes, Model, Optional } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { getSequelize } from '../sequelize';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -129,6 +129,7 @@ export class SqlHistory extends Model {
   declare duration: number | null;
   declare requestData: string; // JSON
   declare responseData: string; // JSON
+  declare responseSizeBytes: number;
   declare createdAt: Date;
 }
 
@@ -333,6 +334,7 @@ export function initSqlModels() {
     duration: { type: DataTypes.INTEGER, allowNull: true },
     requestData: { type: DataTypes.TEXT, defaultValue: '{}' },
     responseData: { type: DataTypes.TEXT, defaultValue: '{}' },
+    responseSizeBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
   }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false, indexes: [{ fields: ['userId', 'workspaceId'] }, { fields: ['createdAt'] }] });
 
   SqlAuditLog.init({

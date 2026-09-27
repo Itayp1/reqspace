@@ -20,12 +20,10 @@ import workspacesRouter from './routes/workspaces';
 import collectionsRouter from './routes/collections';
 import environmentsRouter from './routes/environments';
 import historyRouter from './routes/history';
-import proxyRouter from './routes/proxy';
 
 import adminRouter from './routes/admin';
 import usersRouter from './routes/users';
 import shareRouter from './routes/share';
-import shareProxyRouter from './routes/shareProxy';
 import importExportRouter from './routes/importExport';
 import localVariablesRouter from './routes/localVariables';
 import userProfileVariablesRouter from './routes/userProfileVariables';
@@ -231,11 +229,9 @@ app.use('/api/workspaces', workspacesRouter);
 // these two routers' deliberately-public routes (anonymous share-link viewing) ג€” unless
 // share is matched first.
 app.use('/api/share', shareRouter);
-app.use('/api/share', shareProxyRouter);
 app.use('/api', collectionsRouter);
 app.use('/api', environmentsRouter);
 app.use('/api', historyRouter);
-app.use('/api/proxy', proxyRouter);
 
 app.use('/api/admin', adminRouter);
 app.use('/api/users', usersRouter);
