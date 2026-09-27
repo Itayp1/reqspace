@@ -79,8 +79,7 @@ router.delete('/history', async (req: AuthRequest, res: Response) => {
 
 // ── DELETE /api/workspaces/:workspaceId/history – Clear all ─────────────────
 router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
-  const removed = await SqlHistory.findAll({ where: { userId: req.user!._id || req.user!.id, workspaceId: req.params.workspaceId } });
-  const freed = removed.reduce((sum, h: any) => sum + Buffer.byteLength(JSON.parse(h.responseData)?.body ?? '', 'utf8'), 0);
+  const freed = (await SqlHistory.sum('responseSizeBytes', { where: { userId: req.user!._id || req.user!.id, workspaceId: req.params.workspaceId } })) || 0;
   await SqlHistory.destroy({ where: { userId: req.user!._id || req.user!.id, workspaceId: req.params.workspaceId } });
   const user = await UserRepository.findById(req.user!._id || req.user!.id);
   if (user) {
@@ -165,12 +164,23 @@ export async function saveHistoryEntry(
 
   // GC: remove oldest entries if over limit
   let usedBytes = user.historyUsedBytes ?? 0;
-  while (usedBytes + bodySize > maxTotalMB) {
-    const oldest = await SqlHistory.findOne({ where: { userId }, order: [['createdAt', 'ASC']] });
-    if (!oldest) break;
-    const oldSize = Buffer.byteLength(JSON.parse(oldest.responseData)?.body ?? '', 'utf8');
-    await oldest.destroy();
-    usedBytes -= oldSize;
+  if (usedBytes + bodySize > maxTotalMB) {
+    const historyList = await SqlHistory.findAll({ 
+      attributes: ['id', 'responseSizeBytes'],
+      where: { userId }, 
+      order: [['createdAt', 'ASC']] 
+    });
+    
+    let toDeleteIds = [];
+    for (const h of historyList) {
+      if (usedBytes + bodySize <= maxTotalMB) break;
+      toDeleteIds.push(h.id);
+      usedBytes -= (h.responseSizeBytes || 0);
+    }
+    
+    if (toDeleteIds.length > 0) {
+      await SqlHistory.destroy({ where: { id: toDeleteIds } });
+    }
   }
 
   await SqlHistory.create({
@@ -190,7 +200,8 @@ export async function saveHistoryEntry(
       responseTime: data.responseTime,
       size: data.responseSize,
       testResults: data.testResults,
-    })
+    }),
+    responseSizeBytes: bodySize
   });
 
   await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, usedBytes + bodySize) } as any);
