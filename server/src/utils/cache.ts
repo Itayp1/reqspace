@@ -25,7 +25,16 @@ export class TtlCache<T> {
   delete(key: string): void {
     this.map.delete(key);
   }
+  deleteByPrefix(prefix: string): void {
+    for (const key of this.map.keys()) {
+      if (key.startsWith(prefix)) {
+        this.map.delete(key);
+      }
+    }
+  }
 }
 
-export const roleCache = new TtlCache<{ role: string | null; isSuperAdmin: boolean }>(30000);
 export const workspaceIdCache = new TtlCache<string | null>(30000);
+export const workspaceRoleCache = new TtlCache<string | null>(30000);
+export const superAdminCache = new TtlCache<boolean>(30000);
+export const systemConfigCache = new TtlCache<any>(30000);

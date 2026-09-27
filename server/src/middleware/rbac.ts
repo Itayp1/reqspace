@@ -3,6 +3,7 @@ import { AuthRequest } from './auth';
 export type UserRole = 'viewer' | 'editor' | 'owner';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { isValidId } from '../utils/ids';
+import { workspaceRoleCache } from '../utils/cache';
 
 const ROLE_RANK: Record<UserRole, number> = {
   viewer: 1,
@@ -15,6 +16,11 @@ export async function getUserWorkspaceRole(
   userId: string,
   workspaceId: string
 ): Promise<UserRole | null> {
+  const cacheKey = `${userId}:${workspaceId}`;
+  const cached = workspaceRoleCache.get(cacheKey);
+  if (cached !== undefined) return cached as UserRole | null;
+  
+
   const workspace = await WorkspaceRepository.findById(workspaceId);
   if (!workspace) return null;
 
@@ -23,10 +29,12 @@ export async function getUserWorkspaceRole(
     (m) => String(m.userId) === String(userId)
   );
 
-  if (member) return member.role as UserRole;
-  if (workspace.isPublic) return 'viewer';
+  let role: UserRole | null = null;
+  if (member) role = member.role as UserRole;
+  else if (workspace.isPublic) role = 'viewer';
 
-  return null;
+  workspaceRoleCache.set(cacheKey, role);
+  return role;
 }
 
 /**

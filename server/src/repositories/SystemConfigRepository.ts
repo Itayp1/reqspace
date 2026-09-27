@@ -1,4 +1,5 @@
 import { SqlSystemConfig } from '../db/sql-models';
+import { systemConfigCache } from '../utils/cache';
 
 export interface ISystemConfigRecord {
   _id: string;
@@ -80,6 +81,8 @@ const DEFAULT_CONFIG = {
 
 export const SystemConfigRepository = {
   async getConfig(): Promise<ISystemConfigRecord | null> {
+    const cached = systemConfigCache.get('global');
+    if (cached) return cached;
     const c = await SqlSystemConfig.findOne();
     if (!c) return null;
     const record = sqlToRecord(c);
@@ -95,6 +98,7 @@ export const SystemConfigRepository = {
       }
     }
 
+    systemConfigCache.set('global', record);
     return record;
   },
 
@@ -136,6 +140,7 @@ export const SystemConfigRepository = {
     existing.proxy = JSON.stringify(merged.proxy);
 
     await existing.save();
+    systemConfigCache.delete('global');
     return this.getConfig();
   },
 };

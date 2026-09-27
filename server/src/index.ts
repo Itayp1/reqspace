@@ -85,7 +85,7 @@ function getSocketUserId(socket: import('socket.io').Socket): string | null {
   }
 }
 
-import { roleCache } from './utils/cache';
+import { workspaceRoleCache, superAdminCache } from './utils/cache';
 
 io.on('connection', (socket) => {
   socket.data.userId = getSocketUserId(socket);
@@ -108,12 +108,15 @@ io.on('connection', (socket) => {
     if (socket.rooms.size >= MAX_ROOMS) return; // cap rooms per socket (SOCK-4)
 
     // Use roleCache to avoid DB reads during reconnect storms (PERF-5/SOCK-4)
-    let cached = roleCache.get(`${userId}:${workspaceId}`);
+    let cachedRole = workspaceRoleCache.get(`${userId}:${workspaceId}`);
+    let cachedSuperAdmin = superAdminCache.get(userId);
+    let cached = (cachedRole !== undefined && cachedSuperAdmin !== undefined) ? { role: cachedRole, isSuperAdmin: cachedSuperAdmin } : undefined;
     if (!cached) {
       const role = await getUserWorkspaceRole(userId, workspaceId).catch(() => null);
       const user = await UserRepository.findById(userId).catch(() => null);
       cached = { role, isSuperAdmin: user?.isSuperAdmin ?? false };
-      roleCache.set(`${userId}:${workspaceId}`, cached);
+      workspaceRoleCache.set(`${userId}:${workspaceId}`, cached.role);
+      superAdminCache.set(userId, cached.isSuperAdmin);
     }
     if (!cached.role && !cached.isSuperAdmin) return;
     authorizedWorkspaces.add(workspaceId);
