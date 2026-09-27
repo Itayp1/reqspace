@@ -362,7 +362,14 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
   try {
     const updatedCerts = (user.clientCertificates || []).filter((c: any) => String(c._id) !== req.params.id);
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
-    return res.json(updatedUser!.clientCertificates);
+
+    // Return metadata only — never cert/key/passphrase (see POST /certificates above)
+    const safeCerts = (updatedUser!.clientCertificates || []).map((c: any) => ({
+      _id: c._id,
+      hostname: c.hostname,
+      createdAt: c.createdAt
+    }));
+    return res.json(safeCerts);
   } catch (err: any) {
     return res.status(500).json({ message: err.message });
   }
