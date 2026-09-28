@@ -14,6 +14,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sharedLink, setSharedLink] = useState('');
+  const [shortId, setShortId] = useState('');
   const [copied, setCopied] = useState(false);
 
   const handleShare = async () => {
@@ -21,6 +22,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
       setLoading(true);
       const res = await api.post('/share/collection/' + collectionId, { expiresInDays: parseInt(expiresInDays) });
       setSharedLink(window.location.origin + res.data.url);
+      setShortId(res.data.shortId);
       setLoading(false);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to generate link');
@@ -96,7 +98,21 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
                 {copied ? <Check size={18} className="text-green-500" /> : <Copy size={18} />}
               </button>
             </div>
-            <div className="pt-4 flex justify-end">
+            <div className="pt-4 flex justify-between">
+              <button 
+                data-testid="share-link-revoke-btn"
+                onClick={async () => {
+                  try {
+                    await api.delete('/share/' + shortId);
+                    setSharedLink('');
+                  } catch (e) {
+                    console.error('Failed to revoke:', e);
+                  }
+                }}
+                className="px-4 py-2 hover:bg-background text-red-500 rounded text-sm font-medium"
+              >
+                Revoke Link
+              </button>
               <button onClick={onClose} className="bg-primary text-white px-4 py-2 rounded text-sm font-bold hover:bg-orange-600">
                 Done
               </button>

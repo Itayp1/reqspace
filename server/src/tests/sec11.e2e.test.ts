@@ -1,5 +1,5 @@
 export {};
-const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const port = process.env.TEST_PORT || process.env.PORT || 3005;
 const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('SEC-11: OAuth state / CSRF', () => {

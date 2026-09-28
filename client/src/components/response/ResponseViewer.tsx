@@ -346,7 +346,7 @@ export const ResponseViewer: React.FC = () => {
 
       <div className="flex-1 overflow-auto bg-white dark:bg-gray-900 relative">
         {activeTab === 'body' && (
-          <div className="h-full">
+          <div className="h-full" data-testid="response-body-viewer">
             {isLargeResponse && !forceRenderLarge ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300">
                 <div className="bg-orange-50 dark:bg-orange-900/20 p-6 rounded-lg border border-orange-200 dark:border-orange-800/50 max-w-md text-center">

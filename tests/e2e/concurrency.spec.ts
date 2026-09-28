@@ -13,30 +13,17 @@ test.describe('Concurrency & Tabs', () => {
     await page.getByTestId('register-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
 
-    // Mock a delayed response
-    await page.route('**/proxy', async (route) => {
-      const request = route.request();
-      if (request.method() === 'POST') {
-        const postData = request.postDataJSON();
-        if (postData && postData.url.includes('delayed-endpoint')) {
-          // Delay by 3 seconds
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              status: 200,
-              statusText: 'OK',
-              headers: {},
-              body: { success: true, message: 'Delayed Response' },
-              time: 3000,
-              size: 100
-            }),
-          });
-          return;
-        }
-      }
-      await route.continue();
+    // Mock a delayed response. There is no server-side proxy relay — the
+    // browser transport does a direct fetch(url), so the mock has to match
+    // the actual request target, not a backend endpoint.
+    await page.route('**/delayed-endpoint', async (route) => {
+      // Delay by 3 seconds
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, message: 'Delayed Response' }),
+      });
     });
 
     // Create 10 tabs
@@ -44,9 +31,12 @@ test.describe('Concurrency & Tabs', () => {
       await page.getByTestId('new-tab-btn').click();
     }
 
-    // Select the first tab
-    const tabs = page.locator('[data-testid^="tab-"]');
-    await expect(tabs).toHaveCount(11); // 1 default + 10 new
+    // Select the first tab. The sidebar's "Envs"/"History" panel switches
+    // also use a `tab-*` testid prefix (tab-environments, tab-history) but
+    // carry role="tab" — the request tabs don't, so exclude those to avoid
+    // matching both sets.
+    const tabs = page.locator('[data-testid^="tab-"]:not([role="tab"])');
+    await expect(tabs).toHaveCount(10); // a fresh session starts with 0 tabs, not 1
 
     await tabs.nth(1).click();
     
@@ -64,7 +54,7 @@ test.describe('Concurrency & Tabs', () => {
     await tabs.nth(1).click();
 
     // Verify the response is there
-    const responseViewer = page.getByTestId('monaco-editor-container').last();
+    const responseViewer = page.getByTestId('response-body-viewer');
     await expect(responseViewer).toContainText('Delayed Response');
   });
 });

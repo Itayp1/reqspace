@@ -9,6 +9,7 @@ import { UserRepository } from '../repositories/UserRepository';
 import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { AuditLogRepository } from '../repositories/AuditLogRepository';
+import { workspaceRoleCache } from '../utils/cache';
 
 const router = Router();
 router.use(authenticate);
@@ -89,11 +90,12 @@ router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequ
 
 // ── PUT /api/workspaces/:id ─────────────────────────────────────────────────
 router.put('/:id', validate(schemas.updateWorkspaceSchema), requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
-  const { name, description } = req.body;
+  const { name, description, isPublic } = req.body;
   // Allowlist writable fields — never spread req.body into the update (CR#7).
-  const patch: { name?: string; description?: string } = {};
+  const patch: { name?: string; description?: string; isPublic?: boolean } = {};
   if (name !== undefined) patch.name = name;
   if (description !== undefined) patch.description = description;
+  if (isPublic !== undefined) patch.isPublic = isPublic;
   const workspace = await WorkspaceRepository.update(req.params.id, patch);
   if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
   return res.json(workspace);
@@ -150,6 +152,7 @@ router.post(
       },
     ];
     await WorkspaceRepository.update(req.params.id, { members });
+    workspaceRoleCache.delete(`${String(targetUser._id)}:${req.params.id}`);
 
     return res.status(201).json({ message: 'Member added', member: { userId: targetUser._id, role } });
   }
@@ -184,6 +187,7 @@ router.put(
       String(m.userId) === req.params.userId ? { ...m, role: role as UserRole } : m
     );
     await WorkspaceRepository.update(req.params.id, { members });
+    workspaceRoleCache.delete(`${req.params.userId}:${req.params.id}`);
 
     return res.json({ message: 'Role updated', userId: req.params.userId, role });
   }
@@ -205,6 +209,7 @@ router.delete(
 
     const members = workspace.members.filter((m) => String(m.userId) !== req.params.userId);
     await WorkspaceRepository.update(req.params.id, { members });
+    workspaceRoleCache.delete(`${req.params.userId}:${req.params.id}`);
 
     return res.json({ message: 'Member removed' });
   }

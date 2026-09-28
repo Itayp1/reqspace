@@ -30,8 +30,9 @@ test.describe('WebSocket Advanced Sync', () => {
     await expect(pageA).toHaveURL(/.*\/$/);
 
     // 3. User A creates Workspace
-    pageA.once('dialog', async dialog => await dialog.accept(`WS_${timestamp}`));
     await pageA.getByTestId('new-workspace-btn').click();
+    await pageA.getByTestId('prompt-input').fill(`WS_${timestamp}`);
+    await pageA.getByTestId('prompt-submit').click();
     await expect(pageA.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
 
     // 4. User A invites User B
@@ -49,14 +50,16 @@ test.describe('WebSocket Advanced Sync', () => {
     await pageB.getByTestId('workspace-select').selectOption({ label: `WS_${timestamp}` });
 
     // 6. User A creates a Collection and Folder
-    pageA.once('dialog', async dialog => await dialog.accept('Sync Collection'));
     await pageA.getByTestId('new-collection-empty-btn').click();
+    await pageA.getByTestId('prompt-input').fill('Sync Collection');
+    await pageA.getByTestId('prompt-submit').click();
     await expect(pageA.getByTestId('node-Sync Collection')).toBeVisible();
 
     await pageA.getByTestId('node-Sync Collection').hover();
     await pageA.locator('[data-testid="node-container"]', { has: pageA.getByTestId('node-Sync Collection') }).getByTestId('action-menu-btn').click();
-    pageA.once('dialog', async dialog => await dialog.accept('Sync Folder'));
     await pageA.getByTestId('action-menu-new-folder').click();
+    await pageA.getByTestId('prompt-input').fill('Sync Folder');
+    await pageA.getByTestId('prompt-submit').click();
     
     await expect(pageA.getByTestId('node-Sync Folder')).toBeVisible();
 
@@ -74,15 +77,17 @@ test.describe('WebSocket Advanced Sync', () => {
     await expect(pageB.getByTestId('node-Renamed Folder')).toBeVisible({ timeout: 15000 });
 
     // 10. Global Variables Sync
+    await pageA.getByTestId('tab-environments').click();
     await pageA.getByTestId('env-globals-btn').click();
-    await pageA.getByTestId('env-add-var-btn').click();
+    await pageA.getByTestId('add-env-var-btn').click();
     await pageA.getByTestId('env-var-key-0').fill('GlobalKey');
-    await pageA.getByTestId('env-var-val-0').fill('GlobalVal');
+    await pageA.getByTestId('env-var-current-0').fill('GlobalVal');
     await pageA.getByTestId('env-save-btn').click();
 
+    await pageB.getByTestId('tab-environments').click();
     await pageB.getByTestId('env-globals-btn').click();
     await expect(pageB.getByTestId('env-var-key-0')).toHaveValue('GlobalKey', { timeout: 15000 });
-    await expect(pageB.getByTestId('env-var-val-0')).toHaveValue('GlobalVal', { timeout: 15000 });
+    await expect(pageB.getByTestId('env-var-current-0')).toHaveValue('GlobalVal', { timeout: 15000 });
 
     // Clean up
     await contextA.close();

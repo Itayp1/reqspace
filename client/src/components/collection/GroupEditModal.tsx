@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { useCollectionStore } from '../../store/collectionStore';
+import { useCollectionStore, type Folder } from '../../store/collectionStore';
 import api from '../../api/axios';
 import { ScriptEditor } from '../request/ScriptEditor';
 
@@ -12,8 +13,14 @@ interface GroupEditModalProps {
 }
 
 export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, onClose }) => {
-  const { collections, folders, setCollections, setFolders } = useCollectionStore();
-  const item = type === 'collection' ? collections.find(c => c._id === id) : folders.find(f => f._id === id);
+  // There's no flat top-level `folders` list — folders are keyed by direct
+  // parent (a folder id for nested ones, else the collection id), so finding
+  // one by id alone means searching every bucket.
+  const { collections, foldersByCollection, setCollections, applyFolderUpserted } = useCollectionStore();
+  const allFolders = Object.values(foldersByCollection).filter((v): v is Folder[] => Array.isArray(v)).flat();
+  const item = type === 'collection'
+    ? collections.find(c => c._id === id)
+    : allFolders.find(f => f._id === id);
 
   const [activeTab, setActiveTab] = useState<'variables' | 'prerequest' | 'test'>(type === 'collection' ? 'variables' : 'prerequest');
   const [variables, setVariables] = useState<any[]>(type === 'collection' && item ? (item as any).variables || [] : []);
@@ -46,7 +53,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
         setCollections(collections.map(c => c._id === id ? { ...c, variables: res.data.variables, preRequestScript: res.data.preRequestScript, testScript: res.data.testScript } : c));
       } else {
         const res = await api.put(`/folders/${id}`, payload);
-        setFolders(folders.map(f => f._id === id ? { ...f, preRequestScript: res.data.preRequestScript, testScript: res.data.testScript } : f));
+        applyFolderUpserted(res.data);
       }
       onClose();
     } catch (err) {
@@ -56,7 +63,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200]" onClick={onClose}>
       <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-3xl flex flex-col h-[70vh] overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-800/40">
@@ -156,6 +163,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

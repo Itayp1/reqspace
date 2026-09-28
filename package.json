@@ -9,7 +9,11 @@
     "build:server": "cd server && npm run build",
     "build:extension": "powershell -File scripts/build-extension.ps1",
     "pack": "npm run build:client && npm run build:server && electron-builder --dir",
-    "dist": "npm run build:client && npm run build:server && electron-builder"
+    "dist": "npm run build:client && npm run build:server && electron-builder",
+    "wipe:db": "node scripts/wipe-db.js",
+    "test:server": "node scripts/run-server-e2e.js",
+    "test:e2e": "playwright test",
+    "test:all": "npm run test:server && npm run test:e2e"
   },
   "build": {
     "appId": "com.reqspace.app",

@@ -1,34 +1,46 @@
 import { test, expect } from '@playwright/test';
 
 test.describe.configure({ mode: 'serial' });
-test.describe('Script Execution', () => {
-  test('Pre-request script sets environment variable', async ({ page }) => {
-    const timestamp = Date.now();
-    const testEmail = `scripts_${timestamp}@example.com`;
 
-    // 1. Register
+test.describe('Script Execution', () => {
+  test.beforeEach(async ({ page }) => {
+    // 1. Register and Login (runs for each test)
+    const timestamp = Date.now();
+    const testEmail = `scripts_${timestamp}_${Math.random().toString(36).substring(7)}@example.com`;
+    
     await page.goto('/register');
     await page.getByTestId('register-name').fill('Script User');
     await page.getByTestId('register-email').fill(testEmail);
     await page.getByTestId('register-password').fill('password123');
     await page.getByTestId('register-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
+    
+    // Setup route mock for all tests
+    await page.route('https://httpbin.org/**', route => {
+      if (route.request().url().includes('/status/201')) {
+        return route.fulfill({ status: 201, statusText: 'Created', contentType: 'application/json', body: '{}' });
+      }
+      return route.fulfill({
+        status: 200,
+        statusText: 'OK',
+        contentType: 'application/json',
+        body: JSON.stringify({ url: route.request().url() }),
+      });
+    });
+  });
 
+  test('Pre-request script sets environment variable', async ({ page }) => {
     // 2. Create and select Environment
     await page.getByTestId('tab-environments').click();
     
-    // Handle the prompt for environment name
-    page.once('dialog', async (dialog) => {
-      await dialog.accept('Test Env');
-    });
-    
     await page.getByTestId('new-env-btn').click();
+    await page.getByTestId('prompt-input').fill('Test Env');
+    await page.getByTestId('prompt-submit').click();
     
     // Wait for the environment to be created and appear in sidebar
     await expect(page.getByTestId('env-node-Test Env')).toBeVisible();
     
     // Select the environment in the top bar dropdown
-    // We need to wait for the dropdown to have the option
     await expect(page.getByTestId('env-select')).toContainText('Test Env');
     await page.getByTestId('env-select').selectOption({ label: 'Test Env' });
 
@@ -37,9 +49,12 @@ test.describe('Script Execution', () => {
     await page.getByTestId('request-url-input').fill('https://httpbin.org/get');
 
     // 4. Write Pre-request Script
-    await page.getByTestId('req-tab-pre-request script').click();
+    await page.getByTestId('req-tab-pre-request-script').click();
     await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.type('pm.environment.set("myvar", "123");');
+    
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.environment.set("myvar", "123");');
+    await page.keyboard.press('Control+V');
 
     // 5. Send Request
     await page.getByTestId('request-send-btn').click();
@@ -48,24 +63,14 @@ test.describe('Script Execution', () => {
     await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });
 
     // 6. Verify environment variable
-    // Click on the environment in the sidebar to open its tab
     await page.getByTestId('tab-environments').click();
     await page.getByTestId('env-node-Test Env').click();
     
     // Wait for the tab to open
-    const envTab = page.locator('[data-testid^="tab-"]', { hasText: 'Test Env' });
+    const envTab = page.locator('[data-testid^="tab-"]:not([role="tab"])', { hasText: 'Test Env' });
     await expect(envTab).toBeVisible();
     
-    // The environment variables are probably in inputs. Let's look for "myvar" and "123".
-    // We can just check if the page contains 'myvar' and '123' in the values. They don't have unique test ids yet because they are dynamic rows in EnvironmentTabEditor.
-    // Wait, earlier I added data-testid="env-var-key-i" and "env-var-current-i".
-    // But since we don't know the index, finding by value might be sufficient. Wait, finding by value is `locator('input[value="myvar"]')`. This is technically not a data-testid selector, but wait, the instruction says "Find any selectors that are NOT data-testid (e.g. page.locator('text=...'), page.click('button:has-text("...")'), page.getByPlaceholder(...), page.getByRole(...), page.getByText(...), page.getByTitle(...), etc). Change them to use data-testid selectors".
-    // I can just find the row that has the key 'myvar' using `locator('input[data-testid^="env-var-key-"]')`. But wait, since it's just an assertion, maybe it's fine.
-    // Let's add test IDs for these or just use `locator`? The instruction says 100% of interaction selectors. The assertion `toBeVisible()` is not an interaction. But let's be safe. I can get all `env-var-key-*` and check.
-    // But `locator('input[value="myvar"]')` is standard Playwright. Let's keep it or change it to `data-testid`?
-    // Let's use `getByTestId('env-var-key-0')` since it's the first variable.
     await expect(page.getByTestId('env-var-key-0')).toHaveValue('myvar');
-    // For the current value, it's env-var-current-0. Initial value is env-var-initial-0. `pm.environment.set` sets current value.
     await expect(page.getByTestId('env-var-current-0')).toHaveValue('123');
   });
 
@@ -78,7 +83,10 @@ test.describe('Script Execution', () => {
     // 2. Write Test Script with failing assertion
     await page.getByTestId('req-tab-tests').click();
     await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.type('pm.test("Should fail", function() { pm.expect(1).to.eql(2); }); pm.test("Should pass", function() { pm.expect(1).to.eql(1); });');
+    
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("Should fail", function() { pm.expect(1).to.eql(2); });\npm.test("Should pass", function() { pm.expect(1).to.eql(1); });');
+    await page.keyboard.press('Control+V');
 
     // 3. Send Request
     await page.getByTestId('request-send-btn').click();
@@ -106,17 +114,21 @@ test.describe('Script Execution', () => {
     await page.getByTestId('request-url-input').fill('https://httpbin.org/get');
 
     // Pre-request script to send a request
-    await page.getByTestId('req-tab-pre-request script').click();
+    await page.getByTestId('req-tab-pre-request-script').click();
     await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.type(`pm.sendRequest('https://httpbin.org/status/201', function (err, res) { pm.environment.set("sr_code", res.code); });`);
+    
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), `pm.sendRequest('https://httpbin.org/status/201', function (err, res) { pm.globals.set("sr_code", res.code); });`);
+    await page.keyboard.press('Control+V');
 
-    // We need to wait for sendRequest to finish before the main request is sent. The sandbox handles this via promises.
+    // We need to wait for sendRequest to finish before the main request is sent.
     await page.getByTestId('request-send-btn').click();
     await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });
 
     // Verify environment variable set by sendRequest
     await page.getByTestId('tab-environments').click();
-    // Assuming Globals is there by default if no env is selected, or we can just check the first variable in the current active env (Globals).
+    await page.getByTestId('env-globals-btn').click();
+    
     await expect(page.getByTestId('env-var-key-0')).toHaveValue('sr_code');
     await expect(page.getByTestId('env-var-current-0')).toHaveValue('201');
   });
@@ -127,14 +139,20 @@ test.describe('Script Execution', () => {
     await page.getByTestId('request-url-input').fill('https://httpbin.org/get');
 
     // Pre-request script defining a variable
-    await page.getByTestId('req-tab-pre-request script').click();
+    await page.getByTestId('req-tab-pre-request-script').click();
     await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.type('var my_isolated_var = "hello";');
+    
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), 'var my_isolated_var = "hello";');
+    await page.keyboard.press('Control+V');
 
     // Test script trying to access it
     await page.getByTestId('req-tab-tests').click();
     await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.type('pm.test("Isolated var is undefined", function() { pm.expect(typeof my_isolated_var).to.eql("undefined"); });');
+    
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("Isolated var is undefined", function() { pm.expect(typeof my_isolated_var).to.eql("undefined"); });');
+    await page.keyboard.press('Control+V');
 
     await page.getByTestId('request-send-btn').click();
     await expect(page.getByTestId('response-status')).toContainText('200 OK', { timeout: 10000 });

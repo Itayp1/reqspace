@@ -67,6 +67,10 @@ router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
 
   const dump = { workspace, collections, folders, requests, environments };
   await logAudit(req.user!._id as any, 'admin.export', { ip: req.ip, targetId: workspaceId as any });
+  // The client triggers this via `window.location.href` (not fetch+blob) —
+  // without Content-Disposition: attachment, the browser just navigates to
+  // and renders the JSON instead of downloading it, abandoning the SPA.
+  res.setHeader('Content-Disposition', `attachment; filename="reqspace-export-${workspaceId}.json"`);
   return res.json(dump);
 });
 

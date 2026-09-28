@@ -13,31 +13,20 @@ test.describe('Edge Cases', () => {
     await page.getByTestId('register-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
 
-    // Mock response to verify request body
-    let requestBodyReceived = null;
-    await page.route('**/proxy', async (route) => {
-      const request = route.request();
-      if (request.method() === 'POST') {
-        const postData = request.postDataJSON();
-        requestBodyReceived = postData?.body;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            status: 200,
-            statusText: 'OK',
-            headers: {},
-            body: { success: true },
-            time: 10,
-            size: 100
-          }),
-        });
-        return;
-      }
-      await route.continue();
+    // Mock the actual target — there is no server-side proxy relay, the
+    // browser transport does a direct fetch(url).
+    let requestBodyReceived: string | null = null;
+    await page.route('**/api', async (route) => {
+      requestBodyReceived = route.request().postData();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true }),
+      });
     });
 
     // Create Request
+    await page.getByTestId('create-request-btn').click();
     await page.getByTestId('method-select').selectOption('POST');
     await page.getByTestId('request-url-input').fill('https://example.com/api');
     
@@ -48,23 +37,26 @@ test.describe('Edge Cases', () => {
     // Make sure JSON is selected
     await page.getByTestId('body-raw-language-select').selectOption('json');
 
-    // Type JSON with comments in Monaco
-    await page.getByTestId('monaco-editor-container').click();
-    await page.keyboard.press('Control+A');
-    await page.keyboard.press('Backspace');
+    // Type JSON with comments in Monaco. Pasting (rather than typing
+    // character-by-character) avoids Monaco's auto-closing-bracket and
+    // auto-indent features mangling the text — typing a literal "{" or
+    // Enter triggers those and produces extra braces/indentation.
     const jsonWithComments = `{
       // This is a comment
       "key": "value",
       /* Block comment */
       "number": 42
     }`;
-    await page.keyboard.insertText(jsonWithComments);
+    await page.getByTestId('monaco-editor-container').click();
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), jsonWithComments);
+    await page.keyboard.press('Control+V');
 
     // Send request
     await page.getByTestId('request-send-btn').click();
 
     // Verify response arrives
-    await expect(page.getByTestId('monaco-editor-container').last()).toContainText('success');
+    await expect(page.getByTestId('response-body-viewer')).toContainText('success');
 
     // Verify the stripped request body
     expect(requestBodyReceived).not.toBeNull();

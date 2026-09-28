@@ -30,8 +30,9 @@ test.describe('WebSocket Sync', () => {
     await expect(pageA).toHaveURL(/.*\/$/);
 
     // 3. User A creates Workspace
-    pageA.once('dialog', async dialog => await dialog.accept(`WS_${timestamp}`));
     await pageA.getByTestId('new-workspace-btn').click();
+    await pageA.getByTestId('prompt-input').fill(`WS_${timestamp}`);
+    await pageA.getByTestId('prompt-submit').click();
     
     await expect(pageA.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
 
@@ -54,23 +55,25 @@ test.describe('WebSocket Sync', () => {
     // 6. User A creates and saves a request
     await pageA.getByTestId('create-request-btn').click();
     await pageA.getByTestId('request-url-input').fill('https://httpbin.org/get');
-    await pageA.getByTestId('request-save-btn').click();
-    await pageA.getByTestId('save-req-name-input').fill('Shared Request');
-    
+
     const createColBtn = pageA.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
-      pageA.once('dialog', async dialog => await dialog.accept('Shared Collection'));
       await createColBtn.click();
+      await pageA.getByTestId('prompt-input').fill('Shared Collection');
+      await pageA.getByTestId('prompt-submit').click();
       await expect(pageA.getByTestId('node-Shared Collection')).toBeVisible();
     }
     
+    await pageA.getByTestId('request-save-btn').click();
+    await pageA.getByTestId('save-req-name-input').fill('Shared Request');
     await pageA.getByTestId('save-req-submit-btn').click();
 
     // 7. User B opens the request
-    // It should appear via WebSocket or after we switch workspace.
+    await expect(pageB.getByTestId('node-Shared Collection')).toBeVisible({ timeout: 15000 });
+    await pageB.getByTestId('node-Shared Collection').click();
     await expect(pageB.getByTestId('node-Shared Request')).toBeVisible({ timeout: 15000 });
     await pageB.getByTestId('node-Shared Request').click();
-    await expect(pageB.locator('[data-testid^="tab-"]')).toContainText('Shared Request');
+    await expect(pageB.locator('[data-testid^="tab-"]:not([role="tab"])')).toContainText('Shared Request');
     
     // 8. User A edits the request and saves
     await pageA.getByTestId('request-url-input').fill('https://httpbin.org/post');

@@ -215,7 +215,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // API Routes
-const mutationLimiter = rateLimit({ windowMs: 60_000, max: 300, message: 'Too many requests - please slow down.' });
+const mutationLimiter = rateLimit({ windowMs: 60_000, max: process.env.NODE_ENV === 'test' ? 10000 : 300, message: 'Too many requests - please slow down.' });
 app.use('/api', (req, res, next) =>
   ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? mutationLimiter(req, res, next) : next()
 );
@@ -223,7 +223,7 @@ app.use('/api', (req, res, next) =>
 // attacker hammering read endpoints is still caught. Deliberately generous — even a
 // workspace with hundreds of collections expanding many tree nodes in a burst stays
 // far under this; it exists to catch automated abuse, not to throttle real usage.
-const readLimiter = rateLimit({ windowMs: 60_000, max: 2000, message: 'Too many requests - please slow down.' });
+const readLimiter = rateLimit({ windowMs: 60_000, max: process.env.NODE_ENV === 'test' ? 10000 : 2000, message: 'Too many requests - please slow down.' });
 app.use('/api', (req, res, next) => (req.method === 'GET' ? readLimiter(req, res, next) : next()));
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);
@@ -322,7 +322,7 @@ async function bootstrap() {
         passwordHash,
         authType: 'password',
         isSuperAdmin: true,
-        mustChangePassword: adminPassword === 'admin' // Force change if using default fallback
+        mustChangePassword: adminPassword === 'admin' && process.env.NODE_ENV !== 'test' // Force change if using default fallback
       });
       await WorkspaceRepository.create({
         name: `Admin's Workspace`,

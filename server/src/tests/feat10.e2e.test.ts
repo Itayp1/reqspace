@@ -1,5 +1,5 @@
 export {};
-const port = process.env.TEST_PORT || process.env.PORT || 3006;
+const port = process.env.TEST_PORT || process.env.PORT || 3005;
 const BASE_URL = `http://127.0.0.1:${port}`;
 
 describe('FEAT-10: Server-side collection export/import', () => {
@@ -26,9 +26,15 @@ describe('FEAT-10: Server-side collection export/import', () => {
     });
     cookie = loginRes.headers.get('set-cookie')?.split(';')[0] || '';
     
-    const wsRes = await fetch(`${BASE_URL}/api/workspaces`, { headers: { cookie } });
-    const wss = await wsRes.json() as any;
-    workspaceId = wss[0].id || wss[0]._id;
+    // Own workspace, not a shared one — other e2e files run against the same
+    // admin/DB and a shared "first workspace" collides across test files.
+    const createWs = await fetch(`${BASE_URL}/api/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ name: `FEAT-10 Test Workspace ${Date.now()}` })
+    });
+    const ws = await createWs.json() as any;
+    workspaceId = ws.id || ws._id;
 
     // Create a collection
     const colRes = await fetch(`${BASE_URL}/api/workspaces/${workspaceId}/collections`, {

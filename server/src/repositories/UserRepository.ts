@@ -1,5 +1,7 @@
 import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
 import { SqlUser } from '../db/sql-models';
+import { getSequelize } from '../db/sequelize';
+import { QueryTypes } from 'sequelize';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
@@ -118,20 +120,20 @@ export const UserRepository = {
   },
 
   async search(query: string): Promise<Pick<IUserRecord, '_id' | 'name' | 'email' | 'avatar'>[]> {
-    const { Op } = require('sequelize');
     // Escaped here as well as at the route, so a second caller cannot skip it.
     const term = escapeLike(String(query).slice(0, MAX_SEARCH_LENGTH));
     if (!term) return [];
-    const users = await SqlUser.findAll({
-      where: {
-        [Op.or]: [
-          { name: { [Op.like]: `${term}%` } },
-          { email: { [Op.like]: `${term}%` } }
-        ]
-      },
-      limit: 10,
-      attributes: ['id', 'name', 'email', 'avatar']
-    });
+    const pattern = `${term}%`;
+    // Sequelize's `{ [Op.like]: pattern }` doesn't add an ESCAPE clause, and
+    // sqlite (unlike postgres/mysql) has no implicit default escape
+    // character for LIKE — without it, escapeLike's backslashes are just
+    // literal characters and every escaped `_`/`%` stops matching at all
+    // (e.g. searching a real email containing '_' returned zero results).
+    // A raw, parameterized query lets us say ESCAPE explicitly for all three.
+    const users = await getSequelize().query(
+      `SELECT id, name, email, avatar FROM users WHERE name LIKE :pattern ESCAPE '\\' OR email LIKE :pattern ESCAPE '\\' LIMIT 10`,
+      { replacements: { pattern }, type: QueryTypes.SELECT }
+    ) as Array<{ id: string; name: string; email: string; avatar: string | null }>;
     return users.map(u => ({
       _id: u.id,
       name: u.name,

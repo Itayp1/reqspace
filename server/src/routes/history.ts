@@ -13,7 +13,7 @@ const router = Router();
 router.use(authenticate);
 
 // ── POST /api/workspaces/:workspaceId/history ───────────────────────────────
-router.post('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
+router.post('/workspaces/:workspaceId/history', validate(schemas.createHistoryEntrySchema), requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   const { workspaceId } = req.params;
   const userId = req.user!._id || req.user!.id;
   const {

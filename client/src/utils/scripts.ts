@@ -9,6 +9,8 @@ interface ScriptResult {
   nextRequest?: string;
   testResults: Array<{ name: string; passed: boolean; error?: string }>;
   visualizerData?: { template: string; data?: any };
+  headerWrites?: Record<string, string>;
+  removedHeaders?: string[];
 }
 
 function serializeVariables(collectionId?: string, iterationData?: Record<string, any>, localVariables?: Map<string, string>) {
@@ -45,6 +47,9 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
       if (msg.type === 'result') {
         worker.terminate();
         
+        const headerWrites: Record<string, string> = {};
+        const removedHeaders: string[] = [];
+
         msg.variableWrites?.forEach((w: any) => {
            if (w.scope === 'environment' && w.action === 'set') {
              const { environments, activeEnvironmentId, setEnvironments } = useEnvironmentStore.getState();
@@ -73,6 +78,14 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
              }
            } else if (w.scope === 'reqSpace' && w.action === 'setNextRequest') {
              // This is captured and returned at the end, nothing to mutate in store.
+           } else if (w.scope === 'header') {
+             if (w.action === 'set') {
+               headerWrites[w.key] = String(w.value);
+             } else if (w.action === 'remove') {
+               removedHeaders.push(w.key);
+             }
+           } else if (w.scope === 'local' && w.action === 'set') {
+             options.localVariables?.set(w.key, String(w.value));
            }
         });
         
@@ -83,10 +96,13 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
         resolve({
            nextRequest: msg.variableWrites?.find((w: any) => w.scope === 'reqSpace' && w.key === 'nextRequest')?.value,
            testResults: msg.testResults || [],
-           visualizerData: msg.visualizer
+           visualizerData: msg.visualizer,
+           headerWrites,
+           removedHeaders
         });
       } else if (msg.type === 'error') {
         worker.terminate();
+        useConsoleStore.getState().addLog({ type: 'error', message: msg.error });
         resolve({ testResults: [{ name: 'Script Execution', passed: false, error: msg.error }] });
       } else if (msg.type === 'sendRequest') {
         const { id, request } = msg;
@@ -99,7 +115,7 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
         const method = request.method || 'GET';
         sendRequest({ method, url, headers: request.header || {} })
           .then((res: any) => {
-            worker.postMessage({ type: 'sendRequestResult', id, response: res });
+            worker.postMessage({ type: 'sendRequestResult', id, response: { ...res, code: res.status } });
           })
           .catch((err: any) => {
              worker.postMessage({ type: 'sendRequestResult', id, error: err.message });

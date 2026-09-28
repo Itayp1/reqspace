@@ -18,8 +18,9 @@ test.describe('Workspace Management', () => {
     const newWorkspaceName = `Test Workspace ${timestamp}`;
     const editedWorkspaceName = `${newWorkspaceName} Edited`;
 
-    page.on('dialog', dialog => dialog.accept(newWorkspaceName));
     await page.click('[data-testid="new-workspace-btn"]');
+    await page.getByTestId('prompt-input').fill(newWorkspaceName);
+    await page.getByTestId('prompt-submit').click();
     
     await expect(page.locator('[data-testid="workspace-select"]')).toContainText(newWorkspaceName);
 
@@ -30,26 +31,21 @@ test.describe('Workspace Management', () => {
     // 4. Edit the workspace
     await page.click('[data-testid="workspace-settings-btn"]');
     await page.fill('[data-testid="workspace-name-input"]', editedWorkspaceName);
+    const saved = page.waitForResponse(
+      (r) => r.request().method() === 'PUT' && /\/workspaces\/[^/]+$/.test(r.url()) && r.ok(),
+    );
     await page.click('[data-testid="workspace-save-btn"]');
+    await saved;
     await page.click('[data-testid="close-workspace-modal"]');
     
     await expect(page.locator('[data-testid="workspace-select"]')).toContainText(editedWorkspaceName);
 
-    // 5. Delete it (Fallback to API if no UI button exists for deleting a workspace)
-    try {
-        await page.evaluate(async (id) => {
-            const token = localStorage.getItem('token');
-            const baseUrl = window.location.origin;
-            await fetch(`${baseUrl}/api/workspaces/${id}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-        }, workspaceId);
-    } catch (e) {
-        console.log('Failed to delete workspace via API', e);
-    }
+    // 5. Delete it via UI
+    await page.click('[data-testid="workspace-settings-btn"]');
+    await page.click('[data-testid="delete-workspace-btn"]');
+    await page.getByTestId('confirm-btn').click();
+    // Wait for the modal to close and the workspace to be deleted
+    await expect(page.locator('[data-testid="workspace-select"]')).not.toContainText(editedWorkspaceName);
   });
 
   test('removing a member immediately revokes their access', async ({ browser }) => {
@@ -67,8 +63,9 @@ test.describe('Workspace Management', () => {
     
     // Owner creates workspace
     const wsName = `Shared Workspace ${Date.now()}`;
-    ownerPage.on('dialog', dialog => dialog.accept(wsName));
     await ownerPage.click('[data-testid="new-workspace-btn"]');
+    await ownerPage.getByTestId('prompt-input').fill(wsName);
+    await ownerPage.getByTestId('prompt-submit').click();
     await expect(ownerPage.locator('[data-testid="workspace-select"]')).toContainText(wsName);
     
     const workspaceId = await ownerPage.locator('[data-testid="workspace-select"]').inputValue();
@@ -103,19 +100,32 @@ test.describe('Workspace Management', () => {
     // Verify member has access
     await expect(memberPage.locator('[data-testid="workspace-select"]')).toHaveValue(workspaceId);
     
+    // Verify member has access via API first
+    const resBefore = await memberPage.evaluate(async (id) => {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/workspaces/${id}`, { headers: {} });
+        return { status: response.status, ok: response.ok };
+    }, workspaceId);
+    expect(resBefore.ok).toBe(true);
+    expect(resBefore.status).toBe(200);
+
     // Owner removes member
     const memberRow = ownerPage.locator('[data-testid="member-row"]').filter({ hasText: memberEmail });
     await expect(memberRow).toBeVisible();
     await memberRow.locator('[data-testid="member-remove-btn"]').click();
-    
+    const removed = ownerPage.waitForResponse(
+      (r) => r.url().includes('/members/') && r.request().method() === 'DELETE' && r.ok(),
+    );
+    await ownerPage.getByTestId('confirm-btn').click();
+    await removed;
+    await expect(memberRow).toHaveCount(0);
+
     // Member should lose access: verify via API call
     const res = await memberPage.evaluate(async (id) => {
         const token = localStorage.getItem('token');
         const baseUrl = window.location.origin;
         const response = await fetch(`${baseUrl}/api/workspaces/${id}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers: {}
         });
         return { status: response.status, ok: response.ok };
     }, workspaceId);

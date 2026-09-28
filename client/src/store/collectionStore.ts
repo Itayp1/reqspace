@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import api from '../api/axios';
 
+// The server broadcasts create/duplicate events to every socket in the
+// workspace, including the one that made the REST call — so the client that
+// just created an item can also receive its own creation as a socket echo
+// a moment later. Append-only reducers must dedupe by id or a lucky race
+// renders the same item twice.
+function appendUnique<T extends { _id: string }>(arr: T[] | undefined, item: T): T[] {
+  const base = Array.isArray(arr) ? arr : [];
+  return base.some(x => x._id === item._id) ? base : [...base, item];
+}
+
 export interface CollectionItem {
   _id: string;
   name: string;
@@ -83,6 +93,13 @@ interface CollectionStore {
   applyWorkspaceReordered: (payload: { collections?: Collection[], folders?: Folder[], requests?: ApiRequest[] }) => void;
 }
 
+// Several loads can be in flight at once: login selects a default workspace,
+// then the test (or the user) switches to another before the first response
+// arrives. A late response must not replace the collection list of the
+// workspace that is current now.
+let workspaceLoadSeq = 0;
+let loadedWorkspaceId: string | null = null;
+
 export const useCollectionStore = create<CollectionStore>((set, get) => ({
   collections: [],
   foldersByCollection: {},
@@ -148,6 +165,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     return { requestsByFolder: nextR };
   }),
   applyWorkspaceReordered: (payload) => set((state) => {
+    if (!payload) return {};
     let newState = { ...state, foldersByCollection: { ...state.foldersByCollection }, requestsByFolder: { ...state.requestsByFolder } };
     if (payload.collections) {
       const updates = new Map(payload.collections.map(c => [c._id, c]));
@@ -188,16 +206,33 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   }),
 
   loadWorkspace: async (workspaceId: string) => {
+    const seq = ++workspaceLoadSeq;
     try {
       const { db } = await import('../db');
-      
+
       const localCols = await db.collections.where('workspaceId').equals(workspaceId).toArray();
-      set({ collections: localCols });
+      if (seq !== workspaceLoadSeq) return;
+      const switching = loadedWorkspaceId !== workspaceId;
+      loadedWorkspaceId = workspaceId;
+      // A reload of the same workspace (socket reconnect) must keep folders
+      // and requests that are already open. A switch must not keep the
+      // previous workspace's tree.
+      set(switching
+        ? {
+            collections: localCols,
+            foldersByCollection: {},
+            requestsByFolder: {},
+            openCollectionIds: new Set(),
+          }
+        : { collections: localCols });
 
       const res = await api.get(`/workspaces/${workspaceId}/collections`);
-      set({ collections: res.data });
-      await db.collections.bulkPut(res.data.map((c: any) => ({ ...c, workspaceId })));
+      if (seq !== workspaceLoadSeq) return;
+      const collections = Array.isArray(res.data) ? res.data : [];
+      set({ collections });
+      await db.collections.bulkPut(collections.map((c: any) => ({ ...c, workspaceId })));
     } catch (e) {
+      if (seq !== workspaceLoadSeq) return;
       console.error(e);
     }
   },
@@ -306,7 +341,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     const res = await api.post(`/workspaces/${workspaceId}/collections`, { name });
     const { db } = await import('../db');
     await db.collections.put({ ...res.data, workspaceId });
-    set((state) => ({ collections: [...state.collections, res.data], foldersByCollection: { ...state.foldersByCollection, [res.data._id]: [] }, requestsByFolder: { ...state.requestsByFolder, [res.data._id]: [] } }));
+    set((state) => ({ collections: appendUnique(state.collections, res.data), foldersByCollection: { ...state.foldersByCollection, [res.data._id]: [] }, requestsByFolder: { ...state.requestsByFolder, [res.data._id]: [] } }));
     return res.data;
   },
 
@@ -355,7 +390,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       const res = await api.post(`/collections/${newCol._id}/requests`, {
         name: req.name, method: req.method, url: req.url || '',
       });
-      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newCol._id]: [...(state.requestsByFolder[newCol._id] as ApiRequest[] || []), res.data] } }));
+      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newCol._id]: appendUnique(state.requestsByFolder[newCol._id] as ApiRequest[], res.data) } }));
     }
 
     // Duplicate top-level folders (simplified — one level)
@@ -363,18 +398,18 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     for (const folder of topFolders) {
       const fRes = await api.post(`/collections/${newCol._id}/folders`, { name: folder.name });
       const newFolder: Folder = fRes.data;
-      set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [newCol._id]: [...(state.foldersByCollection[newCol._id] as Folder[] || []), newFolder] } }));
+      set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [newCol._id]: appendUnique(state.foldersByCollection[newCol._id] as Folder[], newFolder) } }));
 
       const folderRequests = Array.isArray(requestsByFolder[folder._id]) ? requestsByFolder[folder._id] as ApiRequest[] : [];
       for (const req of folderRequests) {
         const rRes = await api.post(`/collections/${newCol._id}/requests`, {
           name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
         });
-        set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: [...(state.requestsByFolder[newFolder._id] as ApiRequest[] || []), rRes.data] } }));
+        set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: appendUnique(state.requestsByFolder[newFolder._id] as ApiRequest[], rRes.data) } }));
       }
     }
 
-    set((state) => ({ collections: [...state.collections, newCol] }));
+    set((state) => ({ collections: appendUnique(state.collections, newCol) }));
   },
 
   // ── Folder ──────────────────────────────────────────────────────────────────
@@ -385,8 +420,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     await db.folders.put(res.data);
     set((state) => {
       const parentId = res.data.parentFolderId || res.data.collectionId;
-      const arr = state.foldersByCollection[parentId];
-      return { foldersByCollection: { ...state.foldersByCollection, [parentId]: Array.isArray(arr) ? [...arr, res.data] : [res.data] } };
+      return { foldersByCollection: { ...state.foldersByCollection, [parentId]: appendUnique(state.foldersByCollection[parentId] as Folder[], res.data) } };
     });
     get().openCollection(collectionId);
   },
@@ -432,14 +466,14 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       name: `Copy of ${source.name}`, parentFolderId
     });
     const newFolder: Folder = fRes.data;
-    set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [newCol._id]: [...(state.foldersByCollection[newCol._id] as Folder[] || []), newFolder] } }));
+    set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [collectionId]: appendUnique(state.foldersByCollection[collectionId] as Folder[], newFolder) } }));
 
     const folderRequests = Array.isArray(requestsByFolder[id]) ? requestsByFolder[id] as ApiRequest[] : [];
     for (const req of folderRequests) {
       const rRes = await api.post(`/collections/${collectionId}/requests`, {
         name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
       });
-      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: [...(state.requestsByFolder[newFolder._id] as ApiRequest[] || []), rRes.data] } }));
+      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: appendUnique(state.requestsByFolder[newFolder._id] as ApiRequest[], rRes.data) } }));
     }
   },
 
@@ -453,8 +487,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     await db.requests.put(res.data);
     set((state) => {
       const parentId = res.data.folderId || res.data.collectionId;
-      const arr = state.requestsByFolder[parentId];
-      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: Array.isArray(arr) ? [...arr, res.data] : [res.data] } };
+      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: appendUnique(state.requestsByFolder[parentId] as ApiRequest[], res.data) } };
     });
     get().openCollection(collectionId);
     return res.data;
@@ -499,8 +532,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     });
     set((state) => {
       const parentId = res.data.folderId || res.data.collectionId;
-      const arr = state.requestsByFolder[parentId];
-      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: Array.isArray(arr) ? [...arr, res.data] : [res.data] } };
+      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: appendUnique(state.requestsByFolder[parentId] as ApiRequest[], res.data) } };
     });
   },
 

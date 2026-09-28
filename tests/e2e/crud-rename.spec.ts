@@ -20,40 +20,41 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await page.getByTestId('login-password').fill(pass);
     await page.getByTestId('login-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
-    
-    // Initial workspace creation prompt on first login
-    page.on('dialog', async (dialog) => {
-      // Sometimes it prompts for the first workspace
-      if (dialog.message().includes('Workspace Name')) {
-        await dialog.accept('Initial WS');
-      }
-    });
 
-    // 2. Create Workspace and Rename it
+    // 2. Create Workspace and Rename it (custom in-app modal, not a native dialog)
     const wsName = `WS_${timestamp}`;
     const renamedWs = `${wsName}_Renamed`;
-    
+
     await page.getByTestId('new-workspace-btn').click();
-    await page.getByTestId('workspace-name-input').fill(wsName);
-    await page.getByTestId('workspace-submit-btn').click();
+    await page.getByTestId('prompt-input').fill(wsName);
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('workspace-select')).toContainText(wsName);
     
     // Select it
     await page.getByTestId('workspace-select').selectOption({ label: wsName });
 
-    // Rename Workspace
+    // Rename Workspace. Opening the modal kicks off its own GET to refresh
+    // name/description/isPublic, which lands in state (setName(...)) right
+    // before the loading spinner clears — filling the input before that
+    // finishes gets silently overwritten back to the original name.
     await page.getByTestId('workspace-settings-btn').click();
+    await expect(page.getByText('Loading details...')).not.toBeVisible();
     await page.getByTestId('workspace-name-input').fill(renamedWs);
+    const wsUpdateResponse = page.waitForResponse(resp =>
+      /\/api\/workspaces\/[^/]+$/.test(resp.url()) && resp.request().method() === 'PUT'
+    );
     await page.getByTestId('workspace-save-btn').click();
+    await wsUpdateResponse;
     await page.getByTestId('close-workspace-modal').click();
     await expect(page.getByTestId('workspace-select')).toContainText(renamedWs);
 
     // 3. Create Environment, Variable, and Rename Variable
     await page.getByTestId('tab-environments').click();
-    
-    // The prompt is handled by Playwright dialog handler, but we need to reset it for the Env prompt
-    page.once('dialog', dialog => dialog.accept('Test Env'));
+
+    // Custom in-app modal, not a native dialog
     await page.getByTestId('new-env-btn').click();
+    await page.getByTestId('prompt-input').fill('Test Env');
+    await page.getByTestId('prompt-submit').click();
     await expect(page.getByTestId('env-node-Test Env')).toBeVisible();
 
     // Add Variable
@@ -68,15 +69,16 @@ test.describe('Full CRUD / Rename Matrix', () => {
     // 4. Create Collection, Request, and Parameter, then Rename them
     await page.getByTestId('tab-collections').click();
 
-    // Create Collection
-    page.once('dialog', dialog => dialog.accept('Test Collection'));
+    // Create Collection (custom in-app modal, not a native dialog)
     const createColBtn = page.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
       await createColBtn.click();
     } else {
       await page.getByTestId('new-collection-btn').click();
     }
-    
+    await page.getByTestId('prompt-input').fill('Test Collection');
+    await page.getByTestId('prompt-submit').click();
+
     const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection') });
     await expect(colNode).toBeVisible();
 
@@ -90,15 +92,14 @@ test.describe('Full CRUD / Rename Matrix', () => {
     const renamedColNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Renamed Collection') });
     await expect(renamedColNode).toBeVisible();
 
-    // Create Request inside Collection
+    // Create Request inside Collection (custom in-app modal, not a native dialog)
     await renamedColNode.hover();
     await renamedColNode.getByTestId('action-menu-btn').click();
     await page.getByTestId('action-menu-new-request').click();
-    
-    page.once('dialog', dialog => dialog.accept('Initial Request'));
-    const reqNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-New Request') });
-    // Note: The UI creates it as 'New Request' and double clicking renames it, or we use action menu.
-    // Wait for the new request to appear
+    await page.getByTestId('prompt-input').fill('Initial Request');
+    await page.getByTestId('prompt-submit').click();
+
+    const reqNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Initial Request') });
     await expect(reqNode).toBeVisible();
 
     // Rename Request

@@ -10,11 +10,11 @@ const router = Router();
 
 function checkEnvPermission(minRole: 'viewer' | 'editor') {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (req.user?.isSuperAdmin) return next();
     try {
       const item = await EnvironmentRepository.findById(req.params.id);
       if (!item) return res.status(404).json({ message: 'Environment not found' });
       req.params.workspaceId = String(item.workspaceId);
+      if (req.user?.isSuperAdmin) return next();
       return requireWorkspaceRole(minRole)(req, res, next);
     } catch(e) { next(e); }
   };
@@ -27,6 +27,27 @@ router.get('/workspaces/:workspaceId/environments',
   async (req: AuthRequest, res: Response) => {
     const envs = await EnvironmentRepository.findByWorkspace(req.params.workspaceId);
     return res.json(envs);
+  }
+);
+
+// The global ("Globals (Common)") environment lives in its own table, one
+// row per workspace — lazily created on first read so the client always has
+// something to show/edit rather than needing a separate "create" step.
+router.get('/workspaces/:workspaceId/global-environment',
+  requireWorkspaceRole('viewer'),
+  async (req: AuthRequest, res: Response) => {
+    const existing = await EnvironmentRepository.findGlobal(req.params.workspaceId);
+    const global = existing || await EnvironmentRepository.upsertGlobal(req.params.workspaceId, []);
+    return res.json(global);
+  }
+);
+
+router.put('/workspaces/:workspaceId/global-environment', validate(schemas.updateGlobalEnvironmentSchema),
+  requireWorkspaceRole('editor'),
+  async (req: AuthRequest, res: Response) => {
+    const global = await EnvironmentRepository.upsertGlobal(req.params.workspaceId, req.body.variables);
+    emitToWorkspace(req.params.workspaceId, 'environment:updated', { ...global, isGlobal: true });
+    return res.json(global);
   }
 );
 

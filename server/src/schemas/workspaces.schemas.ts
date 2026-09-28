@@ -8,7 +8,8 @@ export const createWorkspaceSchema = z.object({
 
 export const updateWorkspaceSchema = z.object({
   name: z.string().min(1).optional(),
-  description: z.string().optional()
+  description: z.string().optional(),
+  isPublic: z.boolean().optional()
 }).strict();
 
 export const addWorkspaceMemberSchema = z.object({

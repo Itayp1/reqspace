@@ -1,11 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
+import os from 'os';
+import path from 'path';
 
 /**
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
  */
 // import dotenv from 'dotenv';
-// import path from 'path';
 // dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 /**
@@ -14,17 +15,26 @@ import { defineConfig, devices } from '@playwright/test';
 // Global target for performance (in milliseconds)
 process.env.PERF_TIMEOUT = '100';
 
+// A fresh, uniquely-named file per run — NOT ':memory:'. Sequelize's default
+// connection pool (max 5) opens multiple connections, and each ':memory:'
+// connection gets its own private, empty database; a real browser session's
+// concurrent requests can land on a second connection that never saw the
+// seeded admin, causing intermittent login failures. A real file is shared
+// correctly across pooled connections and still starts empty every run.
+const sqliteTestDbPath = path.join(os.tmpdir(), `reqspace-e2e-${Date.now()}.sqlite`);
+
 export default defineConfig({
   testDir: './tests/e2e',
-  /* Resets the seeded superadmin and walks it through the forced first-login
-     password change exactly once, before any test file runs. See
-     tests/global-setup.ts for why this can't be done per-file. */
-  globalSetup: require.resolve('./tests/e2e/global-setup'),
+  /* DB wiping for non-sqlite backends happens in scripts/wipe-db.js, run as a
+     separate step BEFORE `playwright test` (see package.json's test:e2e) —
+     not as Playwright globalSetup. Playwright starts webServer before running
+     globalSetup, so a wipe done there would truncate the admin user the
+     server's bootstrap just seeded. */
   /* Run tests in files in parallel */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* One retry locally too: with 36 tests hitting a single dev server + a
+  /* One retry locally too: with 62 tests hitting a single dev server + a
      remote DB, an occasional timeout under load is infra noise, not a bug. */
   retries: process.env.CI ? 2 : 1,
   /* Opt out of parallel tests on CI. Cap local workers — this app runs many
@@ -51,14 +61,17 @@ export default defineConfig({
     {
       name: 'sqlite',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /.*extension\.spec\.ts/,
     },
     {
       name: 'postgres',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /.*extension\.spec\.ts/,
     },
     {
       name: 'mysql',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /.*extension\.spec\.ts/,
     },
     {
       name: 'extension',
@@ -67,23 +80,32 @@ export default defineConfig({
     },
   ].filter(p => process.env.CI || p.name === 'sqlite' || p.name === process.env.DB_TYPE),
 
-  /* Run your local dev server before starting the tests */
+  /* Run your local dev server before starting the tests.
+     reuseExistingServer is false locally so a stale server left over from an
+     earlier session (wrong DB, wrong env) never gets silently reused — that
+     was the source of tests hitting an unexpected server/DB. In CI it must be
+     true: the workflow pre-starts and health-checks its own server on this
+     exact port before Playwright runs, so Playwright has to reuse it instead
+     of racing to bind a second process to the same port. */
   webServer: [
     {
       command: 'npm run dev --prefix server',
-      url: 'http://localhost:3006',
-      reuseExistingServer: true,
+      url: 'http://localhost:3005',
+      reuseExistingServer: !!process.env.CI,
       env: {
+        NODE_ENV: 'test',
         DB_TYPE: process.env.DB_TYPE || 'sqlite',
-        PORT: '3006',
+        DB_STORAGE_PATH: sqliteTestDbPath,
+        PORT: '3005',
         ALLOW_DEFAULT_ADMIN: 'true',
+        ADMIN_PASSWORD: 'admin',
         CERT_ENCRYPTION_KEY: process.env.CERT_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
       }
     },
     {
       command: 'npm run dev --prefix client',
       url: 'http://localhost:5173',
-      reuseExistingServer: true,
+      reuseExistingServer: !!process.env.CI,
     }
   ],
 });

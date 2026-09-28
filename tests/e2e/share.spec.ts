@@ -2,53 +2,57 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Share Links', () => {
   test('should generate a link, strip sensitive data for anonymous view, and handle revocation', async ({ page, context, request }) => {
-    // Register unique user
     const ts = Date.now();
     await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Test User');
-    await page.fill('[data-testid="register-email"]', 'share' + ts + '@example.com');
-    await page.fill('[data-testid="register-password"]', 'password123');
-    await page.click('[data-testid="register-submit"]');
+    await page.getByTestId('register-name').fill('Test User');
+    await page.getByTestId('register-email').fill('share' + ts + '@example.com');
+    await page.getByTestId('register-password').fill('password123');
+    await page.getByTestId('register-submit').click();
 
-    await page.waitForSelector('[data-testid="workspace-select"]');
+    await expect(page.getByTestId('workspace-select')).toBeVisible();
 
     // Create a new collection
-    const newBtn = page.getByTestId('new-collection-empty-btn');
-    if (await newBtn.isVisible().catch(() => false)) {
-      await newBtn.click();
-    } else {
-      await page.getByTestId('new-collection-btn').click();
-    }
+    await page.getByTestId('new-collection-empty-btn').click();
     await page.getByTestId('prompt-input').fill('Test Collection Share ' + ts);
     await page.getByTestId('prompt-submit').click();
-
+    
     // Create a request with sensitive data
-    await page.getByTestId('action-menu-btn').first().click();
-    await page.getByTestId('action-menu-add-request').click();
-    await page.getByTestId('request-name-input').fill('Share Request');
+    const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection Share ' + ts) });
+    await expect(colNode).toBeVisible();
+    await colNode.hover();
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Share Request');
+    await page.getByTestId('prompt-submit').click();
+
+    // Creating the request expands the collection. Do not click the collection
+    // row — that toggles it shut before the new request is in the tree.
+    await expect(page.getByTestId('prompt-input')).toBeHidden();
+    const requestNode = page.getByTestId('node-Share Request');
+    await expect(requestNode).toBeVisible();
+    await requestNode.click();
+
     await page.getByTestId('request-url-input').fill('https://example.com');
-    await page.getByTestId('save-request-btn').click();
 
     // Add Auth (Bearer token)
-    await page.getByTestId('auth-tab-btn').click();
-    await page.locator('select.w-full.p-2.border').selectOption('bearer');
-    await page.getByTestId('bearer-token-input').fill('super-secret-token-123');
+    await page.getByTestId('req-tab-authorization').click();
+    await page.getByTestId('auth-type-select').selectOption('bearer');
+    await page.getByTestId('auth-bearer-token').fill('super-secret-token-123');
     
     // Add Test Script
-    await page.getByTestId('tests-tab-btn').click();
-    const monacoEditor = page.locator('.monaco-editor').nth(1); // Test script is usually second editor
-    if (await monacoEditor.isVisible()) {
-      await monacoEditor.click();
-      await page.keyboard.type('pm.test("leak", function() { pm.expect(1).to.eql(1); });');
-    }
-    await page.getByTestId('save-request-btn').click();
+    await page.getByTestId('req-tab-tests').click();
+    await page.getByTestId('monaco-editor-container').click();
+    await page.keyboard.press('Control+A');
+    await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("leak", function() { pm.expect(1).to.eql(1); });');
+    await page.keyboard.press('Control+V');
+    
+    await expect(page.locator('.view-lines')).toContainText('leak');
 
-    // Open context menu for first collection
-    const actionMenuBtn = page.getByTestId('action-menu-btn').first();
-    await actionMenuBtn.waitFor({ state: 'visible' });
-    await actionMenuBtn.click();
+    await page.getByTestId('request-save-btn').click();
 
-    // Click "Share via Link"
+    // Open context menu for the collection
+    await colNode.hover();
+    await colNode.getByTestId('action-menu-btn').click();
     await page.getByTestId('action-menu-share-via-link').click();
 
     // Verify modal is open
@@ -65,8 +69,6 @@ test.describe('Share Links', () => {
     const linkVal = await resultInput.inputValue();
     expect(linkVal.length).toBeGreaterThan(0);
     
-    // Fetch it anonymously via request
-    // The link is usually http://localhost:5173/share/:shortId
     const urlObj = new URL(linkVal);
     const shortId = urlObj.pathname.split('/').pop();
     

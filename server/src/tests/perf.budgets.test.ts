@@ -52,12 +52,17 @@ describe('TEST-6 Perf Budgets', () => {
         id: wsId,
         name: `Workspace ${i}`,
         description: `Description ${i}`,
-        createdBy: ownerId,
+        ownerId: ownerId,
         createdAt: new Date(),
         updatedAt: new Date()
       });
     }
-    await SqlWorkspace.bulkCreate(workspaces);
+    try {
+      await SqlWorkspace.bulkCreate(workspaces);
+    } catch (err: any) {
+      console.error('BULK CREATE ERROR:', err.name, err.message, err.parent);
+      throw err;
+    }
     
     workspaceId = workspaces[0].id;
     token = sign({ sub: users[0].id }, resolveJwtSecret(), { expiresIn: '1h' });

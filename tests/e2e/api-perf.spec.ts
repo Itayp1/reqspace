@@ -26,9 +26,7 @@ test.describe('Performance Tests', () => {
 
     // 2. Measure a fast data fetch (e.g. Workspaces)
     const wsStart = Date.now();
-    const wsRes = await request.get('/api/workspaces', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const wsRes = await request.get('/api/workspaces');
     const wsTime = Date.now() - wsStart;
     console.log(`Fetch Workspaces took ${wsTime}ms`);
     

@@ -50,7 +50,8 @@ export const requestItemSchema = z.object({
   enabled: z.boolean().optional(),
   type: z.string().optional(),
   content: z.string().optional(),
-  filename: z.string().optional()
+  filename: z.string().optional(),
+  description: z.string().optional()
 }).strict();
 
 export const requestBodySchema = z.object({

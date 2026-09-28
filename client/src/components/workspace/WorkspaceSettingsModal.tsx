@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, UserPlus, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../api/axios';
 import { UserAutocomplete } from '../common/UserAutocomplete';
+import { ConfirmModal } from '../common/ConfirmModal';
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
   const { activeWorkspace, workspaces, setWorkspaces, setActiveWorkspace } = useAuthStore();
@@ -11,12 +12,17 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
   const [name, setName] = useState(activeWorkspace?.name || '');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(activeWorkspace?.isPublic || false);
+  // The details request can resolve after the user has already typed. Applying
+  // the server payload then would wipe that edit and a Save would persist the
+  // old name.
+  const edited = useRef({ name: false, description: false, isPublic: false });
   const [members, setMembers] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('viewer');
   const [error, setError] = useState('');
+  const [confirmConfig, setConfirmConfig] = useState<{isOpen: boolean; title: string; message: string; onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
 
   useEffect(() => {
     if (activeWorkspace) {
@@ -25,9 +31,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
         api.get(`/workspaces/${activeWorkspace._id}`),
         api.get(`/workspaces/${activeWorkspace._id}/activity`).catch(() => ({ data: [] }))
       ]).then(([res, actRes]) => {
-        setName(res.data.name);
-        setDescription(res.data.description || '');
-        setIsPublic(res.data.isPublic || false);
+        if (!edited.current.name) setName(res.data.name);
+        if (!edited.current.description) setDescription(res.data.description || '');
+        if (!edited.current.isPublic) setIsPublic(res.data.isPublic || false);
         setMembers(res.data.members || []);
         setActivityLogs(actRes.data || []);
       }).catch(err => console.error(err))
@@ -66,7 +72,19 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
     }
   };
 
-  const handleRemove = async (userId: string) => {
+  const handleDeleteWorkspace = async () => {
+    try {
+      await api.delete(`/workspaces/${activeWorkspace?._id}`);
+      const updatedWorkspaces = workspaces.filter(w => w._id !== activeWorkspace?._id);
+      setWorkspaces(updatedWorkspaces);
+      setActiveWorkspace(updatedWorkspaces[0] || null);
+      onClose();
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Failed to delete workspace');
+    }
+  };
+
+  const executeRemoveMember = async (userId: string) => {
     try {
       await api.delete(`/workspaces/${activeWorkspace?._id}/members/${userId}`);
       await refreshMembers();
@@ -74,6 +92,21 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       setError(e.response?.data?.message || 'Failed to remove member');
     }
   };
+
+  const handleRemove = (userId: string) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Remove Member',
+      message: 'Are you sure you want to remove this member from the workspace?',
+      onConfirm: () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        executeRemoveMember(userId);
+      }
+    });
+  };
+
+  // Dummy original for replacement matching
+  
 
   const isOwner = activeWorkspace?.myRole === 'owner';
 
@@ -92,7 +125,8 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
           >
             General
           </button>
-          <button 
+          <button
+            data-testid="workspace-members-tab"
             className={`px-4 py-2 font-medium ${activeTab === 'members' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
             onClick={() => setActiveTab('members')}
           >
@@ -123,7 +157,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                   data-testid="workspace-name-input"
                   type="text" 
                   value={name} 
-                  onChange={e => setName(e.target.value)} 
+                  onChange={e => { edited.current.name = true; setName(e.target.value); }} 
                   className="w-full p-2 border border-border rounded bg-surface"
                   disabled={!isOwner}
                 />
@@ -132,7 +166,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                 <label className="block text-sm font-medium mb-1">Description</label>
                 <textarea 
                   value={description} 
-                  onChange={e => setDescription(e.target.value)}
+                  onChange={e => { edited.current.description = true; setDescription(e.target.value); }}
                   className="w-full p-2 border border-border rounded bg-surface h-24 resize-none"
                   disabled={!isOwner}
                 />
@@ -142,19 +176,36 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                   type="checkbox" 
                   id="isPublic" 
                   checked={isPublic} 
-                  onChange={e => setIsPublic(e.target.checked)} 
+                  onChange={e => { edited.current.isPublic = true; setIsPublic(e.target.checked); }} 
                   disabled={!isOwner}
                 />
                 <label htmlFor="isPublic" className="text-sm font-medium">Public Workspace (Visible to all users)</label>
               </div>
               {isOwner && (
-                <button 
-                  data-testid="workspace-save-btn"
-                  onClick={handleUpdate}
-                  className="bg-primary text-white px-4 py-2 rounded hover:bg-orange-600 transition"
-                >
-                  Save Changes
-                </button>
+                <div className="flex gap-2 pt-2 border-t border-border">
+                  <button 
+                    data-testid="workspace-save-btn"
+                    onClick={handleUpdate}
+                    className="bg-primary text-white px-4 py-2 rounded hover:bg-orange-600 transition"
+                  >
+                    Save Changes
+                  </button>
+                  <button 
+                    data-testid="delete-workspace-btn"
+                    onClick={() => setConfirmConfig({
+                      isOpen: true,
+                      title: 'Delete Workspace',
+                      message: 'Are you sure you want to delete this workspace? This action cannot be undone and will delete all collections, requests, and environments within it.',
+                      onConfirm: () => {
+                        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+                        handleDeleteWorkspace();
+                      }
+                    })}
+                    className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition ml-auto"
+                  >
+                    Delete Workspace
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -271,6 +322,14 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
           )}
         </div>
       </div>
+      {confirmConfig.isOpen && (
+        <ConfirmModal
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          onConfirm={confirmConfig.onConfirm}
+          onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+        />
+      )}
     </div>,
     document.body
   );

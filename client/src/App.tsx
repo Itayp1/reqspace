@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 import { useSettingsStore } from './store/settingsStore';
@@ -78,16 +78,6 @@ function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string })
 // ── Auth Guard ────────────────────────────────────────────────────────────────
 function AuthGuard({ children, requireSuperAdmin = false }: { children: React.ReactNode, requireSuperAdmin?: boolean }) {
   const { user, isAuthenticated } = useAuthStore();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const handleUnauthorized = () => {
-      useAuthStore.getState().setUser(null);
-      navigate('/login');
-    };
-    window.addEventListener('unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('unauthorized', handleUnauthorized);
-  }, [navigate]);
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (requireSuperAdmin && !user?.isSuperAdmin) return <Navigate to="/" replace />;
@@ -102,6 +92,17 @@ function App() {
   const setUser = useAuthStore((state) => state.setUser);
   const setWorkspaces = useAuthStore((state) => state.setWorkspaces);
   const setActiveWorkspace = useAuthStore((state) => state.setActiveWorkspace);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      useAuthStore.getState().setUser(null);
+      const path = window.location.pathname;
+      if (path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/auth/')) return;
+      window.location.assign('/login');
+    };
+    window.addEventListener('unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+  }, []);
 
   useEffect(() => {
     const initApp = async () => {
@@ -130,10 +131,16 @@ function App() {
           const { data: workspaces } = await api.get('/workspaces');
           setWorkspaces(workspaces);
           if (workspaces.length > 0) {
+            // The persisted workspace keeps the role from the last session.
+            // After a role change or removal, replace it with the server copy
+            // so myRole is current as soon as the app finishes loading.
             const currentActive = useAuthStore.getState().activeWorkspace;
-            if (!currentActive || !workspaces.find((w: any) => w._id === currentActive._id)) {
-              setActiveWorkspace(workspaces[0]);
-            }
+            const fresh = currentActive
+              ? workspaces.find((w: any) => w._id === currentActive._id)
+              : undefined;
+            setActiveWorkspace(fresh || workspaces[0]);
+          } else {
+            setActiveWorkspace(null);
           }
         } catch {
           // Not authenticated — fine, will redirect to login

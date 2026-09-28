@@ -21,10 +21,12 @@ test.describe('Collection Runner', () => {
     }
     await page.getByTestId('prompt-input').fill('Test Collection Runner');
     await page.getByTestId('prompt-submit').click();
+    const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection Runner') });
+    await expect(colNode).toBeVisible();
 
     // Open action menu for collection
-    const actionMenuBtn = page.getByTestId('action-menu-btn').first();
-    await actionMenuBtn.waitFor({ state: 'visible' });
+    await colNode.hover();
+    const actionMenuBtn = colNode.getByTestId('action-menu-btn');
     await actionMenuBtn.click();
 
     // Click "Run Collection"
@@ -53,23 +55,28 @@ test.describe('Collection Runner', () => {
     else { await page.getByTestId('new-collection-btn').click(); }
     await page.getByTestId('prompt-input').fill('Test Collection Runner JSON');
     await page.getByTestId('prompt-submit').click();
+    const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection Runner JSON') });
+    await expect(colNode).toBeVisible();
 
-    const actionMenuBtn = page.getByTestId('action-menu-btn').first();
-    await actionMenuBtn.waitFor({ state: 'visible' });
-    await actionMenuBtn.click();
-    await page.getByTestId('action-menu-add-request').click();
-    await page.getByTestId('request-name-input').fill('Echo Request');
+    // Create the request (custom in-app modal, not a native dialog), then
+    // open it to set its URL — the "New Request" prompt only asks for a name.
+    await colNode.hover();
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Echo Request');
+    await page.getByTestId('prompt-submit').click();
+    await page.getByTestId('node-Echo Request').click();
     await page.getByTestId('request-url-input').fill('http://runner-test.local/echo?val={{var}}');
-    await page.getByTestId('save-request-btn').click();
+    await page.getByTestId('request-save-btn').click();
 
-    const interceptedVals = [];
+    const interceptedVals: string[] = [];
     await page.route('http://runner-test.local/echo*', async route => {
       const url = new URL(route.request().url());
       interceptedVals.push(url.searchParams.get('val') || '');
       await route.fulfill({ status: 200, body: 'ok' });
     });
 
-    await actionMenuBtn.click();
+    await colNode.getByTestId('action-menu-btn').click();
     await page.getByTestId('action-menu-run-collection').click();
     await expect(page.getByTestId('collection-runner-modal')).toBeVisible();
 
@@ -102,23 +109,26 @@ test.describe('Collection Runner', () => {
     else { await page.getByTestId('new-collection-btn').click(); }
     await page.getByTestId('prompt-input').fill('Test Collection Runner CSV');
     await page.getByTestId('prompt-submit').click();
+    const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection Runner CSV') });
+    await expect(colNode).toBeVisible();
 
-    const actionMenuBtn = page.getByTestId('action-menu-btn').first();
-    await actionMenuBtn.waitFor({ state: 'visible' });
-    await actionMenuBtn.click();
-    await page.getByTestId('action-menu-add-request').click();
-    await page.getByTestId('request-name-input').fill('Echo Request');
+    await colNode.hover();
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Echo Request');
+    await page.getByTestId('prompt-submit').click();
+    await page.getByTestId('node-Echo Request').click();
     await page.getByTestId('request-url-input').fill('http://runner-test.local/echo?val={{var}}');
-    await page.getByTestId('save-request-btn').click();
+    await page.getByTestId('request-save-btn').click();
 
-    const interceptedVals = [];
+    const interceptedVals: string[] = [];
     await page.route('http://runner-test.local/echo*', async route => {
       const url = new URL(route.request().url());
       interceptedVals.push(url.searchParams.get('val') || '');
       await route.fulfill({ status: 200, body: 'ok' });
     });
 
-    await actionMenuBtn.click();
+    await colNode.getByTestId('action-menu-btn').click();
     await page.getByTestId('action-menu-run-collection').click();
     await expect(page.getByTestId('collection-runner-modal')).toBeVisible();
 
@@ -151,14 +161,17 @@ test.describe('Collection Runner', () => {
     else { await page.getByTestId('new-collection-btn').click(); }
     await page.getByTestId('prompt-input').fill('Test Collection Runner Stop');
     await page.getByTestId('prompt-submit').click();
+    const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection Runner Stop') });
+    await expect(colNode).toBeVisible();
 
-    const actionMenuBtn = page.getByTestId('action-menu-btn').first();
-    await actionMenuBtn.waitFor({ state: 'visible' });
-    await actionMenuBtn.click();
-    await page.getByTestId('action-menu-add-request').click();
-    await page.getByTestId('request-name-input').fill('Slow Request');
+    await colNode.hover();
+    await colNode.getByTestId('action-menu-btn').click();
+    await page.getByTestId('action-menu-new-request').click();
+    await page.getByTestId('prompt-input').fill('Slow Request');
+    await page.getByTestId('prompt-submit').click();
+    await page.getByTestId('node-Slow Request').click();
     await page.getByTestId('request-url-input').fill('http://runner-test.local/slow');
-    await page.getByTestId('save-request-btn').click();
+    await page.getByTestId('request-save-btn').click();
 
     let callCount = 0;
     await page.route('http://runner-test.local/slow', async route => {
@@ -167,7 +180,7 @@ test.describe('Collection Runner', () => {
       await route.fulfill({ status: 200, body: 'ok' });
     });
 
-    await actionMenuBtn.click();
+    await colNode.getByTestId('action-menu-btn').click();
     await page.getByTestId('action-menu-run-collection').click();
     await expect(page.getByTestId('collection-runner-modal')).toBeVisible();
 

@@ -17,21 +17,15 @@ test.describe('Tab Operations', () => {
     // Create first request tab and save into a new collection
     await page.getByTestId('create-request-btn').click();
     await page.getByTestId('request-url-input').fill('https://httpbin.org/get');
-    await page.getByTestId('request-save-btn').click();
-    await page.getByTestId('save-req-name-input').fill('Request 1');
-    
     const createColBtn = page.getByTestId('new-collection-empty-btn');
     if (await createColBtn.isVisible()) {
       await createColBtn.click();
-      
-      // Dialog will appear
-      const dialogHandler = async (dialog: any) => {
-        await dialog.accept('Tab Collection');
-      };
-      page.once('dialog', dialogHandler);
-      
+      await page.getByTestId('prompt-input').fill('Tab Collection');
+      await page.getByTestId('prompt-submit').click();
       await expect(page.getByTestId('node-Tab Collection')).toBeVisible();
     }
+    await page.getByTestId('request-save-btn').click();
+    await page.getByTestId('save-req-name-input').fill('Request 1');
     await page.getByTestId('save-req-submit-btn').click();
 
     // Create second request tab and save to same collection
@@ -42,7 +36,7 @@ test.describe('Tab Operations', () => {
     await page.getByTestId('save-req-submit-btn').click();
 
     // Close all tabs
-    let tabs = page.locator('[data-testid^="tab-"]');
+    let tabs = page.locator('[data-testid^="tab-"]:not([role="tab"])');
     while(await tabs.count() > 0) {
       await tabs.nth(0).hover();
       await tabs.nth(0).getByTestId('close-tab-btn').click();
@@ -51,11 +45,15 @@ test.describe('Tab Operations', () => {
 
     // Open them from sidebar
     // Click the collection folder if it's closed? Actually saving might leave it open, but let's click the requests
+    if (await page.getByTestId('node-Request 1').isHidden()) {
+      await page.getByTestId('node-Tab Collection').click();
+    }
+    await expect(page.getByTestId('node-Request 1')).toBeVisible();
     await page.getByTestId('node-Request 1').click();
     await page.getByTestId('node-Request 2').click();
 
     // Verify two tabs are open
-    tabs = page.locator('[data-testid^="tab-"]');
+    tabs = page.locator('[data-testid^="tab-"]:not([role="tab"])');
     await expect(tabs).toHaveCount(2);
 
     // Verify order
@@ -65,7 +63,11 @@ test.describe('Tab Operations', () => {
     // Drag second tab before first tab
     const tab1 = tabs.nth(0);
     const tab2 = tabs.nth(1);
-    await tab2.dragTo(tab1);
+    await tab2.hover();
+    await page.mouse.down();
+    await tab1.hover({ position: { x: 5, y: 10 } });
+    await tab1.hover({ position: { x: 5, y: 10 } });
+    await page.mouse.up();
 
     // Wait a bit for React to process the drop
     await page.waitForTimeout(500);
@@ -96,7 +98,7 @@ test.describe('Tab Operations', () => {
     await page.getByTestId('method-select').selectOption('PUT');
 
     // Verify two tabs are open
-    const tabs = page.locator('[data-testid^="tab-"]');
+    const tabs = page.locator('[data-testid^="tab-"]:not([role="tab"])');
     await expect(tabs).toHaveCount(2);
 
     // Switch back to first tab
@@ -118,7 +120,11 @@ test.describe('Tab Operations', () => {
     // Drag second tab before first tab
     const tab1 = tabs.nth(0);
     const tab2 = tabs.nth(1);
-    await tab2.dragTo(tab1);
+    await tab2.hover();
+    await page.mouse.down();
+    await tab1.hover({ position: { x: 5, y: 10 } });
+    await tab1.hover({ position: { x: 5, y: 10 } });
+    await page.mouse.up();
 
     // Wait a bit for React to process the drop
     await page.waitForTimeout(500);

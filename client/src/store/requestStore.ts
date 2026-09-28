@@ -70,12 +70,18 @@ interface RequestStore {
   activeTabId: string | null;
   activeRequest: ActiveRequest | null;
   activeResponse: ResponseData | null;
+  // Responses keyed by tabId, not persisted (can be large/sensitive) — lets a
+  // request finish and be visible even if the user switched away from its
+  // tab before it completed. `activeResponse` mirrors the active tab's entry
+  // here for existing readers (ResponseViewer etc).
+  responsesByTab: Record<string, ResponseData | null>;
   isLoading: boolean;
 
   setActiveRequest: (req: ActiveRequest | null) => void;
   updateActiveRequest: (updates: Partial<ActiveRequest>) => void;
   updateTab: (tabId: string, updates: Partial<ActiveRequest>) => void;
   setActiveResponse: (res: ResponseData | null) => void;
+  setResponseForTab: (tabId: string, res: ResponseData | null) => void;
   setIsLoading: (loading: boolean) => void;
   markSaved: () => void;
   
@@ -118,6 +124,7 @@ export const useRequestStore = create<RequestStore>()(
       activeTabId: null,
       activeRequest: null,
       activeResponse: null,
+      responsesByTab: {},
       isLoading: false,
 
             reorderTabs: (draggedId, targetId, pos) => set((state) => {
@@ -189,7 +196,7 @@ export const useRequestStore = create<RequestStore>()(
           tabs: nextTabs,
           activeTabId: tabId,
           activeRequest: reqWithTabId,
-          activeResponse: null,
+          activeResponse: get().responsesByTab[tabId] || null,
         });
       },
 
@@ -211,23 +218,24 @@ export const useRequestStore = create<RequestStore>()(
           hist.lastPush = now;
         }
 
-        const updated = { ...state.activeRequest, ...updates, isDirty: true };
+        const isDirtyValue = updates.isDirty !== undefined ? updates.isDirty : true;
+        const updated = { ...state.activeRequest, ...updates, isDirty: isDirtyValue };
 
-        // Only rebuild the tabs array when something the tab bar actually
-        // renders changes (name/method, or the dirty flag first flipping on).
-        // Otherwise every keystroke in the URL/body/headers/scripts editors
-        // would produce a new `tabs` array reference and re-render the whole
-        // tab bar (and anything else subscribed to `tabs`) for no visible change.
-        const activeTab = state.tabs.find(t => t.tabId === state.activeTabId);
-        const tabBarRelevant = !activeTab?.isDirty || 'name' in updates || 'method' in updates;
-        const nextTabs = tabBarRelevant
-          ? state.tabs.map(t => t.tabId === state.activeTabId ? { ...t, ...updates, isDirty: true } : t)
-          : state.tabs;
+        const nextTabs = state.tabs.map(t => t.tabId === state.activeTabId ? { ...t, ...updates, isDirty: isDirtyValue } : t);
 
         return { activeRequest: updated, tabs: nextTabs };
       }),
 
       setActiveResponse: (activeResponse) => set({ activeResponse }),
+
+      // Stores the response under its own tab regardless of what's currently
+      // selected — a request kicked off from tab A must still land correctly
+      // if the user has switched to tab B by the time it resolves — and only
+      // mirrors it into `activeResponse` when that tab is still the active one.
+      setResponseForTab: (tabId, res) => set((state) => ({
+        responsesByTab: { ...state.responsesByTab, [tabId]: res },
+        activeResponse: state.activeTabId === tabId ? res : state.activeResponse,
+      })),
 
       setIsLoading: (isLoading) => set({ isLoading }),
 
@@ -240,8 +248,10 @@ export const useRequestStore = create<RequestStore>()(
       }),
 
       closeTab: (tabId) => {
-        const { tabs, activeTabId } = get();
+        const { tabs, activeTabId, responsesByTab } = get();
         const nextTabs = tabs.filter(t => t.tabId !== tabId);
+        const nextResponses = { ...responsesByTab };
+        delete nextResponses[tabId];
 
         if (activeTabId === tabId) {
           const closingIndex = tabs.findIndex(t => t.tabId === tabId);
@@ -250,21 +260,22 @@ export const useRequestStore = create<RequestStore>()(
             tabs: nextTabs,
             activeTabId: nextActive?.tabId || null,
             activeRequest: nextActive,
-            activeResponse: null,
+            activeResponse: (nextActive?.tabId && nextResponses[nextActive.tabId]) || null,
+            responsesByTab: nextResponses,
           });
         } else {
-          set({ tabs: nextTabs });
+          set({ tabs: nextTabs, responsesByTab: nextResponses });
         }
       },
 
       selectTab: (tabId) => {
-        const { tabs } = get();
+        const { tabs, responsesByTab } = get();
         const target = tabs.find(t => t.tabId === tabId);
         if (target) {
           set({
             activeTabId: tabId,
             activeRequest: target,
-            activeResponse: null,
+            activeResponse: responsesByTab[tabId] || null,
           });
         }
       },

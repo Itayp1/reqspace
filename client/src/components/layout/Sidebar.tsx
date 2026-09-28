@@ -99,6 +99,7 @@ export default function Sidebar() {
           aria-selected={activeTab === 'collections'}
           aria-controls="panel-collections"
           id="tab-collections"
+          data-testid="tab-collections"
           className={`flex-1 p-2 flex items-center justify-center gap-1.5 text-xs border-b-2 ${activeTab === 'collections' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'}`}
           onClick={() => setActiveTab('collections')}
         >

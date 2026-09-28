@@ -9,7 +9,7 @@ import type { EnvironmentVariable } from '../../store/environmentStore';
 export function EnvironmentTabEditor() {
   const { activeRequest, updateActiveRequest, markSaved } = useRequestStore();
   const { environments, globalEnvironment, setEnvironments, setGlobalEnvironment } = useEnvironmentStore();
-  const { workspaces } = useAuthStore();
+  const { workspaces, activeWorkspace } = useAuthStore();
   
   const envId = activeRequest?.environmentId;
   const isGlobal = envId === 'global';
@@ -60,8 +60,12 @@ export function EnvironmentTabEditor() {
     if (!env) return;
     try {
       if (isGlobal) {
-        const res = await api.put(`/environments/${env._id}`, { variables: localVars });
-        setGlobalEnvironment(res.data);
+        // The global env is a separate table/endpoint keyed by workspace,
+        // not a row in the regular environments table — PUT /environments/:id
+        // would 404 since that id never exists there.
+        if (!activeWorkspace) return;
+        const res = await api.put(`/workspaces/${activeWorkspace._id}/global-environment`, { variables: localVars });
+        setGlobalEnvironment({ ...res.data, isGlobal: true });
       } else {
         const res = await api.put(`/environments/${env._id}`, { name, variables: localVars });
         setEnvironments(environments.map(e => e._id === env._id ? res.data : e));

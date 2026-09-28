@@ -13,8 +13,8 @@ const router = Router();
 
 // Login/password-guessing and account-creation throttles — this whole file
 // was previously reachable with unlimited attempts per IP.
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: 'Too many login attempts — please try again later.' });
-const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: 'Too many accounts created from this address — please try again later.' });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: process.env.NODE_ENV === 'test' ? 1000 : 15, message: 'Too many login attempts — please try again later.' });
+const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: process.env.NODE_ENV === 'test' ? 1000 : 10, message: 'Too many accounts created from this address — please try again later.' });
 
 // ── POST /api/auth/register ─────────────────────────────────────────────────
 router.post('/register', validate(schemas.registerSchema), registerLimiter, async (req: Request, res: Response) => {

@@ -59,15 +59,18 @@ export default function TopBar() {
           setEnvironments(locals);
         });
 
-        // Background server fetch
+        // Background server fetch. The global ("Globals (Common)") env lives
+        // in its own table/endpoint, not mixed into the regular list.
         api.get(`/workspaces/${activeWorkspace._id}/environments`).then((res) => {
-          const globals = res.data.filter((e: any) => e.isGlobal);
-          const locals = res.data.filter((e: any) => !e.isGlobal);
-          if (globals.length > 0) setGlobalEnvironment(globals[0]);
-          setEnvironments(locals);
+          setEnvironments(res.data);
           db.environments.bulkPut(res.data.map((e: any) => ({ ...e, workspaceId: activeWorkspace._id })));
         });
-        
+        api.get(`/workspaces/${activeWorkspace._id}/global-environment`).then((res) => {
+          const global = { ...res.data, isGlobal: true };
+          setGlobalEnvironment(global);
+          db.environments.put({ ...global, workspaceId: activeWorkspace._id });
+        }).catch(() => {});
+
         fetchLocalVariables(activeWorkspace._id);
         fetchUserProfileVariables();
       });

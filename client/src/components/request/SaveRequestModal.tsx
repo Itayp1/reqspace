@@ -4,9 +4,9 @@ import { useCollectionStore } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
 
 export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
-  const { collections, folders } = useCollectionStore();
+  const { collections, foldersByCollection, openCollection } = useCollectionStore();
   const { activeRequest, setActiveRequest, markSaved } = useRequestStore();
-  
+
   const [name, setName] = useState(activeRequest?.name || 'New Request');
   const [selectedLocation, setSelectedLocation] = useState<{ type: 'collection' | 'folder', id: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -20,8 +20,9 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
 
   // Recursively build tree for rendering
   const renderTree = (collectionId: string, parentFolderId: string | null = null, depth = 0) => {
-    const currentFolders = folders.filter(f => f.collectionId === collectionId && f.parentFolderId === parentFolderId);
-    
+    const folders = foldersByCollection[parentFolderId || collectionId];
+    const currentFolders = Array.isArray(folders) ? folders : [];
+
     return currentFolders.map(folder => (
       <React.Fragment key={folder._id}>
         <div 
@@ -50,7 +51,15 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
         collectionId = selectedLocation.id;
       } else {
         folderId = selectedLocation.id;
-        collectionId = folders.find(f => f._id === folderId)?.collectionId || '';
+        for (const fols of Object.values(foldersByCollection)) {
+          if (Array.isArray(fols)) {
+            const found = fols.find(f => f._id === folderId);
+            if (found) {
+              collectionId = found.collectionId;
+              break;
+            }
+          }
+        }
       }
       
       const { default: api } = await import('../../api/axios');
@@ -70,8 +79,13 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
       const res = await api.post(`/collections/${collectionId}/requests`, payload);
       const savedRequest = res.data;
       
-      // Update active request with the saved version
+      // Update active request with the saved version. Keeping the original
+      // tabId is what makes this an in-place update — setActiveRequest falls
+      // back to matching by _id when tabId is missing, and this request had
+      // no _id yet (it was unsaved), so omitting it opened a second,
+      // duplicate tab and left the original tab behind still marked dirty.
       setActiveRequest({
+        tabId: activeRequest.tabId,
         _id: savedRequest._id,
         collectionId: savedRequest.collectionId,
         folderId: savedRequest.folderId || null,
@@ -82,14 +96,16 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
         headers: activeRequest.headers || [],
         auth: activeRequest.auth || { type: 'none' },
         body: activeRequest.body || { mode: 'none' },
+        preRequestScript: activeRequest.preRequestScript,
+        testScript: activeRequest.testScript,
+        updatedAt: savedRequest.updatedAt,
       });
       
-      // Directly add the new request to the store instead of full refresh
-      useCollectionStore.getState().setRequests([
-        ...useCollectionStore.getState().requests,
-        savedRequest
-      ]);
-      
+      openCollection(collectionId);
+
+      // The server's own 'request:created' broadcast (sent to every socket in
+      // the workspace, including this one) lands in requestsByFolder via
+      // applyRequestUpserted — no need to duplicate that here.
       markSaved();
       onClose();
     } catch (err) {

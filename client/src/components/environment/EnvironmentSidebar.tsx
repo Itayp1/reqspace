@@ -81,6 +81,7 @@ export default function EnvironmentSidebar() {
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {globalEnvironment && (
           <div
+            data-testid="env-globals-btn"
             className="p-2 text-sm rounded cursor-pointer hover:bg-border transition flex items-center"
             onClick={() => openEnvironmentTab('global', 'Globals (Common)')}
           >

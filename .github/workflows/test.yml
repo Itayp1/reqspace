@@ -72,6 +72,8 @@ jobs:
       - name: Server tests (jest — unit + ssrf + live auth e2e)
         run: npm test --prefix server
         env:
+          PORT: 3005
+          TEST_PORT: 3005
           DB_TYPE: ${{ matrix.db }}
           DB_HOST: 127.0.0.1
           DB_USER: root

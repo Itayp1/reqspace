@@ -74,13 +74,13 @@ test.describe('Socket events coverage', () => {
     await request.put(`${apiUrl}/folders/${folId}`, { data: { name: 'F2' }, headers });
 
     // Create Request
-    let reqRes = await request.post(`${apiUrl}/collections/${colId}/requests`, { data: { name: 'R1', method: 'GET', folderId: folId }, headers });
+    let reqRes = await request.post(`${apiUrl}/collections/${colId}/requests`, { data: { name: 'R1', method: 'GET', folderId: folId, url: 'https://example.com' }, headers });
     const reqId = (await reqRes.json())._id;
     // Update Request
     await request.put(`${apiUrl}/requests/${reqId}`, { data: { name: 'R2', method: 'POST' }, headers });
     
     // Reorder
-    await request.post(`${apiUrl}/workspaces/${wsId}/reorder`, { 
+    await request.put(`${apiUrl}/collections/reorder`, { 
       data: { type: 'request', items: [{ id: reqId, order: 1 }] }, headers 
     });
 

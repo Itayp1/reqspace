@@ -13,9 +13,11 @@ test.describe('Response & Code Gen', () => {
     await page.click('[data-testid="register-submit"]');
     await expect(page).toHaveURL(/.*\/$/);
 
+    await page.getByTestId('create-request-btn').click();
+
     // Go to "Tests" tab in request editor
-    await page.click('button:has-text("Tests")');
-    
+    await page.getByTestId('req-tab-tests').click();
+
     // Write a script pm.test(...)
     // The Monaco editor is tricky to type into directly, usually we use evaluate or click and type
     await page.click('[data-testid="monaco-editor-container"]');
@@ -24,7 +26,8 @@ test.describe('Response & Code Gen', () => {
     // Send request
     await page.getByTestId('request-url-input').fill('https://httpbin.org/get');
     await page.click('[data-testid="request-send-btn"]');
-    await expect(page.getByTestId('response-status')).toContainText('200 OK');
+    // Real HTTP/2 responses (as httpbin.org serves) have no reason phrase.
+    await expect(page.getByTestId('response-status')).toContainText('200', { timeout: 15000 });
 
     // Check Test Results tab
     await page.click('[data-testid="response-tab-test_results"]');
@@ -60,84 +63,38 @@ test.describe('Response & Code Gen', () => {
     await page.click('[data-testid="register-submit"]');
     await expect(page).toHaveURL(/.*\/$/);
 
-    // Mock proxy responses
-    await page.route('**/proxy', async route => {
-      const postData = JSON.parse(route.request().postData() || '{}');
-      
-      if (postData.url === 'https://mock.com/json') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            status: 200,
-            statusText: 'OK',
-            headers: { 'content-type': 'application/json' },
-            body: { message: 'hello JSON' },
-            time: 50,
-            size: 100
-          })
-        });
-      }
-      
-      if (postData.url === 'https://mock.com/html') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            status: 200,
-            statusText: 'OK',
-            headers: { 'content-type': 'text/html' },
-            body: '<h1>Hello HTML</h1>',
-            time: 50,
-            size: 100
-          })
-        });
-      }
-      
-      if (postData.url === 'https://mock.com/image') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            status: 200,
-            statusText: 'OK',
-            headers: { 'content-type': 'image/png' },
-            body: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-            isBase64: true,
-            time: 50,
-            size: 100
-          })
-        });
-      }
-      
-      if (postData.url === 'https://mock.com/pdf') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            status: 200,
-            statusText: 'OK',
-            headers: { 'content-type': 'application/pdf' },
-            body: 'JVBERi0xLg==',
-            isBase64: true,
-            time: 50,
-            size: 100
-          })
-        });
-      }
-      
-      if (postData.url === 'https://mock.com/timeout') {
-        return route.fulfill({
-          status: 504,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            error: 'Gateway Timeout'
-          })
-        });
-      }
-      
-      return route.continue();
-    });
+    // Mock the actual targets — there is no server-side proxy relay, the
+    // browser transport does a direct fetch(url), so mocks have to match
+    // the real request URLs and return real response bodies (not a JSON
+    // envelope) with correct Content-Type headers so the transport's own
+    // binary/base64 detection kicks in as it would for a real server.
+    await page.route('https://mock.com/json', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'hello JSON' }),
+    }));
+    await page.route('https://mock.com/html', route => route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<h1>Hello HTML</h1>',
+    }));
+    await page.route('https://mock.com/image', route => route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
+    }));
+    await page.route('https://mock.com/pdf', route => route.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      body: Buffer.from('JVBERi0xLg==', 'base64'),
+    }));
+    await page.route('https://mock.com/timeout', route => route.fulfill({
+      status: 504,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Gateway Timeout' }),
+    }));
+
+    await page.getByTestId('create-request-btn').click();
 
     // 1. JSON (pretty and raw)
     await page.getByTestId('request-url-input').fill('https://mock.com/json');

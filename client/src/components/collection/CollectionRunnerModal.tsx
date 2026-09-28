@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Play, CheckCircle, XCircle, Loader2 } from 'lucide-react';
-import { useCollectionStore } from '../../store/collectionStore';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { resolveAllVariables } from '../../utils/variables';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
 import { sendRequest, EXTENSION_NOT_INSTALLED_ERROR } from '../../transport';
 import { useExtensionStore } from '../../store/extensionStore';
+import api from '../../api/axios';
+import type { ApiRequest } from '../../store/collectionStore';
 
 interface CollectionRunnerModalProps {
   collectionId: string;
@@ -29,12 +30,23 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
   collectionName,
   onClose,
 }) => {
-  const { requests } = useCollectionStore();
   const { environments, activeEnvironmentId, setActiveEnvironmentId } = useEnvironmentStore();
   const { setShowDownloadModal } = useExtensionStore();
 
-  const collectionRequests = requests.filter(r => r.collectionId === collectionId);
+  // Fetched directly rather than read from the collection tree's store: that
+  // store only holds whatever folders the user has actually expanded in the
+  // sidebar, so it can't be relied on to have every request in the
+  // collection (especially ones nested in folders never opened).
+  const [collectionRequests, setCollectionRequests] = useState<ApiRequest[]>([]);
+  useEffect(() => {
+    api.get(`/collections/${collectionId}/requests`).then(res => setCollectionRequests(res.data)).catch(() => {});
+  }, [collectionId]);
+
   const [isRunning, setIsRunning] = useState(false);
+  // A ref, not state: the run loop's `await`s mean it keeps executing across
+  // several ticks, and it needs to see a Stop click immediately on its next
+  // iteration check rather than waiting for a re-render to read fresh state.
+  const stopRequestedRef = useRef(false);
   const [results, setResults] = useState<RunResult[]>([]);
   const [delayMs, setDelayMs] = useState(0);
   const [iterations, setIterations] = useState(1);
@@ -42,6 +54,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
 
   const runAll = async () => {
     if (collectionRequests.length === 0) return;
+    stopRequestedRef.current = false;
     setIsRunning(true);
     
     // We will unroll the runs based on iterations
@@ -64,6 +77,10 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
       const iterationData = dataArray[iter] || {};
 
       for (let i = 0; i < collectionRequests.length; i++) {
+        if (stopRequestedRef.current) {
+          setIsRunning(false);
+          return;
+        }
         const req: any = collectionRequests[i];
         const startTime = Date.now();
 
@@ -290,15 +307,26 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
             />
           </div>
 
-          <button
-            data-testid="collection-runner-run-btn"
-            onClick={runAll}
-            disabled={isRunning || collectionRequests.length === 0}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 transition-colors"
-          >
-            {isRunning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-            {isRunning ? 'Running...' : 'Run'}
-          </button>
+          {isRunning ? (
+            <button
+              data-testid="collection-runner-stop-btn"
+              onClick={() => { stopRequestedRef.current = true; }}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
+            >
+              <Loader2 size={13} className="animate-spin" />
+              Stop
+            </button>
+          ) : (
+            <button
+              data-testid="collection-runner-run-btn"
+              onClick={runAll}
+              disabled={collectionRequests.length === 0}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 transition-colors"
+            >
+              <Play size={13} />
+              Run
+            </button>
+          )}
         </div>
 
         {/* Results Summary */}

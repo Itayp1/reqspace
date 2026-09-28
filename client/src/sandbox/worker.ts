@@ -78,6 +78,17 @@ self.onmessage = async (e) => {
           variableWrites.push({ scope: 'reqSpace', action: 'setNextRequest', key: 'nextRequest', value: requestNameOrId });
         }
       },
+      req: {
+        headers: {
+          set: (name: string, value: any) => variableWrites.push({ scope: 'header', action: 'set', key: name, value }),
+          remove: (name: string) => variableWrites.push({ scope: 'header', action: 'remove', key: name, value: undefined }),
+          get: (name: string) => request?.headers?.[name] || request?.header?.[name]
+        },
+        variables: {
+          set: (key: string, value: any) => variableWrites.push({ scope: 'local', action: 'set', key, value }),
+          get: (key: string) => variables?.local?.[key]
+        }
+      },
       console: {
         log: (...args: any[]) => consoleLines.push({ level: 'info', args }),
         warn: (...args: any[]) => consoleLines.push({ level: 'warn', args }),

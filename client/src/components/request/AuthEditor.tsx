@@ -32,6 +32,7 @@ export function AuthEditor() {
       <div className="flex items-center gap-3">
         <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Type</label>
         <select
+          data-testid="auth-type-select"
           className="border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
           value={auth.type}
           onChange={e => update({ type: e.target.value as RequestAuth['type'] })}
@@ -55,6 +56,7 @@ export function AuthEditor() {
           <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Token</label>
           <div className="flex-1 relative">
             <input
+              data-testid="auth-bearer-token"
               type={showToken ? 'text' : 'password'}
               className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono pr-9"
               placeholder="Enter token..."
@@ -78,6 +80,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Username</label>
             <input
+              data-testid="auth-basic-username"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
               placeholder="Enter username..."
@@ -89,6 +92,7 @@ export function AuthEditor() {
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Password</label>
             <div className="flex-1 relative">
               <input
+                data-testid="auth-basic-password"
                 type={showPassword ? 'text' : 'password'}
                 className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 pr-9"
                 placeholder="Enter password..."

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
-import { useCollectionStore } from '../../store/collectionStore';
+import { useCollectionStore, type Folder } from '../../store/collectionStore';
 import { useConsoleStore } from '../../store/consoleStore';
 import { useCookieStore } from '../../store/cookieStore';
 import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
@@ -81,7 +81,7 @@ export function UrlBar() {
   const {
     activeRequest,
     updateActiveRequest,
-    setActiveResponse,
+    setResponseForTab,
     setIsLoading,
     isLoading,
     markSaved,
@@ -114,11 +114,18 @@ export function UrlBar() {
 
   const handleSend = async () => {
     if (!activeRequest) return;
+    // Captured now, not re-read from the store later — the user may switch
+    // tabs while this request is in flight, and the response still has to
+    // land on the tab that actually sent it.
+    const tabId = activeRequest.tabId!;
     const startTime = Date.now();
     try {
       setIsLoading(true);
 
-      const { collections, folders } = useCollectionStore.getState();
+      const { collections, foldersByCollection } = useCollectionStore.getState();
+      // There's no flat top-level folders list — each bucket is keyed by
+      // direct parent (a folder id for nested ones, else the collection id).
+      const allFolders = Object.values(foldersByCollection).filter((v): v is Folder[] => Array.isArray(v)).flat();
       const colId = activeRequest.collectionId;
       const collection = collections.find(c => c._id === colId);
 
@@ -133,7 +140,7 @@ export function UrlBar() {
       const requestFolders = [];
       let currFolderId = activeRequest.folderId;
       while (currFolderId) {
-        const f = folders.find(f => f._id === currFolderId);
+        const f = allFolders.find(f => f._id === currFolderId);
         if (f) {
           requestFolders.unshift(f);
           currFolderId = f.parentFolderId;
@@ -154,13 +161,16 @@ export function UrlBar() {
       const localVariables = new Map<string, string>();
 
       // 1. Run combined Pre-request script
-      await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables);
+      const preResult = await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables);
 
       // 2. Resolve all variables in URL, headers, and body
       const resolvedUrl = resolveAllVariables(activeRequest.url, colId, undefined, localVariables);
       const finalUrl = resolvedUrl;
-      let requestBody: any = (activeRequest.body as any)?.[activeRequest.bodyMode as any] || '';
-      const bodyMode = activeRequest.bodyMode;
+      const bodyMode = activeRequest.body?.mode;
+      let requestBody: any = (activeRequest.body as any)?.[bodyMode as any] || '';
+      if (bodyMode === 'raw' && activeRequest.body?.rawLanguage === 'json' && typeof requestBody === 'string') {
+        requestBody = stripJsonComments(requestBody);
+      }
 
       const reqHeaders = activeRequest.headers?.reduce((acc: any, h: any) => {
         if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId, undefined, localVariables);
@@ -175,9 +185,8 @@ export function UrlBar() {
       // Apply Authorization from auth tab
       let auth = activeRequest.auth;
       if (auth?.type === 'inherit') {
-        const { collections, folders } = useCollectionStore.getState();
         if (activeRequest.folderId) {
-          const folder = folders.find(f => f._id === activeRequest.folderId);
+          const folder = allFolders.find(f => f._id === activeRequest.folderId);
           if (folder && folder.auth && folder.auth.type !== 'inherit') auth = folder.auth;
         } else if (colId) {
           const col = collections.find(c => c._id === colId);
@@ -223,6 +232,18 @@ export function UrlBar() {
           }
         }
         requestBody = { _isFormData: true, items: formDataPayload };
+      }
+
+      if (preResult?.headerWrites) {
+        Object.entries(preResult.headerWrites).forEach(([k, v]) => {
+          reqHeaders[k] = v;
+        });
+      }
+      if (preResult?.removedHeaders) {
+        preResult.removedHeaders.forEach((k) => {
+          const keyToRemove = Object.keys(reqHeaders).find((hk) => hk.toLowerCase() === k.toLowerCase());
+          if (keyToRemove) delete reqHeaders[keyToRemove];
+        });
       }
 
       const abortController = new AbortController();
@@ -280,10 +301,13 @@ export function UrlBar() {
         time: responseTime,
       }, colId, undefined, localVariables);
 
-      const testResults = scriptReturn?.testResults || [];
+      const testResults = [
+        ...(preResult?.testResults || []),
+        ...(scriptReturn?.testResults || [])
+      ];
       const visualizerData = scriptReturn?.visualizerData;
 
-      setActiveResponse({
+      setResponseForTab(tabId, {
         status: res.data?.status || res.status,
         statusText: res.data?.statusText || res.statusText,
         headers: res.data?.headers || res.headers || {},
@@ -312,7 +336,7 @@ export function UrlBar() {
       });
     } catch (err: any) {
       if (err.name === 'CanceledError' || err.message === 'canceled') {
-        setActiveResponse({
+        setResponseForTab(tabId, {
           status: 0,
           statusText: 'Canceled',
           headers: {},
@@ -323,7 +347,7 @@ export function UrlBar() {
         return;
       }
       const errorBody = err.response?.data ? JSON.stringify(err.response.data, null, 2) : err.message;
-      setActiveResponse({
+      setResponseForTab(tabId, {
         status: err.response?.status || 500,
         statusText: err.response?.statusText || 'Error',
         headers: err.response?.headers || {},
@@ -359,15 +383,32 @@ export function UrlBar() {
         import('../../db').then(({ db }) => {
           if (activeRequest._id) db.requests.update(activeRequest._id, { ...activeRequest });
         });
-        
+
         // Instant UI update
         markSaved();
-        
+
+        // The server's update schema is `.strict()` and only accepts these
+        // request fields — sending the whole tab object (tabId, isDirty,
+        // isConflicted, collectionId, _id, ...) gets the PUT rejected 400
+        // "Unrecognized key(s)" every time, silently failing every save.
+        const updatePayload = {
+          name: activeRequest.name,
+          method: activeRequest.method,
+          url: activeRequest.url,
+          params: activeRequest.params,
+          headers: activeRequest.headers,
+          auth: activeRequest.auth,
+          body: activeRequest.body,
+          preRequestScript: activeRequest.preRequestScript,
+          testScript: activeRequest.testScript,
+          folderId: activeRequest.folderId,
+        };
+
         // 2. Background server sync
         const { data: remoteReq } = await api.get(`/requests/${activeRequest._id}`);
         if (remoteReq.updatedAt && activeRequest.updatedAt && new Date(remoteReq.updatedAt).getTime() > new Date(activeRequest.updatedAt).getTime()) {
           if (isAutoSave) return; // Silent abort for auto-save conflict
-          
+
           setConfirmConfig({
             isOpen: true,
             title: 'Conflict Detected',
@@ -376,8 +417,8 @@ export function UrlBar() {
             onConfirm: async () => {
               setConfirmConfig((c: any) => ({ ...c, isOpen: false }));
               try {
-                const res = await api.put(`/requests/${activeRequest._id}`, activeRequest);
-                updateActiveRequest({ updatedAt: res.data.updatedAt, isConflicted: false });
+                const res = await api.put(`/requests/${activeRequest._id}`, updatePayload);
+                updateActiveRequest({ updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
                 import('../../db').then(({ db }) => {
                   if (activeRequest._id) db.requests.update(activeRequest._id, { updatedAt: res.data.updatedAt });
                 });
@@ -393,8 +434,8 @@ export function UrlBar() {
           return;
         }
         
-        const res = await api.put(`/requests/${activeRequest._id}`, activeRequest);
-        updateActiveRequest({ updatedAt: res.data.updatedAt, isConflicted: false });
+        const res = await api.put(`/requests/${activeRequest._id}`, updatePayload);
+        updateActiveRequest({ updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
         import('../../db').then(({ db }) => {
           if (activeRequest._id) db.requests.update(activeRequest._id, { updatedAt: res.data.updatedAt });
         });
@@ -621,6 +662,15 @@ export function UrlBar() {
             window.dispatchEvent(event);
             setIsViewerForkModalOpen(false);
           }}
+        />
+      )}
+      {confirmConfig.isOpen && (
+        <ConfirmModal
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          confirmLabel={confirmConfig.confirmLabel}
+          onConfirm={confirmConfig.onConfirm}
+          onCancel={confirmConfig.onCancel}
         />
       )}
     </>

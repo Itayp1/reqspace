@@ -129,7 +129,7 @@ export const RequestTabBar: React.FC = () => {
                 <div data-testid="conflict-indicator" className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="Conflicted with server version" />
               )}
               {tab.isDirty && !tab.isConflicted && (
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" title="Unsaved changes" />
+                <div data-testid="dirty-indicator" className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" title="Unsaved changes" />
               )}
               
               <div className="flex items-center">
