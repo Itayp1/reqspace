@@ -24,6 +24,8 @@ const sqliteTestDbPath = path.join(os.tmpdir(), `reqspace-server-e2e-${Date.now(
 const SERVER_ENV = {
   ...process.env,
   NODE_ENV: 'test',
+  MUTATION_RATE_LIMIT_MAX: process.env.MUTATION_RATE_LIMIT_MAX || '300',
+  READ_RATE_LIMIT_MAX: process.env.READ_RATE_LIMIT_MAX || '2000',
   DB_TYPE,
   DB_STORAGE_PATH: sqliteTestDbPath,
   PORT,

@@ -17,6 +17,7 @@ import type { KeyValueItem } from '../../store/requestStore';
 
 import { fileToBase64 } from '../../utils/fileToBase64';
 import { resolveAllVariables } from '../../utils/variables';
+import { applyRequestAuth, resolveInheritedAuth } from '../../utils/requestAuth';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
 import { stripJsonComments } from '../../utils/jsonComments';
 
@@ -165,14 +166,14 @@ export function UrlBar() {
 
       // 2. Resolve all variables in URL, headers, and body
       const resolvedUrl = resolveAllVariables(activeRequest.url, colId, undefined, localVariables);
-      const finalUrl = resolvedUrl;
+      let finalUrl = resolvedUrl;
       const bodyMode = activeRequest.body?.mode;
       let requestBody: any = (activeRequest.body as any)?.[bodyMode as any] || '';
       if (bodyMode === 'raw' && activeRequest.body?.rawLanguage === 'json' && typeof requestBody === 'string') {
         requestBody = stripJsonComments(requestBody);
       }
 
-      const reqHeaders = activeRequest.headers?.reduce((acc: any, h: any) => {
+      let reqHeaders: Record<string, string> = activeRequest.headers?.reduce((acc: Record<string, string>, h: any) => {
         if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId, undefined, localVariables);
         return acc;
       }, {}) || {};
@@ -182,28 +183,20 @@ export function UrlBar() {
         reqHeaders['Cookie'] = cookieVal;
       }
 
-      // Apply Authorization from auth tab
-      let auth = activeRequest.auth;
-      if (auth?.type === 'inherit') {
-        if (activeRequest.folderId) {
-          const folder = allFolders.find(f => f._id === activeRequest.folderId);
-          if (folder && folder.auth && folder.auth.type !== 'inherit') auth = folder.auth;
-        } else if (colId) {
-          const col = collections.find(c => c._id === colId);
-          if (col && col.auth && col.auth.type !== 'inherit') auth = col.auth;
-        }
-      }
+      // Auth and body are independent. They used to share one else-if chain,
+      // so a Bearer/Basic/API-key/OAuth request never encoded form-data,
+      // urlencoded, or GraphQL.
+      const auth = resolveInheritedAuth(activeRequest.auth, [...requestFolders].reverse(), collection);
+      const appliedAuth = applyRequestAuth({
+        auth,
+        headers: reqHeaders,
+        url: finalUrl,
+        resolve: (value) => resolveAllVariables(value, colId, undefined, localVariables),
+      });
+      reqHeaders = appliedAuth.headers;
+      finalUrl = appliedAuth.url;
 
-      if (auth?.type === 'bearer' && auth.bearer?.token) {
-        reqHeaders['Authorization'] = `Bearer ${auth.bearer.token}`;
-      } else if (auth?.type === 'basic' && auth.basic?.username) {
-        const encoded = btoa(`${auth.basic.username}:${auth.basic.password || ''}`);
-        reqHeaders['Authorization'] = `Basic ${encoded}`;
-      } else if (auth?.type === 'apikey' && auth.apikey?.key && auth.apikey?.in === 'header') {
-        reqHeaders[auth.apikey.key] = auth.apikey.value || '';
-      } else if (auth?.type === 'oauth2' && auth.oauth2?.token) {
-        reqHeaders['Authorization'] = `Bearer ${auth.oauth2.token}`;
-      } else if (bodyMode === 'graphql') {
+      if (bodyMode === 'graphql') {
         const query = resolveAllVariables(activeRequest.body?.graphql?.query || '', colId, undefined, localVariables);
         const varsStr = resolveAllVariables(activeRequest.body?.graphql?.variables || '{}', colId, undefined, localVariables);
         try {

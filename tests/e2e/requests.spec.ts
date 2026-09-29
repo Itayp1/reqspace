@@ -163,6 +163,53 @@ test.describe('Request Operations', () => {
     expect(authHeader).toBe('Basic YWRtaW46cGFzc3dvcmQxMjM=');
   });
 
+  test('Auth header and request body are both sent', async ({ page }) => {
+    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await expect(page.getByTestId('node-Test Collection')).toBeVisible();
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('method-select').selectOption('POST');
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
+
+    await page.getByTestId('req-tab-authorization').click();
+    await page.getByTestId('auth-type-select').selectOption('bearer');
+    await page.getByTestId('auth-bearer-token').fill('my-super-secret-token');
+
+    await page.getByTestId('req-tab-body').click();
+    await page.getByTestId('body-mode-urlencoded').click();
+    await page.getByTestId('kv-key-0').fill('urlField');
+    await page.getByTestId('kv-val-0').fill('urlValue');
+
+    const urlencodedPromise = page.waitForRequest(req => req.url().includes('/echo') && req.method() === 'POST');
+    await page.route('**/echo', route => route.fulfill({ status: 200, body: 'ok' }));
+    await page.getByTestId('request-send-btn').click();
+    const urlencoded = await urlencodedPromise;
+    expect(urlencoded.headers()['authorization']).toBe('Bearer my-super-secret-token');
+    expect(urlencoded.headers()['content-type']).toContain('application/x-www-form-urlencoded');
+    expect(urlencoded.postData()).toContain('urlField=urlValue');
+
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('method-select').selectOption('POST');
+    await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
+
+    await page.getByTestId('req-tab-authorization').click();
+    await page.getByTestId('auth-type-select').selectOption('basic');
+    await page.getByTestId('auth-basic-username').fill('admin');
+    await page.getByTestId('auth-basic-password').fill('password123');
+
+    await page.getByTestId('req-tab-body').click();
+    await page.getByTestId('body-mode-form-data').click();
+    await page.getByTestId('kv-key-0').fill('formField');
+    await page.getByTestId('kv-val-0').fill('formValue');
+
+    const formPromise = page.waitForRequest(req => req.url().includes('/echo') && (req.headers()['content-type'] || '').includes('multipart/form-data'));
+    await page.getByTestId('request-send-btn').click();
+    const form = await formPromise;
+    expect(form.headers()['authorization']).toBe('Basic YWRtaW46cGFzc3dvcmQxMjM=');
+    expect(form.headers()['content-type']).toContain('multipart/form-data');
+    expect(form.postData()).toContain('formField');
+    expect(form.postData()).toContain('formValue');
+  });
+
   test('Raw JSON body persists after save+reload and is sent as the request body', async ({ page }) => {
     await page.getByTestId('workspace-select').selectOption(workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();

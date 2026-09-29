@@ -215,7 +215,17 @@ app.use('/api', (req, res, next) => {
 });
 
 // API Routes
-const mutationLimiter = rateLimit({ windowMs: 60_000, max: process.env.NODE_ENV === 'test' ? 10000 : 300, message: 'Too many requests - please slow down.' });
+// Ceilings are env-driven so a test server can boot at the real limits
+// (300 writes / 2000 reads per minute). NODE_ENV=test used to force 10000,
+// which made the SEC-10 checks unable to observe a 429.
+function envRateLimitMax(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback;
+}
+
+const mutationLimiter = rateLimit({ windowMs: 60_000, max: envRateLimitMax('MUTATION_RATE_LIMIT_MAX', 300), message: 'Too many requests - please slow down.' });
 app.use('/api', (req, res, next) =>
   ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? mutationLimiter(req, res, next) : next()
 );
@@ -223,7 +233,7 @@ app.use('/api', (req, res, next) =>
 // attacker hammering read endpoints is still caught. Deliberately generous — even a
 // workspace with hundreds of collections expanding many tree nodes in a burst stays
 // far under this; it exists to catch automated abuse, not to throttle real usage.
-const readLimiter = rateLimit({ windowMs: 60_000, max: process.env.NODE_ENV === 'test' ? 10000 : 2000, message: 'Too many requests - please slow down.' });
+const readLimiter = rateLimit({ windowMs: 60_000, max: envRateLimitMax('READ_RATE_LIMIT_MAX', 2000), message: 'Too many requests - please slow down.' });
 app.use('/api', (req, res, next) => (req.method === 'GET' ? readLimiter(req, res, next) : next()));
 app.use('/api/auth', authRouter);
 app.use('/api/workspaces', workspacesRouter);

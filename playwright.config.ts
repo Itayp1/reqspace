@@ -94,6 +94,8 @@ export default defineConfig({
       reuseExistingServer: !!process.env.CI,
       env: {
         NODE_ENV: 'test',
+        MUTATION_RATE_LIMIT_MAX: process.env.MUTATION_RATE_LIMIT_MAX || '300',
+        READ_RATE_LIMIT_MAX: process.env.READ_RATE_LIMIT_MAX || '2000',
         DB_TYPE: process.env.DB_TYPE || 'sqlite',
         DB_STORAGE_PATH: sqliteTestDbPath,
         PORT: '3005',

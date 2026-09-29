@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Play, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { resolveAllVariables } from '../../utils/variables';
+import { applyRequestAuth, folderChainClosestFirst, resolveInheritedAuth } from '../../utils/requestAuth';
 import { runPreRequestScript, runTestScript } from '../../utils/scripts';
+import { useCollectionStore, type Folder } from '../../store/collectionStore';
 import { sendRequest, EXTENSION_NOT_INSTALLED_ERROR } from '../../transport';
 import { useExtensionStore } from '../../store/extensionStore';
 import api from '../../api/axios';
@@ -72,6 +74,14 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
 
     let globalIdx = 0;
     const localVariables = new Map<string, string>(); // Persist across the entire runner session
+    const collection = useCollectionStore.getState().collections.find(c => c._id === collectionId);
+    let folders: Folder[] = [];
+    try {
+      const folderRes = await api.get(`/collections/${collectionId}/folders`);
+      folders = Array.isArray(folderRes.data) ? folderRes.data : [];
+    } catch {
+      folders = [];
+    }
 
     for (let iter = 0; iter < iterations; iter++) {
       const iterationData = dataArray[iter] || {};
@@ -116,10 +126,17 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           // Wait, users might test APIs that accept form-data.
           // It's okay, if they do, we'll just skip the file part since no File objects are persisted.
 
+          const appliedAuth = applyRequestAuth({
+            auth: resolveInheritedAuth(req.auth, folderChainClosestFirst(req.folderId, folders), collection),
+            headers: reqHeaders,
+            url: resolvedUrl,
+            resolve: (value) => resolveAllVariables(value, collectionId, iterationData, localVariables),
+          });
+
             const res = await sendRequest({
               method: req.method || 'GET',
-              url: resolvedUrl,
-              headers: reqHeaders,
+              url: appliedAuth.url,
+              headers: appliedAuth.headers,
               body: requestBody,
               followRedirects: true,
               verifySsl: true,
