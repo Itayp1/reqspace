@@ -10,7 +10,7 @@ export async function up({ context: qi }: { context: QueryInterface }) {
   }
 
   // We read from users table directly
-  const [users] = await sequelize.query('SELECT id, clientCertificates FROM users WHERE clientCertificates IS NOT NULL');
+  const [users] = await sequelize.query('SELECT id, "clientCertificates" FROM users WHERE "clientCertificates" IS NOT NULL');
   
   for (const user of users as any[]) {
     if (!user.clientCertificates) continue;
@@ -36,7 +36,7 @@ export async function up({ context: qi }: { context: QueryInterface }) {
     
     if (changed) {
       await sequelize.query(
-        'UPDATE users SET clientCertificates = :certs WHERE id = :id',
+        'UPDATE users SET "clientCertificates" = :certs WHERE id = :id',
         {
           replacements: {
             certs: JSON.stringify(certs),
