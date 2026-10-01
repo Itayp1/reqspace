@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { isExtensionInstalled } from '../../transport/extension';
 
 export function ExtensionInstallPrompt() {

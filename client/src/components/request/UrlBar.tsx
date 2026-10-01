@@ -287,9 +287,9 @@ export function UrlBar() {
 
       // 3. Run combined Test script
       const scriptReturn = await runTestScript(testScripts.join('\n\n'), {
-        status: res.data?.status || res.status,
-        statusText: res.data?.statusText || res.statusText,
-        headers: res.data?.headers || res.headers || {},
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers || {},
         body: responseBody,
         time: responseTime,
       }, colId, undefined, localVariables);
@@ -301,13 +301,13 @@ export function UrlBar() {
       const visualizerData = scriptReturn?.visualizerData;
 
       setResponseForTab(tabId, {
-        status: res.data?.status || res.status,
-        statusText: res.data?.statusText || res.statusText,
-        headers: res.data?.headers || res.headers || {},
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers || {},
         body: responseBody,
         isBase64,
         responseTime,
-        size: res.data?.size || 0,
+        size: res.size || 0,
         testResults,
         visualizerData,
       } as any);
@@ -317,14 +317,14 @@ export function UrlBar() {
         type: 'request',
         method: activeRequest.method,
         url: resolvedUrl,
-        status: res.data?.status || res.status,
+        status: res.status,
         time: responseTime,
         requestHeaders: activeRequest.headers?.reduce((acc: any, h: any) => {
           if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId);
           return acc;
         }, {}) || {},
         requestBody: requestBody,
-        responseHeaders: res.data?.headers || res.headers || {},
+        responseHeaders: res.headers || {},
         responseBody,
       });
     } catch (err: any) {

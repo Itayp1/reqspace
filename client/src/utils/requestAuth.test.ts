@@ -43,7 +43,7 @@ describe('resolveInheritedAuth', () => {
   it('uses the closest folder, then its parent, then the collection', () => {
     const folders = folderChainClosestFirst('child', [
       { _id: 'root', parentFolderId: null, auth: bearer },
-      { _id: 'child', parentFolderId: 'root', auth: { type: 'inherit' } },
+      { _id: 'child', parentFolderId: 'root', auth: { type: 'inherit' as const } },
     ]);
     expect(folders.map(f => f._id)).toEqual(['child', 'root']);
     expect(resolveInheritedAuth({ type: 'inherit' }, folders, { auth: basic })?.type).toBe('bearer');

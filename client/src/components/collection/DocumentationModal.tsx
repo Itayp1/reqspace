@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, BookOpen } from 'lucide-react';
-import { useCollectionStore } from '../../store/collectionStore';
+import { useCollectionStore, useLoadedTree } from '../../store/collectionStore';
 
 interface DocumentationModalProps {
   collectionId: string;
@@ -9,7 +9,17 @@ interface DocumentationModalProps {
 }
 
 export const DocumentationModal: React.FC<DocumentationModalProps> = ({ collectionId, collectionName, onClose }) => {
-  const { collections, folders, requests } = useCollectionStore();
+  const { collections, loadCollectionChildren, loadFolderChildren } = useCollectionStore();
+  const { folders, requests } = useLoadedTree();
+
+  // The tree is lazy-loaded: pull in this collection's folders and every
+  // folder's requests so the generated docs are complete, not just what the
+  // sidebar happens to have expanded.
+  useEffect(() => { loadCollectionChildren(collectionId); }, [collectionId, loadCollectionChildren]);
+  const folderIds = folders.filter(f => f.collectionId === collectionId).map(f => f._id).join(',');
+  useEffect(() => {
+    if (folderIds) folderIds.split(',').forEach(id => loadFolderChildren(collectionId, id));
+  }, [collectionId, folderIds, loadFolderChildren]);
   const collection = collections.find(c => c._id === collectionId);
 
   const renderRequestDocs = (request: any, level: number = 0) => {

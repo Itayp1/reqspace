@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useCollectionStore } from '../../store/collectionStore';
+import { useCollectionStore, useLoadedTree } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
 import { Search, X, Folder, FileJson } from 'lucide-react';
 
@@ -10,7 +10,8 @@ interface GlobalSearchModalProps {
 export default function GlobalSearchModal({ onClose }: GlobalSearchModalProps) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
-  const { collections, folders, requests, openCollectionIds, toggleCollectionOpen } = useCollectionStore();
+  const { collections, openCollectionIds, toggleCollectionOpen } = useCollectionStore();
+  const { folders, requests } = useLoadedTree();
   const { setActiveRequest } = useRequestStore();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);

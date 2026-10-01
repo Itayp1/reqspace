@@ -1,5 +1,5 @@
 import React from 'react';
-import { createRoot, Root } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import ConfirmModal from '../components/common/ConfirmModal';
 import { PromptModal } from '../components/common/PromptModal';
 

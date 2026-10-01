@@ -150,10 +150,6 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
             });
             folderId = fRes.data._id;
             foldersMap.set(tag, fRes.data._id);
-            useCollectionStore.getState().setFolders([
-              ...useCollectionStore.getState().folders,
-              fRes.data,
-            ]);
           }
         }
 
@@ -204,7 +200,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
           }
         }
 
-        const savedReq = await api.post(`/collections/${collection._id}/requests`, {
+        await api.post(`/collections/${collection._id}/requests`, {
           name: reqName,
           method: method.toUpperCase(),
           url: fullUrl,
@@ -214,10 +210,6 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
           folderId,
         });
 
-        useCollectionStore.getState().setRequests([
-          ...useCollectionStore.getState().requests,
-          savedReq.data,
-        ]);
       }
     }
 

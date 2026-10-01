@@ -19,11 +19,12 @@ export interface RequestBody {
 }
 
 export interface RequestAuth {
-  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'inherit';
+  type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'ntlm' | 'inherit';
   bearer?: { token: string };
   basic?: { username: string; password: string };
   apikey?: { key: string; value: string; in: 'header' | 'query' };
   oauth2?: { token: string; clientId?: string; clientSecret?: string; authUrl?: string; accessTokenUrl?: string; scope?: string };
+  ntlm?: { username?: string; password?: string; domain?: string; workstation?: string };
 }
 
 export interface ActiveRequest {

@@ -36,7 +36,7 @@ export const ConnectionEditor: React.FC = () => {
           setConnected(false);
           addMsg('info', 'WebSocket closed');
         };
-        ws.onerror = (e) => addMsg('error', 'WebSocket error');
+        ws.onerror = () => addMsg('error', 'WebSocket error');
         wsRef.current = ws;
       } catch (err: any) {
         addMsg('error', err.message);

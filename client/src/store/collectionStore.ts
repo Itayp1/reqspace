@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import api from '../api/axios';
 
@@ -637,3 +638,30 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   },
 }));
 
+
+function flattenLoaded<T extends { _id: string }>(byKey: Record<string, T[] | 'loading'>): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const list of Object.values(byKey)) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!seen.has(item._id)) { seen.add(item._id); out.push(item); }
+    }
+  }
+  return out;
+}
+
+/**
+ * Flat folder/request lists for features that scan the whole tree (search,
+ * docs, move picker). The tree is lazy-loaded (PERF-2), so this only covers
+ * collections/folders the user has already expanded — nodes that haven't been
+ * loaded yet are not included.
+ */
+export function useLoadedTree(): { folders: Folder[]; requests: ApiRequest[] } {
+  const foldersByCollection = useCollectionStore(s => s.foldersByCollection);
+  const requestsByFolder = useCollectionStore(s => s.requestsByFolder);
+  return useMemo(() => ({
+    folders: flattenLoaded(foldersByCollection),
+    requests: flattenLoaded(requestsByFolder),
+  }), [foldersByCollection, requestsByFolder]);
+}

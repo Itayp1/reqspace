@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { X, Play, StopCircle, Activity } from 'lucide-react';
 import { useRequestStore } from '../../store/requestStore';
-import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
-import api from '../../api/axios';
 import { sendRequest } from '../../transport';
 
 interface Props {
@@ -12,7 +10,6 @@ interface Props {
 
 export function LoadTestModal({ onClose }: Props) {
   const { activeRequest } = useRequestStore();
-  const { activeWorkspace } = useAuthStore();
   
   const [iterations, setIterations] = useState(10);
   const [concurrency, setConcurrency] = useState(1);

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Folder as FolderIcon, ChevronRight, ChevronDown } from 'lucide-react';
-import { useCollectionStore } from '../../store/collectionStore';
+import { useCollectionStore, useLoadedTree } from '../../store/collectionStore';
 import type { Folder } from '../../store/collectionStore';
 
 interface MoveRequestModalProps {
@@ -23,7 +23,7 @@ const FolderTreeNode = ({
   onSelect: (id: string, type: 'collection' | 'folder') => void;
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const { folders } = useCollectionStore();
+  const { folders } = useLoadedTree();
   const childFolders = folders.filter(f => f.parentFolderId === folder._id);
 
   const isSelected = selectedId === folder._id && selectedType === 'folder';
@@ -55,7 +55,11 @@ const FolderTreeNode = ({
 };
 
 export const MoveRequestModal: React.FC<MoveRequestModalProps> = ({ requestId, requestName, onClose }) => {
-  const { collections, folders, moveRequest, toggleCollectionOpen } = useCollectionStore();
+  const { collections, moveRequest, toggleCollectionOpen, loadCollectionChildren } = useCollectionStore();
+  const { folders } = useLoadedTree();
+
+  // Lazy-loaded tree: make sure every collection's folders are available to pick from.
+  useEffect(() => { collections.forEach(c => loadCollectionChildren(c._id)); }, [collections, loadCollectionChildren]);
   const [selectedId, setSelectedId] = useState('');
   const [selectedType, setSelectedType] = useState<'collection' | 'folder'>('collection');
   const [openCollIds, setOpenCollIds] = useState<Set<string>>(new Set());

@@ -612,12 +612,13 @@ const CollectionNode = ({
           <span data-testid={`node-${collection.name}`} className="flex-1 truncate text-sm font-medium text-gray-200">{collection.name}</span>
         )}
         {!isRenaming && forkSyncError && (
-          <AlertTriangle
-            size={13}
-            className="text-amber-400 shrink-0 mx-1"
-            data-testid={`fork-sync-error-${collection.name}`}
-            title={`Fork sync is failing: ${forkSyncError}`}
-          />
+          <span title={`Fork sync is failing: ${forkSyncError}`} className="shrink-0 mx-1 inline-flex">
+            <AlertTriangle
+              size={13}
+              className="text-amber-400"
+              data-testid={`fork-sync-error-${collection.name}`}
+            />
+          </span>
         )}
         {!isRenaming && (
           <div className="opacity-30 group-hover:opacity-100 flex items-center shrink-0">
