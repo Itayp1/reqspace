@@ -29,7 +29,7 @@ export async function up({ context: qi }: { context: QueryInterface }) {
   // regardless of this backfill.
   const sequelize = (qi as any).sequelize;
   const candidates: { id: string; members: string }[] = await sequelize.query(
-    `SELECT id, members FROM workspaces WHERE description = 'Personal workspace' AND isPersonal = false`,
+    `SELECT id, members FROM workspaces WHERE description = 'Personal workspace' AND "isPersonal" = false`,
     { type: QueryTypes.SELECT },
   );
   let backfilled = 0;
