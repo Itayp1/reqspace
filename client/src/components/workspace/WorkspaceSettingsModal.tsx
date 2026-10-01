@@ -4,6 +4,7 @@ import { X, UserPlus, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../api/axios';
 import { UserAutocomplete } from '../common/UserAutocomplete';
+import { useToastStore } from '../../store/toastStore';
 import { ConfirmModal } from '../common/ConfirmModal';
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
@@ -57,7 +58,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       setWorkspaces(updatedWorkspaces);
       setActiveWorkspace(updatedWorkspaces.find(w => w._id === res.data._id) || null);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to update');
+      const message = e.response?.data?.message || 'Failed to update';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -68,7 +71,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       await refreshMembers();
       setInviteEmail('');
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to add member');
+      const message = e.response?.data?.message || 'Failed to add member';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -80,7 +85,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       setActiveWorkspace(updatedWorkspaces[0] || null);
       onClose();
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to delete workspace');
+      const message = e.response?.data?.message || 'Failed to delete workspace';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -89,7 +96,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       await api.delete(`/workspaces/${activeWorkspace?._id}/members/${userId}`);
       await refreshMembers();
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to remove member');
+      const message = e.response?.data?.message || 'Failed to remove member';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
     }
   };
 
@@ -121,6 +130,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
         <div className="flex border-b border-border">
           <button 
             className={`px-4 py-2 font-medium ${activeTab === 'general' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
+            data-testid="workspace-general-tab"
             onClick={() => setActiveTab('general')}
           >
             General
@@ -134,6 +144,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
           </button>
           <button 
             className={`px-4 py-2 font-medium ${activeTab === 'activity' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'}`}
+            data-testid="workspace-activity-tab"
             onClick={() => setActiveTab('activity')}
           >
             Activity / Changelog
@@ -266,7 +277,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                                   await api.put(`/workspaces/${activeWorkspace?._id}/members/${m.userId?._id}`, { role: e.target.value });
                                   await refreshMembers();
                                 } catch (err: any) {
-                                  setError(err?.response?.data?.message || 'Failed to update role');
+                                  const message = err?.response?.data?.message || 'Failed to update role';
+                                  setError(message);
+                                  useToastStore.getState().addToast('error', message);
                                 }
                               }}
                               className="bg-transparent border border-border rounded p-1"
