@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import { ConsoleDrawer } from './ConsoleDrawer';
+import { ExtensionInstallPrompt } from '../common/ExtensionInstallPrompt';
 import { useConsoleStore } from '../../store/consoleStore';
 import { Terminal, Menu, X } from 'lucide-react';
 
@@ -50,6 +51,7 @@ export default function MainLayout() {
       {/* Main Content Area */}
       <main id="main-content" className="flex-1 flex flex-col min-w-0 h-full relative z-0" tabIndex={-1}>
         <TopBar />
+        <ExtensionInstallPrompt />
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
           <div className="flex-1 overflow-hidden">
             <Outlet />

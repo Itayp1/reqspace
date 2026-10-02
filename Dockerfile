@@ -4,7 +4,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Build dependencies for native modules (better-sqlite3, sqlite3, bcrypt).
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ zip
 
 # Install with the lockfile (reproducible) before copying source, so the
 # dependency layers cache independently of code changes.
@@ -12,6 +12,10 @@ COPY client/package.json client/package-lock.json ./client/
 RUN cd client && npm ci
 COPY client ./client
 RUN cd client && npm run build
+
+# Package the browser extension so the web app can serve it for "Load unpacked".
+COPY extension ./extension
+RUN cd extension && zip -r ../reqspace-transport.zip .
 
 COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci
@@ -37,6 +41,7 @@ COPY --from=builder /app/server/package.json ./server/package.json
 COPY --from=builder /app/server/node_modules ./server/node_modules
 COPY --from=builder /app/server/dist ./server/dist
 COPY --from=builder /app/client/dist ./client/dist
+COPY --from=builder /app/reqspace-transport.zip ./reqspace-transport.zip
 
 # Run as the non-root user that ships with the base image.
 RUN chown -R node:node /app

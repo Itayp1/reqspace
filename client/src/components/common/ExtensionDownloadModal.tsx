@@ -6,7 +6,7 @@ import { X, Download, Puzzle } from 'lucide-react';
  * Modal that appears when the user tries to send a request but the
  * Reqspace Transport extension is not installed.
  *
- * The modal provides a one-click download of the packaged .crx file
+ * The modal provides a download of the packaged extension (zip)
  * and step-by-step install instructions.
  */
 export function ExtensionDownloadModal() {
@@ -70,23 +70,22 @@ export function ExtensionDownloadModal() {
 
           {/* Download button */}
           <a
-            href="/extension/reqspace-transport.crx"
-            download="reqspace-transport.crx"
+            href="/extension/reqspace-transport.zip"
+            download="reqspace-transport.zip"
             className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition-colors text-sm"
           >
             <Download size={16} />
-            Download Extension (.crx)
+            Download Extension (.zip)
           </a>
 
           {/* Install instructions */}
           <div className="bg-[#1a1f2e] border border-[#2d3348] rounded-xl p-4 space-y-3">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Install Steps</p>
             {[
-              { n: '1', text: 'Download the .crx file above' },
+              { n: '1', text: 'Download the .zip file above and extract it to a folder' },
               { n: '2', text: <>Open <code className="text-indigo-300 bg-indigo-950/50 px-1.5 py-0.5 rounded text-[11px]">chrome://extensions</code> in a new tab</> },
               { n: '3', text: 'Enable Developer Mode (toggle top-right)' },
-              { n: '4', text: 'Drag the downloaded .crx file into the page' },
-              { n: '5', text: 'Click "Add extension" in the confirmation dialog' },
+              { n: '4', text: 'Click "Load unpacked" and select the extracted folder' },
             ].map(({ n, text }) => (
               <div key={n} className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-5 h-5 bg-indigo-600 text-white text-[11px] font-bold rounded-full flex items-center justify-center mt-0.5">

@@ -260,17 +260,15 @@ app.use('/api/local-variables', localVariablesRouter);
 app.use('/api/user-profile-variables', userProfileVariablesRouter);
 app.use('/api', forksRouter);
 
-// Serve the packaged Chrome extension (.crx) for one-click install.
-// Build it first: powershell -File scripts/build-extension.ps1
-const crxPath = path.resolve(__dirname, '../../extension.crx');
-app.get('/extension/reqspace-transport.crx', (_req, res) => {
+// Serve the extension as a zip (built in the Dockerfile) for "Load unpacked";
+// Chrome no longer allows installing a self-hosted .crx outside the Web Store.
+const extensionZipPath = path.resolve(__dirname, '../../reqspace-transport.zip');
+app.get('/extension/reqspace-transport.zip', (_req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  if (!require('fs').existsSync(crxPath)) {
-    return res.status(404).json({ error: 'Extension not built yet. Run: npm run build:extension' });
+  if (!require('fs').existsSync(extensionZipPath)) {
+    return res.status(404).json({ error: 'Extension zip not built. Run: cd extension && zip -r ../reqspace-transport.zip .' });
   }
-  res.setHeader('Content-Type', 'application/x-chrome-extension');
-  res.setHeader('Content-Disposition', 'attachment; filename="reqspace-transport.crx"');
-  res.sendFile(crxPath);
+  res.download(extensionZipPath, 'reqspace-transport.zip');
 });
 
 // Serve client static files (production)
