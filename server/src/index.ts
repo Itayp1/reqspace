@@ -162,7 +162,9 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-eval'"],
       styleSrc: ["'self'", "'unsafe-inline'"],          // Tailwind + inline <style> in App.tsx
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'"],
+      // Open on purpose: the browser transport calls arbitrary third-party APIs.
+      // Hosts that don't send CORS headers are handled by the browser extension.
+      connectSrc: ["'self'", "https:", "http:", "ws:", "wss:"],
       workerSrc: ["'self'", "blob:"],
       childSrc: ["'self'", "blob:"],
       frameSrc: ["'self'", "data:"],

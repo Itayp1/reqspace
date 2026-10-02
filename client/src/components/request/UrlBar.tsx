@@ -339,10 +339,16 @@ export function UrlBar() {
         });
         return;
       }
-      const errorBody = err.response?.data ? JSON.stringify(err.response.data, null, 2) : err.message;
+      const isNetworkError = !err.response && err instanceof TypeError
+        && /failed to fetch|networkerror|load failed/i.test(err.message);
+      const errorBody = err.response?.data
+        ? JSON.stringify(err.response.data, null, 2)
+        : isNetworkError
+          ? `Could not reach ${activeRequest.url}\n\nThe request never left the browser. Likely causes: the server blocks cross-origin (CORS) requests, a wrong URL or DNS failure, no network, or an ad blocker. Install the browser extension to send requests to servers that block CORS.`
+          : err.message;
       setResponseForTab(tabId, {
-        status: err.response?.status || 500,
-        statusText: err.response?.statusText || 'Error',
+        status: err.response?.status || (isNetworkError ? 0 : 500),
+        statusText: err.response?.statusText || (isNetworkError ? 'Network Error' : 'Error'),
         headers: err.response?.headers || {},
         body: errorBody,
         responseTime: 0,
@@ -353,7 +359,7 @@ export function UrlBar() {
         type: 'request',
         method: activeRequest.method,
         url: activeRequest.url,
-        status: err.response?.status || 500,
+        status: err.response?.status || (isNetworkError ? 0 : 500),
         time: 0,
         responseBody: errorBody,
       });
