@@ -5,15 +5,29 @@ interface VariableInputProps extends Omit<React.InputHTMLAttributes<HTMLInputEle
   value: string;
   onChange: (val: string) => void;
   onEnter?: () => void;
+  // Single line while idle; while focused, wraps into a two-line box so long values are fully visible.
+  multilineOnFocus?: boolean;
   style?: React.CSSProperties;
 }
 
-export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, onEnter, className, style, ...props }) => {
+export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, onEnter, multilineOnFocus, className, style, ...props }) => {
   const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore();
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [varFilter, setVarFilter] = useState('');
   const [cursorPos, setCursorPos] = useState<number>(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<any>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // The visible text is the overlay; the real <input> text is transparent. When a
+  // long value scrolls inside the input, the overlay has to follow or it looks stuck.
+  const syncScroll = () => {
+    if (inputRef.current && overlayRef.current) {
+      overlayRef.current.scrollLeft = inputRef.current.scrollLeft;
+      overlayRef.current.scrollTop = inputRef.current.scrollTop;
+    }
+  };
+  const syncScrollSoon = () => requestAnimationFrame(syncScroll);
 
   const activeEnv = environments.find(e => e._id === activeEnvironmentId);
   const allVars = [
@@ -38,12 +52,13 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<any>) => {
     if (e.key === 'Escape') {
       setShowSuggestions(false);
       return;
     }
     if (e.key === 'Enter') {
+      if (multilineOnFocus) e.preventDefault();
       if (showSuggestions) {
         e.preventDefault();
       } else if (onEnter) {
@@ -53,10 +68,12 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     if (props.onKeyDown) props.onKeyDown(e);
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
+  const handleChange = (e: React.ChangeEvent<any>) => {
+    const val = multilineOnFocus ? e.target.value.replace(/[
+]+/g, '') : e.target.value;
     onChange(val);
-    
+    syncScrollSoon();
+
     const cursor = e.target.selectionStart || 0;
     setCursorPos(cursor);
     const beforeCursor = val.slice(0, cursor);
@@ -107,24 +124,32 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     }
   }
 
+  const wrapped = !!multilineOnFocus && focused;
+  const Field: any = multilineOnFocus ? 'textarea' : 'input';
+
   return (
     <div className={`relative flex items-center ${className || ''}`} style={style}>
       <div 
-        className="absolute inset-0 px-4 py-2 pointer-events-none whitespace-pre font-sans text-sm overflow-hidden"
+        ref={overlayRef}
+        className={`absolute inset-0 px-4 py-2 pointer-events-none font-sans text-sm overflow-hidden ${multilineOnFocus ? 'leading-5' : ''} ${wrapped ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
         style={{ padding: style?.padding, paddingLeft: style?.paddingLeft, paddingRight: style?.paddingRight, paddingTop: style?.paddingTop, paddingBottom: style?.paddingBottom }}
       >
         {renderHighlighted()}
       </div>
       
-      <input
+      <Field
         ref={inputRef}
-        type="text"
+        {...(multilineOnFocus ? { rows: wrapped ? 2 : 1, wrap: wrapped ? 'soft' : 'off' } : { type: 'text' })}
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onClick={(e) => setCursorPos(e.currentTarget.selectionStart || 0)}
-        onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart || 0)}
-        className="relative z-10 bg-transparent text-transparent caret-gray-900 dark:caret-gray-100 outline-none w-full px-4 py-2 text-sm font-sans placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent"
+        onClick={(e) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
+        onKeyUp={(e) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
+        onScroll={syncScroll}
+        onSelect={syncScrollSoon}
+        onFocus={() => { setFocused(true); syncScrollSoon(); }}
+        onBlur={() => { setFocused(false); syncScrollSoon(); }}
+        className={`relative z-10 bg-transparent text-transparent caret-gray-900 dark:caret-gray-100 outline-none w-full px-4 py-2 text-sm font-sans placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent ${multilineOnFocus ? 'resize-none leading-5 block' : ''} ${wrapped ? 'break-all' : ''}`}
         {...props}
         style={{ ...style }}
       />

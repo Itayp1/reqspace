@@ -536,6 +536,7 @@ export function UrlBar() {
             <VariableInput
               className="flex-1"
               data-testid="request-url-input"
+              multilineOnFocus
               value={activeRequest.url}
               onChange={(val) => handleUrlChange(val)}
               onEnter={handleSend}
