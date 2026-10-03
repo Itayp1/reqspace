@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useCollectionStore } from '../../store/collectionStore';
 import type { Collection, Folder, ApiRequest } from '../../store/collectionStore';
@@ -6,6 +7,7 @@ import { useRequestStore } from '../../store/requestStore';
 import type { ActiveRequest } from '../../store/requestStore';
 import api from '../../api/axios';
 import { useAuthStore } from '../../store/authStore';
+import { useToastStore } from '../../store/toastStore';
 import { PromptModal } from '../common/PromptModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { MoveRequestModal } from '../request/MoveRequestModal';
@@ -808,6 +810,30 @@ export const CollectionExplorer: React.FC = () => {
 
 
 
+  const buildExportAuth = (auth: any): any => {
+    if (!auth || !auth.type || auth.type === 'none') return undefined;
+    const kv = (obj: Record<string, any>) => Object.entries(obj).filter(([, v]) => v !== undefined && v !== '').map(([key, value]) => ({ key, value: String(value), type: 'string' }));
+    switch (auth.type) {
+      case 'basic': return { type: 'basic', basic: kv({ username: auth.basic?.username, password: auth.basic?.password }) };
+      case 'bearer': return { type: 'bearer', bearer: kv({ token: auth.bearer?.token }) };
+      case 'apikey': return { type: 'apikey', apikey: kv({ key: auth.apikey?.key, value: auth.apikey?.value, in: auth.apikey?.in || 'header' }) };
+      case 'oauth2': return { type: 'oauth2', oauth2: kv({ accessToken: auth.oauth2?.token, clientId: auth.oauth2?.clientId, clientSecret: auth.oauth2?.clientSecret, authUrl: auth.oauth2?.authUrl, accessTokenUrl: auth.oauth2?.accessTokenUrl, scope: auth.oauth2?.scope }) };
+      case 'ntlm': return { type: 'ntlm', ntlm: kv({ username: auth.ntlm?.username, password: auth.ntlm?.password, domain: auth.ntlm?.domain, workstation: auth.ntlm?.workstation }) };
+      default: return { type: auth.type };
+    }
+  };
+
+  const authToHeader = (auth: any): { key: string; value: string } | null => {
+    if (!auth) return null;
+    if (auth.type === 'basic' && (auth.basic?.username || auth.basic?.password)) {
+      return { key: 'Authorization', value: 'Basic ' + btoa(unescape(encodeURIComponent((auth.basic?.username || '') + ':' + (auth.basic?.password || '')))) };
+    }
+    if (auth.type === 'bearer' && auth.bearer?.token) return { key: 'Authorization', value: 'Bearer ' + auth.bearer.token };
+    if (auth.type === 'oauth2' && auth.oauth2?.token) return { key: 'Authorization', value: 'Bearer ' + auth.oauth2.token };
+    if (auth.type === 'apikey' && auth.apikey?.key && auth.apikey?.in !== 'query') return { key: auth.apikey.key, value: auth.apikey.value || '' };
+    return null;
+  };
+
   const exportCollection = (id: string, name: string) => {
     const collection = collections.find(c => c._id === id);
     if (!collection) return;
@@ -839,6 +865,11 @@ export const CollectionExplorer: React.FC = () => {
           if (!h.enabled) out.disabled = true;
           return out;
         });
+
+        const authHeader = authToHeader(req.auth);
+        if (authHeader && !header.some((h: any) => String(h.key).toLowerCase() === authHeader.key.toLowerCase())) {
+          header.unshift({ key: authHeader.key, value: authHeader.value, description: 'Generated from Auth tab' });
+        }
 
         let body: any = undefined;
         if (req.body && req.body.mode !== 'none') {
@@ -893,6 +924,7 @@ export const CollectionExplorer: React.FC = () => {
             url: urlObj,
             header,
             body,
+            auth: buildExportAuth(req.auth),
           },
         };
         
@@ -954,8 +986,11 @@ export const CollectionExplorer: React.FC = () => {
       ...config,
       isOpen: true,
       onSubmit: (val) => {
-        config.onSubmit(val);
         setPromptConfig(p => ({ ...p, isOpen: false }));
+        Promise.resolve(config.onSubmit(val)).catch((err) => {
+          console.error(err);
+          useToastStore.getState().addToast('error', err?.response?.data?.message || 'Action failed');
+        });
       },
     });
   };
@@ -986,9 +1021,12 @@ export const CollectionExplorer: React.FC = () => {
   };
 
   const handleCreateCollection = () => {
-    if (!activeWorkspace) return;
+    if (!activeWorkspace) {
+      useToastStore.getState().addToast('error', 'No workspace selected');
+      return;
+    }
     openPrompt({
-      title: 'Enter collection name:',
+      title: 'New Collection',
       placeholder: 'Enter collection name:',
       onSubmit: async (name) => {
         await createCollection(activeWorkspace._id, name);
@@ -1080,7 +1118,8 @@ export const CollectionExplorer: React.FC = () => {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* Modals — portalled to <body>: the sidebar is a transformed container on small screens, which would trap position:fixed overlays inside it. */}
+      {createPortal(<>
       {promptConfig.isOpen && (
         <PromptModal
           title={promptConfig.title}
@@ -1156,6 +1195,7 @@ export const CollectionExplorer: React.FC = () => {
           onClose={() => setShareConfig({ ...shareConfig, isOpen: false })}
         />
       )}
+      </>, document.body)}
     </>
   );
 };

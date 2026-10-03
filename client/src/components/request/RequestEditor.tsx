@@ -6,7 +6,6 @@ import { BodyEditor } from './BodyEditor';
 import { ScriptEditor } from './ScriptEditor';
 import { AuthEditor } from './AuthEditor';
 import { CommentsEditor } from './CommentsEditor';
-import { RequestSettings } from './RequestSettings';
 
 const TABS = [
   'Params',
@@ -16,7 +15,6 @@ const TABS = [
   'Pre-request Script',
   'Tests',
   'Comments',
-  'Settings',
 ] as const;
 
 type TabType = typeof TABS[number];
@@ -160,11 +158,6 @@ export function RequestEditor() {
         {activeTab === 'Comments' && (
           <div className="flex-1 overflow-y-auto">
             <CommentsEditor />
-          </div>
-        )}
-        {activeTab === 'Settings' && (
-          <div className="flex-1 overflow-y-auto">
-            <RequestSettings />
           </div>
         )}
       </div>

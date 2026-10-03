@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { X, Folder as FolderIcon } from 'lucide-react';
+import { X, Folder as FolderIcon, FolderPlus, Plus } from 'lucide-react';
+import { useAuthStore } from '../../store/authStore';
+import { useToastStore } from '../../store/toastStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
 
 export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
-  const { collections, foldersByCollection, openCollection } = useCollectionStore();
+  const { collections, foldersByCollection, openCollection, loadCollectionChildren, loadFolderChildren, createCollection, createFolder, applyRequestUpserted } = useCollectionStore();
+  const { activeWorkspace } = useAuthStore();
+  const [creating, setCreating] = useState<null | 'collection' | 'folder'>(null);
+  const [newName, setNewName] = useState('');
   const { activeRequest, setActiveRequest, markSaved } = useRequestStore();
 
   const [name, setName] = useState(activeRequest?.name || 'New Request');
@@ -18,6 +23,42 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
     }
   }, [collections]);
 
+  useEffect(() => {
+    collections.forEach(c => { loadCollectionChildren(c._id); });
+  }, [collections]);
+
+  const findCollectionOfFolder = (folderId: string) => {
+    for (const fols of Object.values(foldersByCollection)) {
+      if (Array.isArray(fols)) {
+        const found = fols.find(f => f._id === folderId);
+        if (found) return found.collectionId;
+      }
+    }
+    return '';
+  };
+
+  const handleCreate = async () => {
+    const n = newName.trim();
+    if (!n || !creating) return;
+    try {
+      if (creating === 'collection') {
+        if (!activeWorkspace) { useToastStore.getState().addToast('error', 'No workspace selected'); return; }
+        const col = await createCollection(activeWorkspace._id, n);
+        setSelectedLocation({ type: 'collection', id: col._id });
+      } else if (selectedLocation) {
+        const colId = selectedLocation.type === 'collection' ? selectedLocation.id : findCollectionOfFolder(selectedLocation.id);
+        const parent = selectedLocation.type === 'folder' ? selectedLocation.id : undefined;
+        const folder = await createFolder(colId, n, parent);
+        setSelectedLocation({ type: 'folder', id: folder._id });
+      }
+      setCreating(null);
+      setNewName('');
+    } catch (err) {
+      console.error(err);
+      useToastStore.getState().addToast('error', 'Failed to create ' + creating);
+    }
+  };
+
   // Recursively build tree for rendering
   const renderTree = (collectionId: string, parentFolderId: string | null = null, depth = 0) => {
     const folders = foldersByCollection[parentFolderId || collectionId];
@@ -28,7 +69,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
         <div 
           className={`flex items-center px-2 py-1.5 cursor-pointer text-sm ${selectedLocation?.type === 'folder' && selectedLocation.id === folder._id ? 'bg-primary/20 text-primary' : 'text-gray-300 hover:bg-gray-800'}`}
           style={{ paddingLeft: `${(depth + 1) * 1.5}rem` }}
-          onClick={() => setSelectedLocation({ type: 'folder', id: folder._id })}
+          onClick={() => { setSelectedLocation({ type: 'folder', id: folder._id }); if (folder.collectionId) loadFolderChildren(folder.collectionId, folder._id); }}
         >
           <FolderIcon size={14} className="mr-2" />
           {folder.name}
@@ -51,15 +92,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
         collectionId = selectedLocation.id;
       } else {
         folderId = selectedLocation.id;
-        for (const fols of Object.values(foldersByCollection)) {
-          if (Array.isArray(fols)) {
-            const found = fols.find(f => f._id === folderId);
-            if (found) {
-              collectionId = found.collectionId;
-              break;
-            }
-          }
-        }
+        collectionId = findCollectionOfFolder(folderId);
       }
       
       const { default: api } = await import('../../api/axios');
@@ -101,6 +134,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
         updatedAt: savedRequest.updatedAt,
       });
       
+      applyRequestUpserted(savedRequest);
       openCollection(collectionId);
 
       // The server's own 'request:created' broadcast (sent to every socket in
@@ -110,6 +144,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
       onClose();
     } catch (err) {
       console.error('Failed to save request', err);
+      useToastStore.getState().addToast('error', 'Failed to save request');
     } finally {
       setLoading(false);
     }
@@ -140,7 +175,28 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
           </div>
           
           <div className="p-4 flex-1 overflow-y-auto">
-            <label className="block text-sm font-medium text-gray-400 mb-2">Save to...</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-400">Save to...</label>
+              <div className="flex gap-1">
+                <button type="button" data-testid="save-req-new-collection" onClick={() => { setCreating('collection'); setNewName(''); }} className="flex items-center gap-1 px-2 py-1 text-xs border border-border rounded text-text hover:bg-border"><Plus size={12} /> New Collection</button>
+                <button type="button" data-testid="save-req-new-folder" disabled={!selectedLocation} onClick={() => { setCreating('folder'); setNewName(''); }} className="flex items-center gap-1 px-2 py-1 text-xs border border-border rounded text-text hover:bg-border disabled:opacity-50"><FolderPlus size={12} /> New Folder</button>
+              </div>
+            </div>
+            {creating && (
+              <div className="flex gap-2 mb-2">
+                <input
+                  autoFocus
+                  data-testid="save-req-new-name"
+                  className="flex-1 p-1.5 border border-border rounded bg-transparent text-text text-sm outline-none focus:border-primary"
+                  placeholder={creating === 'collection' ? 'Collection name' : 'Folder name'}
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreate(); } else if (e.key === 'Escape') { e.preventDefault(); setCreating(null); } }}
+                />
+                <button type="button" onClick={handleCreate} className="px-3 py-1 bg-primary text-white rounded text-sm">Create</button>
+                <button type="button" onClick={() => setCreating(null)} className="px-3 py-1 border border-border rounded text-sm text-text">Cancel</button>
+              </div>
+            )}
             <div className="border border-border rounded-md overflow-hidden">
               {collections.length === 0 ? (
                 <div className="p-4 text-center text-gray-500 text-sm">No collections found.</div>

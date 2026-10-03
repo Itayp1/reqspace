@@ -35,6 +35,12 @@ export default function HistorySidebar() {
     fetchHistory();
   }, [activeWorkspace]);
 
+  useEffect(() => {
+    const refresh = () => { fetchHistory(); };
+    window.addEventListener('history-updated', refresh);
+    return () => window.removeEventListener('history-updated', refresh);
+  }, [activeWorkspace]);
+
   const handleClearHistory = async () => {
     if (!activeWorkspace) return;
     try {

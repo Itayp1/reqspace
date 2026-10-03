@@ -60,7 +60,7 @@ export const useSettingsStore = create<SettingsStore>()(
           send: 'ctrl+enter'
         },
       },
-      setSettings: (settings) => set({ settings }),
+      setSettings: (settings) => set((state) => ({ settings: { ...state.settings, ...settings } })),
       updateSettings: (newSettings) => set((state) => {
         const next = { ...state.settings, ...newSettings };
         api.put('/auth/settings', next).catch(console.error);
@@ -69,6 +69,12 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     { 
       name: 'reqspace-global-settings',
+      // Older persisted states lack newer keys (e.g. saveHistory, timeout); a
+      // shallow merge would replace the defaults object and leave them undefined.
+      merge: (persisted: any, current) => ({
+        ...current,
+        settings: { ...current.settings, ...(persisted?.settings || {}) },
+      }),
       partialize: (state) => {
         const { proxyPassword, ...safeSettings } = state.settings;
         return { settings: safeSettings } as any;

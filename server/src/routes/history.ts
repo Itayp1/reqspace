@@ -180,7 +180,7 @@ export async function saveHistoryEntry(
   }
 ) {
   const user = await UserRepository.findById(userId);
-  if (!user?.settings?.saveHistory) return;
+  if (!user || user.settings?.saveHistory === false) return;
 
   const config = await SystemConfigRepository.getConfig();
   const maxBodyKB = (config?.history.maxRequestBodyKB ?? 10) * 1024;

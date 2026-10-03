@@ -47,11 +47,6 @@ export interface ActiveRequest {
   isConflicted?: boolean;
   updatedAt?: number;
   isDirty?: boolean;
-  settings?: {
-    timeout?: number;
-    verifySsl?: boolean;
-    followRedirects?: boolean;
-  };
 }
 
 export interface ResponseData {

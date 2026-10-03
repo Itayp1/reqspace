@@ -69,8 +69,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
   };
 
   const handleChange = (e: React.ChangeEvent<any>) => {
-    const val = multilineOnFocus ? e.target.value.replace(/[
-]+/g, '') : e.target.value;
+    const val = multilineOnFocus ? e.target.value.replace(/[\r\n]+/g, '') : e.target.value;
     onChange(val);
     syncScrollSoon();
 
@@ -143,8 +142,8 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onClick={(e) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
-        onKeyUp={(e) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
+        onClick={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
+        onKeyUp={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
         onScroll={syncScroll}
         onSelect={syncScrollSoon}
         onFocus={() => { setFocused(true); syncScrollSoon(); }}

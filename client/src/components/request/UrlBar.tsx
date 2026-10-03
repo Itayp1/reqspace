@@ -1,11 +1,11 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore, type Folder } from '../../store/collectionStore';
 import { useConsoleStore } from '../../store/consoleStore';
 import { useCookieStore } from '../../store/cookieStore';
 import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
-import { Save, Play, Code2, Cookie, Activity } from 'lucide-react';
+import { Save, Play, Code2, Cookie, Activity, ChevronDown } from 'lucide-react';
 import { VariableInput } from '../common/VariableInput';
 import api from '../../api/axios';
 import { SaveRequestModal } from './SaveRequestModal';
@@ -88,6 +88,8 @@ export function UrlBar() {
     markSaved,
   } = useRequestStore();
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
   const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', confirmLabel: '', onConfirm: () => {}, onCancel: () => {} });
   const [isLoadTestModalOpen, setIsLoadTestModalOpen] = useState(false);
   const [isCodeGenOpen, setIsCodeGenOpen] = useState(false);
@@ -97,6 +99,15 @@ export function UrlBar() {
   const [isViewerForkModalOpen, setIsViewerForkModalOpen] = useState(false);
 
   const isDirty = !!activeRequest?.isDirty;
+
+  useEffect(() => {
+    if (!isSaveMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (saveMenuRef.current && !saveMenuRef.current.contains(e.target as Node)) setIsSaveMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [isSaveMenuOpen]);
 
   const handleUrlChange = useCallback((newUrl: string) => {
     if (!activeRequest) return;
@@ -248,9 +259,9 @@ export function UrlBar() {
         url: finalUrl,
         headers: reqHeaders,
         body: requestBody,
-        followRedirects: activeRequest.settings?.followRedirects ?? useSettingsStore.getState().settings.followRedirects,
-        verifySsl: activeRequest.settings?.verifySsl ?? useSettingsStore.getState().settings.verifySsl,
-        timeout: activeRequest.settings?.timeout ?? useSettingsStore.getState().settings.timeout,
+        followRedirects: useSettingsStore.getState().settings.followRedirects,
+        verifySsl: useSettingsStore.getState().settings.verifySsl,
+        timeout: useSettingsStore.getState().settings.timeout ?? 0,
         localProxy: getLocalProxyConfig(),
       };
       
@@ -263,7 +274,7 @@ export function UrlBar() {
       const isBase64 = !!res.isBase64;
 
       // Manually save history if enabled
-      const saveHistory = useSettingsStore.getState().settings.saveHistory;
+      const saveHistory = useSettingsStore.getState().settings.saveHistory !== false;
       const workspaceId = useAuthStore.getState().activeWorkspace?._id;
       if (saveHistory && workspaceId) {
         // Send asynchronously
@@ -281,7 +292,8 @@ export function UrlBar() {
           responseTime,
           responseSize: res.size || 0,
           testResults: [], // populated later? No, history on server didn't have test results from test script because it ran on server before test script.
-        }).catch(err => console.error('Failed to save history', err));
+        }).then(() => window.dispatchEvent(new Event('history-updated')))
+          .catch(err => console.error('Failed to save history', err));
       }
 
 
@@ -566,32 +578,58 @@ export function UrlBar() {
 
         {/* Save Button Group (Only for Editors) */}
         {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || useAuthStore.getState().user?.isSuperAdmin) && (
-          <div className={`flex flex-1 md:flex-none items-stretch rounded-md border transition-colors focus-within:ring-2 focus-within:ring-gray-200 ${isDirty ? 'border-orange-400' : 'border-gray-300 dark:border-gray-700'}`}>
-            <button
-              data-testid="request-save-btn"
-              onClick={() => handleSaveClick(false)}
-              className={`flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium outline-none rounded-l-md ${
-                isDirty
-                  ? 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
-              title="Save Request"
-            >
-              <Save size={16} />
-              Save{isDirty ? '*' : ''}
-            </button>
-            
-            <button
-              onClick={() => setIsSaveModalOpen(true)}
-              className={`px-1.5 flex items-center justify-center h-full border-l outline-none rounded-r-md ${
-                isDirty 
-                  ? 'border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20' 
-                  : 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
-              title="Save As..."
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-            </button>
+          <div ref={saveMenuRef} className="relative flex flex-1 md:flex-none items-stretch">
+            <div className={`flex flex-1 items-stretch rounded-md border divide-x transition-colors ${isDirty ? 'border-orange-400 divide-orange-400' : 'border-gray-300 dark:border-gray-700 divide-gray-300 dark:divide-gray-700'}`}>
+              <button
+                data-testid="request-save-btn"
+                onClick={() => handleSaveClick(false)}
+                className={`flex flex-1 items-center justify-center gap-2 px-3 py-2 text-sm font-medium outline-none rounded-l-md ${
+                  isDirty
+                    ? 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+                title="Save Request"
+              >
+                <Save size={16} />
+                Save{isDirty ? '*' : ''}
+              </button>
+
+              <button
+                data-testid="request-save-menu-btn"
+                onClick={() => setIsSaveMenuOpen(o => !o)}
+                aria-haspopup="menu"
+                aria-expanded={isSaveMenuOpen}
+                className={`px-1.5 flex items-center justify-center outline-none rounded-r-md ${
+                  isDirty
+                    ? 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+                title="Save options"
+              >
+                <ChevronDown size={14} />
+              </button>
+            </div>
+
+            {isSaveMenuOpen && (
+              <div role="menu" className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-xl py-1">
+                <button
+                  role="menuitem"
+                  data-testid="save-menu-save"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={() => { setIsSaveMenuOpen(false); handleSaveClick(false); }}
+                >
+                  Save
+                </button>
+                <button
+                  role="menuitem"
+                  data-testid="save-menu-save-as"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }}
+                >
+                  Save As...
+                </button>
+              </div>
+            )}
           </div>
         )}
 

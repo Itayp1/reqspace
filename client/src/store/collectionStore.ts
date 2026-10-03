@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import api from '../api/axios';
+import { useToastStore } from './toastStore';
 
 // The server broadcasts create/duplicate events to every socket in the
 // workspace, including the one that made the REST call — so the client that
@@ -10,6 +11,12 @@ import api from '../api/axios';
 function appendUnique<T extends { _id: string }>(arr: T[] | undefined, item: T): T[] {
   const base = Array.isArray(arr) ? arr : [];
   return base.some(x => x._id === item._id) ? base : [...base, item];
+}
+
+// Appending to a bucket that was never fetched would create a partial list
+// that the lazy loader then treats as complete, hiding the rest.
+function appendIfLoaded<T extends { _id: string }>(arr: T[] | 'loading' | undefined, item: T): T[] | 'loading' | undefined {
+  return Array.isArray(arr) ? appendUnique(arr, item) : arr;
 }
 
 export interface CollectionItem {
@@ -70,7 +77,7 @@ interface CollectionStore {
   duplicateCollection: (id: string, workspaceId: string) => Promise<void>;
 
   // Folder CRUD
-  createFolder: (collectionId: string, name: string, parentFolderId?: string) => Promise<void>;
+  createFolder: (collectionId: string, name: string, parentFolderId?: string) => Promise<Folder>;
   renameFolder: (id: string, name: string) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
   duplicateFolder: (id: string, collectionId: string, parentFolderId?: string | null) => Promise<void>;
@@ -291,6 +298,15 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       await db.requests.bulkPut(rRes.data);
     } catch (e) {
       console.error(e);
+      // Never leave the 'loading' placeholder behind, or the node spins forever.
+      set((s) => {
+        const nextF = { ...s.foldersByCollection };
+        const nextR = { ...s.requestsByFolder };
+        if (nextF[collectionId] === 'loading') delete nextF[collectionId];
+        if (nextR[collectionId] === 'loading') delete nextR[collectionId];
+        return { foldersByCollection: nextF, requestsByFolder: nextR };
+      });
+      useToastStore.getState().addToast('error', 'Failed to load collection contents');
     }
   },
 
@@ -333,6 +349,12 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       await db.requests.bulkPut(rRes.data);
     } catch (e) {
       console.error(e);
+      set((s) => {
+        const nextR = { ...s.requestsByFolder };
+        if (nextR[folderId] === 'loading') delete nextR[folderId];
+        return { requestsByFolder: nextR };
+      });
+      useToastStore.getState().addToast('error', 'Failed to load folder contents');
     }
   },
 
@@ -421,9 +443,10 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     await db.folders.put(res.data);
     set((state) => {
       const parentId = res.data.parentFolderId || res.data.collectionId;
-      return { foldersByCollection: { ...state.foldersByCollection, [parentId]: appendUnique(state.foldersByCollection[parentId] as Folder[], res.data) } };
+      return { foldersByCollection: { ...state.foldersByCollection, [parentId]: appendIfLoaded(state.foldersByCollection[parentId], res.data) as Folder[] } };
     });
     get().openCollection(collectionId);
+    return res.data;
   },
 
   renameFolder: async (id, name) => {
@@ -488,7 +511,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     await db.requests.put(res.data);
     set((state) => {
       const parentId = res.data.folderId || res.data.collectionId;
-      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: appendUnique(state.requestsByFolder[parentId] as ApiRequest[], res.data) } };
+      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: appendIfLoaded(state.requestsByFolder[parentId], res.data) as ApiRequest[] } };
     });
     get().openCollection(collectionId);
     return res.data;

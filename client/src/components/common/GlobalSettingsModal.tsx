@@ -155,6 +155,22 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                 />
               </div>
 
+              <div className="flex items-center justify-between">
+                <div>
+                  <label htmlFor="requestTimeout" className="text-sm font-medium block">Request Timeout (ms)</label>
+                  <p className="text-xs text-text-muted">Maximum time to wait for a response. 0 = no timeout.</p>
+                </div>
+                <input
+                  type="number"
+                  id="requestTimeout"
+                  min={0}
+                  step={1000}
+                  value={settings.timeout ?? 0}
+                  onChange={(e) => updateSettings({ timeout: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                  className="w-28 px-2 py-1 bg-background border border-border rounded text-sm outline-none focus:border-primary"
+                />
+              </div>
+
               
 
               <div className="pt-4 mt-4 border-t border-border">

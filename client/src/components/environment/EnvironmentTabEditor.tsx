@@ -29,7 +29,7 @@ export function EnvironmentTabEditor() {
       setName(env.name);
       setRevealedIndices(new Set());
     }
-  }, [envId]); // Only reset when switching tabs
+  }, [envId, !!env]); // Reset when switching tabs or when the env finishes loading
 
   const handleAddVar = () => {
     setLocalVars([...localVars, { key: '', initialValue: '', currentValue: '', isSecret: false, enabled: true }]);
@@ -65,7 +65,10 @@ export function EnvironmentTabEditor() {
         // would 404 since that id never exists there.
         if (!activeWorkspace) return;
         const res = await api.put(`/workspaces/${activeWorkspace._id}/global-environment`, { variables: localVars });
-        setGlobalEnvironment({ ...res.data, isGlobal: true });
+        const saved = { ...res.data, isGlobal: true };
+        setGlobalEnvironment(saved);
+        setLocalVars(saved.variables || localVars);
+        import('../../db').then(({ db }) => db.environments.put({ ...saved, workspaceId: activeWorkspace._id })).catch(() => {});
       } else {
         const res = await api.put(`/environments/${env._id}`, { name, variables: localVars });
         setEnvironments(environments.map(e => e._id === env._id ? res.data : e));
