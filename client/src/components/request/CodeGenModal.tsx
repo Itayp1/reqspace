@@ -9,6 +9,8 @@ interface CodeGenModalProps {
 type Language = 'curl' | 'fetch' | 'axios' | 'python-requests' | 'python-httpx' | 'go' | 'csharp';
 
 import { resolveAllVariables } from '../../utils/variables';
+import { applyRequestAuth, folderChainClosestFirst, resolveInheritedAuth } from '../../utils/requestAuth';
+import { useCollectionStore, type Folder } from '../../store/collectionStore';
 
 const LANGUAGES: { id: Language; label: string }[] = [
   { id: 'curl', label: 'cURL' },
@@ -24,10 +26,25 @@ function generateCode(language: Language, req: ReturnType<typeof useRequestStore
   if (!req) return '';
 
   const { method, collectionId } = req;
-  const url = resolveAllVariables(req.url || '', collectionId);
-  const enabledHeaders = (req.headers || [])
-    .filter(h => h.enabled && h.key.trim())
-    .map(h => ({ ...h, value: resolveAllVariables(h.value, collectionId) }));
+  const { collections, foldersByCollection } = useCollectionStore.getState();
+  const allFolders = Object.values(foldersByCollection).filter((v): v is Folder[] => Array.isArray(v)).flat();
+  const collection = collections.find(c => c._id === collectionId);
+  const resolve = (value: string) => resolveAllVariables(value, collectionId);
+
+  // Same auth pipeline as Send: resolves inherited auth and turns Basic /
+  // Bearer / API key / OAuth into an Authorization header (or query param).
+  const baseHeaders: Record<string, string> = {};
+  for (const h of req.headers || []) {
+    if (h.enabled && h.key.trim()) baseHeaders[h.key] = resolve(h.value);
+  }
+  const applied = applyRequestAuth({
+    auth: resolveInheritedAuth(req.auth, folderChainClosestFirst(req.folderId, allFolders), collection),
+    headers: baseHeaders,
+    url: resolve(req.url || ''),
+    resolve,
+  });
+  const url = applied.url;
+  const enabledHeaders = Object.entries(applied.headers).map(([key, value]) => ({ key, value, enabled: true }));
   const hasBody = req.body?.mode === 'raw' && req.body.raw;
   const bodyStr = hasBody ? resolveAllVariables(req.body!.raw!, collectionId) : '';
 

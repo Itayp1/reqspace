@@ -159,7 +159,8 @@ app.use(helmet({
       // new Function). SEC-3 is what removes it; 'wasm-unsafe-eval' does NOT cover new Function.
       // NOTE: We implemented SEC-3 which uses new Function inside worker.ts. So the worker needs 'unsafe-eval'.
       // Actually, since we still use new Function in worker.ts, we need it.
-      scriptSrc: ["'self'", "'unsafe-eval'"],
+      // static.cloudflareinsights.com: Cloudflare Web Analytics beacon, auto-injected when the site is proxied by Cloudflare.
+      scriptSrc: ["'self'", "'unsafe-eval'", "https://static.cloudflareinsights.com"],
       styleSrc: ["'self'", "'unsafe-inline'"],          // Tailwind + inline <style> in App.tsx
       imgSrc: ["'self'", "data:", "blob:"],
       // Open on purpose: the browser transport calls arbitrary third-party APIs.

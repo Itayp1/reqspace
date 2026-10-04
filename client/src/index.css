@@ -23,6 +23,13 @@ html.dark {
   --color-border: #2d333b;
   --color-text: #e6edf3;
   --color-text-muted: #8b949e;
+  color-scheme: dark;
+}
+
+/* Native <select> popups ignore transparent backgrounds and render white */
+html.dark select option {
+  background-color: var(--color-surface);
+  color: var(--color-text);
 }
 
 body {

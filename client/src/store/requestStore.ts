@@ -113,6 +113,55 @@ function stripSecrets(tab: ActiveRequest): ActiveRequest {
   };
 }
 
+
+// Secrets of tabs that are currently open live in sessionStorage, not
+// localStorage: they survive a refresh, but vanish when the browser tab/window
+// is closed, and entries for tabs that are no longer open are pruned on every
+// write — so nothing outlives the open tabs.
+const OPEN_TABS_SECRETS_KEY = 'open-tabs-secrets';
+
+interface TabSecrets { auth?: RequestAuth; headers?: { key: string; value: string }[] }
+
+function readOpenTabsSecrets(): Record<string, TabSecrets> {
+  try {
+    return JSON.parse(sessionStorage.getItem(OPEN_TABS_SECRETS_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeOpenTabsSecrets(tabs: ActiveRequest[]) {
+  try {
+    const out: Record<string, TabSecrets> = {};
+    for (const t of tabs) {
+      if (!t.tabId) continue;
+      const hasAuth = t.auth && t.auth.type !== 'none' && t.auth.type !== 'inherit';
+      const sensitive = (t.headers ?? []).some(h => SENSITIVE_HEADER_KEYS.test(h.key) && h.value);
+      if (!hasAuth && !sensitive) continue;
+      out[t.tabId] = {
+        auth: t.auth,
+        headers: (t.headers ?? []).map(h => ({ key: h.key, value: SENSITIVE_HEADER_KEYS.test(h.key) ? h.value : '' })),
+      };
+    }
+    if (Object.keys(out).length === 0) sessionStorage.removeItem(OPEN_TABS_SECRETS_KEY);
+    else sessionStorage.setItem(OPEN_TABS_SECRETS_KEY, JSON.stringify(out));
+  } catch {
+    // sessionStorage unavailable (private mode / quota) — secrets just won't survive a refresh
+  }
+}
+
+function restoreSecrets(tab: ActiveRequest, saved?: TabSecrets): ActiveRequest {
+  if (!saved) return tab;
+  return {
+    ...tab,
+    auth: saved.auth ?? tab.auth,
+    headers: (tab.headers ?? []).map((h, i) => {
+      const s = saved.headers?.[i];
+      return s && s.key === h.key && !h.value && SENSITIVE_HEADER_KEYS.test(h.key) ? { ...h, value: s.value } : h;
+    }),
+  };
+}
+
 export const useRequestStore = create<RequestStore>()(
   persist(
     (set, get) => ({
@@ -214,7 +263,10 @@ export const useRequestStore = create<RequestStore>()(
           hist.lastPush = now;
         }
 
-        const isDirtyValue = updates.isDirty !== undefined ? updates.isDirty : true;
+        // Sync metadata (conflict flag, server timestamp) is not a user edit —
+        // a socket echo of our own save used to re-mark the tab dirty.
+        const isMetaOnly = Object.keys(updates).every(k => k === 'isConflicted' || k === 'updatedAt' || k === 'isDirty');
+        const isDirtyValue = updates.isDirty !== undefined ? updates.isDirty : (isMetaOnly ? !!state.activeRequest.isDirty : true);
         const updated = { ...state.activeRequest, ...updates, isDirty: isDirtyValue };
 
         const nextTabs = state.tabs.map(t => t.tabId === state.activeTabId ? { ...t, ...updates, isDirty: isDirtyValue } : t);
@@ -373,6 +425,11 @@ export const useRequestStore = create<RequestStore>()(
       }),
       partialize: (state) => ({ tabs: state.tabs.map(stripSecrets), activeTabId: state.activeTabId }),
       onRehydrateStorage: () => (state) => {
+        if (state && state.tabs) {
+          const saved = readOpenTabsSecrets();
+          state.tabs = state.tabs.map(t => restoreSecrets(t, t.tabId ? saved[t.tabId] : undefined));
+          writeOpenTabsSecrets(state.tabs);
+        }
         if (state && state.activeTabId && state.tabs) {
           state.activeRequest = state.tabs.find(t => t.tabId === state.activeTabId) || null;
         }
@@ -380,3 +437,10 @@ export const useRequestStore = create<RequestStore>()(
     }
   )
 );
+
+let lastSecretTabs: ActiveRequest[] | null = null;
+useRequestStore.subscribe((state) => {
+  if (state.tabs === lastSecretTabs) return;
+  lastSecretTabs = state.tabs;
+  writeOpenTabsSecrets(state.tabs);
+});

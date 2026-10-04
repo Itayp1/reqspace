@@ -73,11 +73,11 @@ export function EnvironmentTabEditor() {
         const res = await api.put(`/environments/${env._id}`, { name, variables: localVars });
         setEnvironments(environments.map(e => e._id === env._id ? res.data : e));
       }
-      markSaved();
-      // Update tab name
+      // Update tab name first — updateActiveRequest marks the tab dirty by default
       if (!isGlobal) {
-        updateActiveRequest({ name });
+        updateActiveRequest({ name, isDirty: false });
       }
+      markSaved();
     } catch (e) {
       console.error(e);
       const { useToastStore } = await import('../../store/toastStore');

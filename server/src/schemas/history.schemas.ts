@@ -11,7 +11,7 @@ export const createHistoryEntrySchema = z.object({
   responseBody: z.string(),
   responseStatus: z.number(),
   responseStatusText: z.string(),
-  responseHeaders: z.record(z.string()),
+  responseHeaders: z.record(z.any()),
   responseTime: z.number(),
   responseSize: z.number(),
   testResults: z.array(z.object({

@@ -127,6 +127,7 @@ export default function TopBar() {
           <select
             id="env-select"
             data-testid="env-select"
+            style={{ colorScheme: theme }}
             className="p-1 text-sm bg-transparent text-text max-w-[120px] truncate focus:outline-none cursor-pointer"
             value={activeEnvironmentId || ''}
             onChange={(e) => setActiveEnvironmentId(e.target.value || null)}
