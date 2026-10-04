@@ -33,8 +33,6 @@ export default function HistorySidebar() {
 
   useEffect(() => {
     fetchHistory();
-    window.addEventListener('reqspace:history-updated', fetchHistory);
-    return () => window.removeEventListener('reqspace:history-updated', fetchHistory);
   }, [activeWorkspace]);
 
   useEffect(() => {
