@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 
 interface VariableInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
@@ -18,6 +18,15 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<any>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!multilineOnFocus || !inputRef.current || !measureRef.current) return;
+    const cs = getComputedStyle(inputRef.current);
+    const avail = inputRef.current.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    setOverflowing(measureRef.current.offsetWidth > avail);
+  }, [value, multilineOnFocus, focused]);
 
   // The visible text is the overlay; the real <input> text is transparent. When a
   // long value scrolls inside the input, the overlay has to follow or it looks stuck.
@@ -123,7 +132,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     }
   }
 
-  const wrapped = !!multilineOnFocus && focused;
+  const wrapped = !!multilineOnFocus && focused && overflowing;
   const Field: any = multilineOnFocus ? 'textarea' : 'input';
 
   return (
@@ -136,6 +145,10 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         {renderHighlighted()}
       </div>
       
+      {multilineOnFocus && (
+        <span ref={measureRef} aria-hidden className="absolute invisible whitespace-pre text-sm font-sans pointer-events-none">{value}</span>
+      )}
+
       <Field
         ref={inputRef}
         {...(multilineOnFocus ? { rows: wrapped ? 2 : 1, wrap: wrapped ? 'soft' : 'off' } : { type: 'text' })}
