@@ -15,7 +15,7 @@
 ## שלב 1 — הפעלת השרת במחשב (Windows)
 
 1. התקן [Node.js](https://nodejs.org) (גרסת LTS).
-2. העתק את התיקייה `tv-movies/server` למחשב.
+2. העתק את התיקייה `tv/server` למחשב.
 3. העתק את `config.example.json` ל-`config.json` וערוך את רשימת התיקיות:
    ```json
    {
@@ -40,7 +40,7 @@
 ## שלב 2 — התקנת האפליקציה בטלוויזיה
 
 **הורדת ה-APK:** ב-GitHub ← Actions ← "TV Movies APK" ← הריצה האחרונה ← Artifacts ← `tv-movies-apk`.
-(או לבנות בעצמך: לפתוח את `tv-movies/android` ב-Android Studio ← Run.)
+(או לבנות בעצמך: לפתוח את `tv/android` ב-Android Studio ← Run.)
 
 **התקנה על הטלוויזיה** (אחת מהדרכים):
 - **Send Files to TV** / **Downloader**: מתקינים את האפליקציה מחנות Google Play בטלוויזיה, שולחים אליה את ה-APK ומתקינים.

@@ -3,7 +3,7 @@ name: TV Movies APK
 on:
   push:
     paths:
-      - 'tv-movies/android/**'
+      - 'tv/android/**'
       - '.github/workflows/tv-movies-apk.yml'
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: tv-movies/android
+        working-directory: tv/android
     steps:
       - uses: actions/checkout@v4
 
@@ -31,4 +31,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: tv-movies-apk
-          path: tv-movies/android/app/build/outputs/apk/release/app-release.apk
+          path: tv/android/app/build/outputs/apk/release/app-release.apk
