@@ -85,11 +85,11 @@
 | A5 | חיפוש | [plan/app/05-search.md](plan/app/05-search.md) |
 | A6 | הנגן: ניגון, כתוביות, שמירת מיקום, פרק הבא | [plan/app/06-player.md](plan/app/06-player.md) |
 
-### חלק ד' — בנייה, התקנה ובדיקות
+### חלק ד' — בנייה, התקנה ובדיקות (`plan/delivery`)
 | # | משימה | קובץ |
 |---|---|---|
-| R1 | בניית APK והתקנה בטלוויזיה | [plan/release/01-build-install.md](plan/release/01-build-install.md) |
-| R2 | תוכנית בדיקות | [plan/release/02-testing.md](plan/release/02-testing.md) |
+| R1 | בניית APK והתקנה בטלוויזיה | [plan/delivery/01-build-install.md](plan/delivery/01-build-install.md) |
+| R2 | תוכנית בדיקות | [plan/delivery/02-testing.md](plan/delivery/02-testing.md) |
 
 ## 5. סדר העבודה (שלבים)
 
