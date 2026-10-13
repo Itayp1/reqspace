@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { SqlFpError } from '../db/sql-models';
-import { recordError } from '../utils/errorReporter';
+import { recordError, recordHandledError, noteRouteError } from '../utils/errorReporter';
 
 jest.mock('../db/sql-models', () => ({ SqlFpError: { create: jest.fn() } }));
 
@@ -54,5 +54,32 @@ describe('recordError', () => {
 
     expect(append).toHaveBeenCalledTimes(1);
     expect(append.mock.calls[0][1]).toContain('"message":"fallback-case"');
+  });
+});
+
+describe('recordHandledError', () => {
+  it('records a survived server error with its real message and stack', async () => {
+    recordHandledError('audit-log', new Error('handled-case boom'));
+    await new Promise((r) => setImmediate(r));
+    const row = create.mock.calls[0][0];
+    expect(row.source).toBe('server');
+    expect(row.kind).toBe('audit-log');
+    expect(row.message).toBe('handled-case boom');
+    expect(row.stack).toContain('handled-case boom');
+  });
+
+  it('accepts non-Error throwables', async () => {
+    recordHandledError('rate-limit', 'plain string failure');
+    await new Promise((r) => setImmediate(r));
+    expect(create.mock.calls[0][0].message).toBe('plain string failure');
+  });
+});
+
+describe('noteRouteError', () => {
+  it('stores the error on res.locals for the finish hook', () => {
+    const res = { locals: {} as Record<string, any> };
+    const err = new Error('route boom');
+    noteRouteError(res, err);
+    expect(res.locals.routeError).toBe(err);
   });
 });

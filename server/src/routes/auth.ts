@@ -8,6 +8,7 @@ import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
+import { noteRouteError } from '../utils/errorReporter';
 
 const router = Router();
 
@@ -298,6 +299,7 @@ router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (
     });
   } catch (error: any) {
     console.error('Google OAuth Error:', error);
+    noteRouteError(res, error);
     return res.status(500).json({ message: 'Internal server error during Google login' });
   }
 });
@@ -321,6 +323,7 @@ router.put('/settings', validate(schemas.updateSettingsSchema), authenticate, as
     return res.json(updatedUser!.settings);
   } catch (err: any) {
     // Don't echo internal error details back to the client.
+    noteRouteError(res, err);
     return res.status(500).json({ message: 'Failed to update settings' });
   }
 });
@@ -352,6 +355,7 @@ router.post('/certificates', validate(schemas.addCertificateSchema), authenticat
     }));
     return res.status(201).json(safeCerts);
   } catch (err: any) {
+    noteRouteError(res, err);
     return res.status(500).json({ message: err.message });
   }
 });
@@ -371,6 +375,7 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
     }));
     return res.json(safeCerts);
   } catch (err: any) {
+    noteRouteError(res, err);
     return res.status(500).json({ message: err.message });
   }
 });

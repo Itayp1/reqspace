@@ -84,6 +84,11 @@ call on which routes (or a global floor) and what ceiling, not a guess.
 
 ## PERF-2 — Lazy-load the tree
 
+> **Decision (2026-10-13):** the client now loads the whole workspace up front via one
+> `GET /workspaces/:id/tree?full=1` (full request records, no 200-collection cap) and fills every
+> `foldersByCollection` / `requestsByFolder` bucket locally. `loadCollectionChildren` / `loadFolderChildren`
+> remain as no-op-when-loaded fallbacks. The default `/tree` (summary-only) is unchanged.
+
 * **Size:** L. **Correction (2026-09-27):** its prerequisite (PERF-1 part 1, the batched `/tree` endpoint) is
   now shipped and in active use — `client/src/store/collectionStore.ts:176` calls
   `api.get('/workspaces/${workspaceId}/tree')`. But that is *all* that shipped: the client still loads the

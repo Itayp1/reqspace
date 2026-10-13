@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { ZodTypeAny } from 'zod';
+import { noteRouteError } from '../utils/errorReporter';
 
 export function validate(schema: ZodTypeAny): RequestHandler {
   return function validateMiddleware(req: Request, res: Response, next: NextFunction) {
@@ -16,6 +17,7 @@ export function validate(schema: ZodTypeAny): RequestHandler {
       req.body = parsed.data;
       next();
     } catch (err: any) {
+      noteRouteError(res, err);
       return res.status(500).json({ message: 'Validation error', error: err.message });
     }
   };

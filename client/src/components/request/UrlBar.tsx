@@ -467,7 +467,7 @@ export function UrlBar() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
+      const key = (e.key ?? "").toLowerCase();
       const settings = useSettingsStore.getState().settings;
       
       const saveShortcut = settings.shortcuts?.save || 'ctrl+s';

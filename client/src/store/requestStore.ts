@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { onUserScopeChange, scopedKey, userScopedStorage } from './userScope';
 export interface KeyValueItem {
   key: string;
   value: string;
@@ -118,13 +119,14 @@ function stripSecrets(tab: ActiveRequest): ActiveRequest {
 // localStorage: they survive a refresh, but vanish when the browser tab/window
 // is closed, and entries for tabs that are no longer open are pruned on every
 // write — so nothing outlives the open tabs.
-const OPEN_TABS_SECRETS_KEY = 'open-tabs-secrets';
+const OPEN_TABS_SECRETS_BASE = 'open-tabs-secrets';
 
 interface TabSecrets { auth?: RequestAuth; headers?: { key: string; value: string }[] }
 
 function readOpenTabsSecrets(): Record<string, TabSecrets> {
   try {
-    return JSON.parse(sessionStorage.getItem(OPEN_TABS_SECRETS_KEY) || '{}') || {};
+    const key = scopedKey(OPEN_TABS_SECRETS_BASE);
+    return key ? JSON.parse(sessionStorage.getItem(key) || '{}') || {} : {};
   } catch {
     return {};
   }
@@ -132,6 +134,8 @@ function readOpenTabsSecrets(): Record<string, TabSecrets> {
 
 function writeOpenTabsSecrets(tabs: ActiveRequest[]) {
   try {
+    const key = scopedKey(OPEN_TABS_SECRETS_BASE);
+    if (!key) return;
     const out: Record<string, TabSecrets> = {};
     for (const t of tabs) {
       if (!t.tabId) continue;
@@ -143,8 +147,8 @@ function writeOpenTabsSecrets(tabs: ActiveRequest[]) {
         headers: (t.headers ?? []).map(h => ({ key: h.key, value: SENSITIVE_HEADER_KEYS.test(h.key) ? h.value : '' })),
       };
     }
-    if (Object.keys(out).length === 0) sessionStorage.removeItem(OPEN_TABS_SECRETS_KEY);
-    else sessionStorage.setItem(OPEN_TABS_SECRETS_KEY, JSON.stringify(out));
+    if (Object.keys(out).length === 0) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(out));
   } catch {
     // sessionStorage unavailable (private mode / quota) — secrets just won't survive a refresh
   }
@@ -416,6 +420,7 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
+      storage: createJSONStorage(() => userScopedStorage),
       version: 1,
       // Wipes secrets already sitting in existing users' browsers from before
       // this fix, not just new writes going forward.
@@ -443,4 +448,12 @@ useRequestStore.subscribe((state) => {
   if (state.tabs === lastSecretTabs) return;
   lastSecretTabs = state.tabs;
   writeOpenTabsSecrets(state.tabs);
+});
+
+onUserScopeChange((prev) => {
+  if (prev) {
+    useRequestStore.setState({ tabs: [], activeTabId: null, activeRequest: null });
+    for (const k of Object.keys(historyMap)) delete historyMap[k];
+  }
+  void useRequestStore.persist.rehydrate();
 });

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { onUserScopeChange, scopedKey } from './userScope';
 
 export interface CookieItem {
   id: string;
@@ -28,7 +29,8 @@ const STORAGE_KEY = 'reqspace_cookies_v1';
 
 const loadSavedCookies = (): CookieItem[] => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = scopedKey(STORAGE_KEY);
+    const raw = key ? localStorage.getItem(key) : null;
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -37,7 +39,8 @@ const loadSavedCookies = (): CookieItem[] => {
 
 const saveCookies = (cookies: CookieItem[]) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cookies));
+    const key = scopedKey(STORAGE_KEY);
+    if (key) localStorage.setItem(key, JSON.stringify(cookies));
   } catch (e) {
     console.error('Failed to save cookies:', e);
   }
@@ -119,3 +122,7 @@ export const useCookieStore = create<CookieStore>((set, get) => ({
     }
   },
 }));
+
+onUserScopeChange(() => {
+  useCookieStore.setState({ cookies: loadSavedCookies(), selectedDomain: 'localhost' });
+});

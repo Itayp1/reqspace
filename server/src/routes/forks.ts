@@ -40,6 +40,7 @@ import { emitToWorkspace } from '../socketUtils';
 import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { Op } from 'sequelize';
+import { noteRouteError, recordHandledError } from '../utils/errorReporter';
 
 const router = Router();
 router.use(authenticate);
@@ -302,6 +303,7 @@ router.post('/collections/:id/fork', validate(forkSchema), async (req: AuthReque
     return res.status(201).json({ fork: { id: forkId, collection: forkedCol } });
   } catch (err) {
     console.error('[fork] error:', err);
+    noteRouteError(res, err);
     return res.status(500).json({ message: 'Fork failed' });
   }
 });
@@ -355,6 +357,7 @@ async function doSyncForksOfCollection(sourceCollectionId: string): Promise<void
     sourceRequests = await RequestRepository.findByCollection(sourceCollectionId);
   } catch (err) {
     console.error('[fork sync] error loading source data:', err);
+    recordHandledError('fork-sync', err, { route: `fork-sync:${sourceCollectionId}` });
     const message = err instanceof Error ? err.message : String(err);
     await SqlCollectionFork.update(
       { lastSyncError: message },
@@ -571,6 +574,7 @@ async function doSyncForksOfCollection(sourceCollectionId: string): Promise<void
       // failure is visible somewhere other than server logs (GET
       // /collections/:id/fork-status surfaces this field).
       console.error('[fork sync] error syncing fork', forkId, err);
+      recordHandledError('fork-sync', err, { route: `fork-sync:${forkId}` });
       const message = err instanceof Error ? err.message : String(err);
       await SqlCollectionFork.update({ lastSyncError: message }, { where: { id: forkId } }).catch(() => {});
     }

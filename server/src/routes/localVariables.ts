@@ -3,6 +3,7 @@ import * as schemas from '../schemas/localVariables.schemas';
 import express, { Response } from 'express';
 import { SqlLocalVariable } from '../db/sql-models';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { noteRouteError } from '../utils/errorReporter';
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ router.get('/:workspaceId', authenticate, async (req: AuthRequest, res: Response
     data.variables = JSON.parse(data.variables);
     res.json(data);
   } catch (error) {
+    noteRouteError(res, error);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -52,6 +54,7 @@ router.put('/:workspaceId', validate(schemas.updateLocalVariablesSchema), authen
     data.variables = JSON.parse(data.variables);
     res.json(data);
   } catch (error) {
+    noteRouteError(res, error);
     res.status(500).json({ error: 'Server error' });
   }
 });

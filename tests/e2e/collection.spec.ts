@@ -156,11 +156,15 @@ test.describe('Collection Operations', () => {
     await expect(page.getByTestId('node-Request Z (Copy)')).toBeVisible();
 
     // Move Request Z (Copy) to Folder B
+    const movePut = page.waitForResponse(r => r.request().method() === 'PUT' && /\/requests\//.test(r.url()));
     await page.dragAndDrop('[data-testid="node-Request Z (Copy)"]', '[data-testid="node-Folder B"]');
+    await movePut;
 
-    // Expand Folder B to verify
-    await page.getByTestId('node-Folder B').click();
-    await expect(page.getByTestId('node-Request Z (Copy)')).toBeVisible();
+    // Dropping on a folder expands it once the move lands, so expand it only
+    // if it is still collapsed — an unconditional click would toggle it shut.
+    const movedCopy = page.getByTestId('node-Request Z (Copy)');
+    if (!(await movedCopy.isVisible())) await page.getByTestId('node-Folder B').click();
+    await expect(movedCopy).toBeVisible();
 
     // Duplicate Collection (collections are prefixed "Copy of X", unlike
     // requests/folders which are suffixed "X (Copy)")

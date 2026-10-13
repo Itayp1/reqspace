@@ -41,6 +41,7 @@ router.post('/workspaces/:workspaceId/history', validate(schemas.createHistoryEn
     return res.status(201).json({ message: 'History saved' });
   } catch (error) {
     console.error('Error saving history', error);
+    noteRouteError(res, error);
     return res.status(500).json({ message: 'Failed to save history' });
   }
 });
@@ -165,6 +166,7 @@ export default router;
 
 // ─── History GC Service ─────────────────────────────────────────────────────
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
+import { noteRouteError } from '../utils/errorReporter';
 export async function saveHistoryEntry(
   userId: string,
   workspaceId: string,

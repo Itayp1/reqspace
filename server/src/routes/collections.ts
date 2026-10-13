@@ -102,13 +102,38 @@ function checkPermission(kind: ItemKind, minRole: UserRole) {
 
 router.use(authenticate);
 
+// A move is a write to the destination collection too, so the caller needs
+// editor rights there and the destination must be in the same workspace.
+async function authorizeMoveTarget(req: AuthRequest, res: Response, targetCollectionId: string): Promise<boolean> {
+  const targetWs = await resolveWorkspaceId('collection', targetCollectionId);
+  if (!targetWs || targetWs !== String((req as any).resolvedWorkspaceId)) {
+    res.status(400).json({ message: 'Target collection must be in the same workspace' });
+    return false;
+  }
+  if (req.user?.isSuperAdmin) return true;
+  const wsRole = await getUserWorkspaceRole(String(req.user!._id), targetWs);
+  let effectiveRole = (wsRole || 'viewer') as UserRole;
+  const target = await CollectionRepository.findById(targetCollectionId);
+  const entry = Array.isArray(target?.roles) ? target!.roles.find((r: any) => String(r.userId) === String(req.user!._id)) : undefined;
+  if (entry && ROLE_RANK[entry.role as UserRole] < ROLE_RANK[effectiveRole]) effectiveRole = entry.role as UserRole;
+  if (!wsRole || ROLE_RANK[effectiveRole] < ROLE_RANK.editor) {
+    res.status(403).json({ message: 'Requires editor role on the target collection' });
+    return false;
+  }
+  return true;
+}
+
+// ?full=1 returns every collection with complete request records, for clients
+// that keep the whole workspace in memory. Without it the response stays the
+// capped, summary-only shape.
 router.get('/workspaces/:workspaceId/tree', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
-  const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId, { limit: 200 });
+  const full = req.query.full === '1' || req.query.full === 'true';
+  const collections = await CollectionRepository.findByWorkspace(req.params.workspaceId, full ? undefined : { limit: 200 });
   const ids = collections.map(c => c._id);
   if (ids.length === 0) return res.json({ collections, folders: [], requests: [] });
   const [folders, requests] = await Promise.all([
     FolderRepository.findByCollections(ids),
-    RequestRepository.findByCollections(ids, { summaryOnly: true }),
+    RequestRepository.findByCollections(ids, { summaryOnly: !full }),
   ]);
   return res.json({ collections, folders, requests });
 });
@@ -213,12 +238,52 @@ router.post('/collections/:collectionId/folders', validate(schemas.createFolderS
 });
 
 router.put('/folders/:id', validate(schemas.updateFolderSchema), checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
-  const { name, description, parentFolderId, auth, preRequestScript, testScript, order } = req.body;
+  const { name, description, parentFolderId, auth, preRequestScript, testScript, order, collectionId } = req.body;
   const patch: any = {};
   for (const [k, v] of Object.entries({ name, description, parentFolderId, auth, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
+
+  const current = await FolderRepository.findById(req.params.id);
+  if (!current) return res.status(404).json({ message: 'Folder not found' });
+  const destCollectionId: string = collectionId ?? current.collectionId;
+  const collectionChanged = destCollectionId !== current.collectionId;
+  const parentChanged = parentFolderId !== undefined && (parentFolderId ?? null) !== (current.parentFolderId ?? null);
+  // Everything nested under the folder moves with it, and a folder can't be
+  // dropped into its own subtree.
+  const subtreeFolderIds: string[] = [];
+  if (collectionChanged || parentChanged) {
+    if (collectionChanged && !(await authorizeMoveTarget(req, res, destCollectionId))) return;
+    const siblings = await FolderRepository.findByCollection(current.collectionId);
+    const queue = [current._id];
+    while (queue.length) {
+      const id = queue.shift()!;
+      subtreeFolderIds.push(id);
+      for (const f of siblings) if (f.parentFolderId === id) queue.push(f._id);
+    }
+    if (parentFolderId) {
+      if (subtreeFolderIds.includes(parentFolderId)) return res.status(400).json({ message: 'A folder cannot be moved into itself' });
+      const parent = await FolderRepository.findById(parentFolderId);
+      if (!parent || parent.collectionId !== destCollectionId) return res.status(400).json({ message: 'Parent folder must be in the target collection' });
+    }
+    if (collectionChanged) patch.collectionId = destCollectionId;
+    if (order === undefined) patch.order = await FolderRepository.countInCollection(destCollectionId, parentFolderId !== undefined ? (parentFolderId ?? null) : (current.parentFolderId ?? null));
+  }
+
   const folder = await FolderRepository.update(req.params.id, patch);
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
+  if (collectionChanged) {
+    for (const fid of subtreeFolderIds) {
+      if (fid !== folder._id) {
+        const child = await FolderRepository.update(fid, { collectionId: destCollectionId });
+        if (child) emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', child);
+      }
+      for (const r of await RequestRepository.findByFolder(fid)) {
+        const moved = await RequestRepository.update(r._id, { collectionId: destCollectionId }, { silent: true });
+        if (moved) emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', moved);
+      }
+    }
+    syncForksAsync(current.collectionId);
+  }
   syncForksAsync(folder.collectionId);
   return res.json(folder);
 });
@@ -291,12 +356,32 @@ router.get('/requests/:id', checkPermission('request', 'viewer'), async (req: Au
 });
 
 router.put('/requests/:id', validate(schemas.updateRequestSchema), checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
-  const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order } = req.body;
+  const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order, collectionId } = req.body;
   const patch: any = {};
   for (const [k, v] of Object.entries({ name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId, order })) { if (v !== undefined) patch[k] = v; }
-  const request = await RequestRepository.update(req.params.id, patch);
+
+  const current = await RequestRepository.findById(req.params.id);
+  if (!current) return res.status(404).json({ message: 'Request not found' });
+  const destCollectionId: string = collectionId ?? current.collectionId;
+  const collectionChanged = destCollectionId !== current.collectionId;
+  const folderChanged = folderId !== undefined && (folderId ?? null) !== (current.folderId ?? null);
+  if (collectionChanged || folderChanged) {
+    if (collectionChanged && !(await authorizeMoveTarget(req, res, destCollectionId))) return;
+    if (folderId) {
+      const folder = await FolderRepository.findById(folderId);
+      if (!folder || folder.collectionId !== destCollectionId) return res.status(400).json({ message: 'Folder must be in the target collection' });
+    }
+    // Moving to another collection without naming a folder lands at its root.
+    const destFolderId = folderId !== undefined ? (folderId ?? null) : (collectionChanged ? null : current.folderId ?? null);
+    if (collectionChanged) { patch.collectionId = destCollectionId; patch.folderId = destFolderId; }
+    if (order === undefined) patch.order = await RequestRepository.countInCollection(destCollectionId, destFolderId);
+  }
+
+  const locationOnly = Object.keys(patch).every(k => k === 'collectionId' || k === 'folderId' || k === 'order');
+  const request = await RequestRepository.update(req.params.id, patch, { silent: locationOnly });
   if (!request) return res.status(404).json({ message: 'Request not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:updated', request);
+  if (collectionChanged) syncForksAsync(current.collectionId);
   syncForksAsync(request.collectionId);
   return res.json(request);
 });

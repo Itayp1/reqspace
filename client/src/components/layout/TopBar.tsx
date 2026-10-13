@@ -89,7 +89,7 @@ export default function TopBar() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const searchShortcut = settings.shortcuts?.search || 'ctrl+k';
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
+      const key = (e.key ?? '').toLowerCase();
       const shortcutMatch = searchShortcut.includes('ctrl') ? (isCtrlOrCmd && key === searchShortcut.split('+')[1]) : (key === searchShortcut);
       
       if (shortcutMatch) {

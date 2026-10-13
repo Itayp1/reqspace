@@ -4,7 +4,7 @@ import { customConfirm } from '../../utils/dialog';
 import { useToastStore } from '../../store/toastStore';
 
 const PAGE_SIZE = 50;
-const KINDS = ['window.error', 'unhandledrejection', 'react-boundary', 'api', 'server-exception', 'server-5xx', 'process'];
+const KINDS = ['window.error', 'unhandledrejection', 'react-boundary', 'api', 'server-exception', 'server-5xx', 'process', 'fork-sync', 'rate-limit', 'audit-log', 'fperrors-purge', 'db-connect'];
 
 interface ErrorGroup {
   fingerprint: string;

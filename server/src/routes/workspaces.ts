@@ -10,6 +10,7 @@ import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
 import { CollectionRepository } from '../repositories/CollectionRepository';
 import { AuditLogRepository } from '../repositories/AuditLogRepository';
 import { workspaceRoleCache } from '../utils/cache';
+import { noteRouteError } from '../utils/errorReporter';
 
 const router = Router();
 router.use(authenticate);
@@ -84,6 +85,7 @@ router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequ
     });
     res.json(enriched);
   } catch (err) {
+    noteRouteError(res, err);
     res.status(500).json({ message: 'Error fetching activity' });
   }
 });

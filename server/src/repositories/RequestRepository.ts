@@ -101,14 +101,16 @@ export const RequestRepository = {
     }));
   },
 
-  async update(id: string, data: Partial<IRequestRecord>): Promise<IRequestRecord | null> {
+  // `silent` leaves updatedAt alone: a pure move isn't a content change, and bumping it
+  // makes the owner's own open tab look conflicted with the server.
+  async update(id: string, data: Partial<IRequestRecord>, opts?: { silent?: boolean }): Promise<IRequestRecord | null> {
     const patch: any = { ...data };
     if (data.params !== undefined) patch.params = JSON.stringify(data.params);
     if (data.headers !== undefined) patch.headers = JSON.stringify(data.headers);
     if (data.auth !== undefined) patch.auth = JSON.stringify(data.auth);
     if (data.body !== undefined) patch.body = JSON.stringify(data.body);
     if (data.comments !== undefined) patch.comments = JSON.stringify(data.comments);
-    await SqlRequest.update(patch, { where: { id } }); return this.findById(id);
+    await SqlRequest.update(patch, { where: { id }, silent: opts?.silent }); return this.findById(id);
   },
 
   async delete(id: string): Promise<void> {

@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useRequestStore } from './requestStore';
+import { switchUserScope } from './userScope';
+
+switchUserScope('u-test');
 
 describe('requestStore', () => {
   beforeEach(() => {
-    localStorage.clear();
+    localStorage.removeItem('request-storage:u-test');
     useRequestStore.setState({ tabs: [], activeTabId: null, activeRequest: null });
   });
 
@@ -18,7 +21,7 @@ describe('requestStore', () => {
     }
 
     // Force partialize/persist
-    const persistedStr = localStorage.getItem('request-storage');
+    const persistedStr = localStorage.getItem('request-storage:u-test');
     expect(persistedStr).toBeDefined();
     if (persistedStr) {
       const persisted = JSON.parse(persistedStr);
@@ -27,5 +30,21 @@ describe('requestStore', () => {
       expect(tab.auth.bearer).toBeUndefined();
       expect(tab.headers.find((h: any) => h.key === 'Authorization')?.value).toBe('');
     }
+  });
+
+  it('keeps open tabs per user and never shows them to another user', () => {
+    useRequestStore.getState().newTab();
+    expect(useRequestStore.getState().tabs).toHaveLength(1);
+    expect(localStorage.getItem('request-storage:u-test')).toBeTruthy();
+
+    switchUserScope('u-other');
+    expect(useRequestStore.getState().tabs).toHaveLength(0);
+
+    useRequestStore.getState().newTab();
+    useRequestStore.getState().newTab();
+    expect(JSON.parse(localStorage.getItem('request-storage:u-other')!).state.tabs).toHaveLength(2);
+
+    switchUserScope('u-test');
+    expect(useRequestStore.getState().tabs).toHaveLength(1);
   });
 });

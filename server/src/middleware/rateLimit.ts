@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { recordHandledError } from '../utils/errorReporter';
 
 interface Bucket {
   count: number;
@@ -60,6 +61,7 @@ export function rateLimit(options: { windowMs: number; max: number; message?: st
       } catch (e) {
         // Fallback to in-memory if Redis fails? Or just pass through.
         console.error('Redis rate limit error', e);
+        recordHandledError('rate-limit', e);
         return next();
       }
     }

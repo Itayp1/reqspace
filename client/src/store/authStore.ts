@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { switchUserScope, onUserScopeChange, userScopedStorage } from './userScope';
 
 interface User {
   id: string;
@@ -36,13 +37,22 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       activeWorkspace: null,
       workspaces: [],
-      setUser: (user) => set({ user, isAuthenticated: !!user }),
+      setUser: (user) => {
+        switchUserScope(user?.id);
+        set({ user, isAuthenticated: !!user });
+      },
       setWorkspaces: (workspaces) => set({ workspaces }),
       setActiveWorkspace: (activeWorkspace) => set({ activeWorkspace }),
     }),
     {
       name: 'auth-storage',
+      storage: createJSONStorage(() => userScopedStorage),
       partialize: (state) => ({ activeWorkspace: state.activeWorkspace }),
     }
   )
 );
+
+onUserScopeChange((prev) => {
+  if (prev) useAuthStore.setState({ activeWorkspace: null, workspaces: [] });
+  void useAuthStore.persist.rehydrate();
+});

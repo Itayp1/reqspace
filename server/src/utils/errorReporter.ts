@@ -93,3 +93,14 @@ export async function recordError(input: FpErrorInput): Promise<void> {
     appendFallback(row);
   }
 }
+
+/** Remembers the real error behind a 5xx a route sends from its own catch block, so the response-finish hook records it instead of a bare status line. */
+export function noteRouteError(res: { locals: Record<string, any> }, err: unknown): void {
+  res.locals.routeError = err;
+}
+
+/** For errors the server catches and survives (background jobs, best-effort writes). Fire-and-forget. */
+export function recordHandledError(kind: string, err: unknown, extra: Partial<FpErrorInput> = {}): void {
+  const e = err instanceof Error ? err : new Error(String(err));
+  void recordError({ source: 'server', kind, message: e.message, stack: e.stack ?? null, ...extra });
+}

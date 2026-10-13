@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { onUserScopeChange, userScopedStorage } from './userScope';
 import api from '../api/axios';
 
 export interface GlobalSettings {
@@ -69,6 +70,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     { 
       name: 'reqspace-global-settings',
+      storage: createJSONStorage(() => userScopedStorage),
       // Older persisted states lack newer keys (e.g. saveHistory, timeout); a
       // shallow merge would replace the defaults object and leave them undefined.
       merge: (persisted: any, current) => ({
@@ -82,3 +84,8 @@ export const useSettingsStore = create<SettingsStore>()(
     }
   )
 );
+
+onUserScopeChange((prev) => {
+  if (prev) useSettingsStore.setState(useSettingsStore.getInitialState(), true);
+  void useSettingsStore.persist.rehydrate();
+});

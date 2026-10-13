@@ -11,6 +11,7 @@ import { RequestRepository } from '../repositories/RequestRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
+import { noteRouteError } from '../utils/errorReporter';
 
 const router = Router();
 router.use(authenticate);
@@ -263,6 +264,7 @@ router.post('/import/wsdl', validate(schemas.importWsdlSchema), requireWorkspace
 
     res.json({ message: 'WSDL Imported Successfully', collectionId: collection._id });
   } catch (error: any) {
+    noteRouteError(res, error);
     res.status(500).json({ message: 'Failed to parse WSDL: ' + error.message });
   }
 });

@@ -39,6 +39,7 @@ export const createFolderSchema = z.object({
 export const updateFolderSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
+  collectionId: z.string().optional(),
   parentFolderId: z.string().nullable().optional(),
   auth: requestAuthSchema.optional(),
   preRequestScript: z.string().optional(),
@@ -82,6 +83,7 @@ export const createRequestSchema = z.object({
 }).strict();
 
 export const updateRequestSchema = createRequestSchema.partial().extend({
+  collectionId: z.string().optional(),
   order: z.number().optional()
 }).strict();
 

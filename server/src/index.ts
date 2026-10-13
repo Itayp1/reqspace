@@ -30,7 +30,7 @@ import localVariablesRouter from './routes/localVariables';
 import userProfileVariablesRouter from './routes/userProfileVariables';
 import forksRouter from './routes/forks';
 import errorsRouter from './routes/errors';
-import { recordError } from './utils/errorReporter';
+import { recordError, recordHandledError } from './utils/errorReporter';
 import { FpErrorRepository } from './repositories/FpErrorRepository';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
@@ -198,10 +198,13 @@ app.use(cors({
 app.use((req, res, next) => {
   res.on('finish', () => {
     if (res.statusCode < 500 || res.locals.errorRecorded || req.path === '/api/health') return;
+    const cause = res.locals.routeError;
+    const causeError = cause instanceof Error ? cause : cause != null ? new Error(String(cause)) : null;
     void recordError({
       source: 'server',
       kind: 'server-5xx',
-      message: `${req.method} ${req.path} responded ${res.statusCode}`,
+      message: causeError ? `${req.method} ${req.path} responded ${res.statusCode}: ${causeError.message}` : `${req.method} ${req.path} responded ${res.statusCode}`,
+      stack: causeError?.stack ?? null,
       route: req.path,
       method: req.method,
       status: res.statusCode,
@@ -338,7 +341,7 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 const FP_ERROR_RETENTION_DAYS = 30;
 function startFpErrorPurge() {
   const purge = () => FpErrorRepository.purgeOlderThan(FP_ERROR_RETENTION_DAYS)
-    .catch((err: Error) => console.error('[fperrors] purge failed:', err.message));
+    .catch((err: Error) => { console.error('[fperrors] purge failed:', err.message); recordHandledError('fperrors-purge', err); });
   void purge();
   setInterval(purge, 24 * 60 * 60 * 1000).unref();
 }
@@ -402,6 +405,7 @@ async function bootstrap() {
   } catch (err: any) {
     dbStatus = 'error';
     dbError = err?.message ?? String(err);
+    recordHandledError('db-connect', err);
     console.error(`ג DB connection failed (${dbConfig.type}):`, dbError);
     console.error('Server is running but DB is unavailable. Check /api/health for details.');
     // Don't exit ג€” the UI will show the error so user can fix config via Admin panel
@@ -409,6 +413,13 @@ async function bootstrap() {
 }
 
 if (require.main === module) {
+  // A closed stdout/stderr pipe (e.g. a log consumer exiting) must not take the server down.
+  for (const stream of [process.stdout, process.stderr]) {
+    stream.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EPIPE') throw err;
+    });
+  }
+
   // Node turns unhandled rejections into uncaught exceptions by default, so this covers both.
   process.on('uncaughtException', async (err) => {
     console.error(err);
@@ -421,7 +432,10 @@ if (require.main === module) {
 
   bootstrap().catch((err) => {
     console.error('Fatal startup error:', err);
-    process.exit(1);
+    Promise.race([
+      recordError({ source: 'server', kind: 'process', message: `Fatal startup error: ${err?.message ?? err}`, stack: err?.stack ?? null }),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]).finally(() => process.exit(1));
   });
 }
 
