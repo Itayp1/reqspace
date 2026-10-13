@@ -148,20 +148,25 @@ npm test --prefix server
 # Full Playwright suite
 npx playwright test
 
-# A single suite
-npx playwright test tests/reqspace.spec.ts          # core E2E user journey
-npx playwright test tests/comprehensive-permissions.spec.ts
-npx playwright test tests/socket-realtime.spec.ts   # two-client realtime
-npx playwright test tests/api-authorization.spec.ts # API-level authz
+# A single suite (these four files did not exist; these are the real paths)
+npx playwright test tests/e2e/requests.spec.ts           # core request journey
+npx playwright test tests/e2e/rbac.spec.ts               # viewer vs editor in the UI
+npx playwright test tests/e2e/socket-sync.spec.ts        # two-client realtime
+npx playwright test tests/e2e/api-authorization.spec.ts  # API-level authz
 
 # Debug visually
 npx playwright test --ui
 ```
 
-The suite assumes a server is already running on `http://localhost:3005` (`webServer` is commented out in
-`playwright.config.ts`). CI runs the build, the Jest suite and `scripts/smoke-core.sh` — **not** the
-Playwright suite. What that leaves uncovered, and the rules any new test must follow, is in
-[`TODO.md`](TODO.md) Stage 4.
+Which feature each spec covers — and which areas are still thin — is in
+[`TEST_COVERAGE.md`](TEST_COVERAGE.md).
+
+Locally, `playwright.config.ts`'s `webServer` starts both the API (`:3005`) and the client (`:5173`)
+itself, with `reuseExistingServer: false` so a stale dev server from an earlier session is never silently
+reused — if either port is still held, the run aborts rather than testing the wrong build. In CI that flag
+flips, because the workflow pre-starts and health-checks its own server. CI runs the Jest suite,
+`scripts/smoke-core.sh` **and** Playwright, as a matrix over `DB_TYPE` plus a dedicated `extension`
+project (TEST-1 / TEST-2). The rules any new test must follow are in [`TODO.md`](TODO.md).
 
 ## 🔐 Secrets Inventory
 
@@ -356,7 +361,7 @@ is the index; `TODO.md` is the detail.
 |---|---|---|---|---|
 | `[x]` | TEST-1 | Run the Playwright suite in CI | M | **Highest leverage here.** CI runs jest + a smoke script only; no browser test has ever run in CI |
 | `[x]` | TEST-2 | The database matrix | M | CI is sqlite-only; 11 specs hardcode `localhost:5173` |
-| `[ ]` | TEST-3 | Journey coverage, per feature area | XL | 14 areas, all partial; Import/Export, Share and Admin are placeholders that assert almost nothing |
+| `[x]` | TEST-3 | Journey coverage, per feature area | XL | Audited 2026-10-07 — see [`TEST_COVERAGE.md`](TEST_COVERAGE.md) for the per-area matrix, the 11 defects it turned up, and the 7 areas still marked ⚠️/❌ |
 | `[ ]` | TEST-4 | The API-authorization layer | L | Pairs with SEC-2 — a UI test cannot prove an authz check |
 | `[x]` | TEST-5 | Client unit tests | M | Test files appeared under `client/src`; confirm a runner and a `test` script are actually wired up |
 | `[ ]` | TEST-6 | Scale and performance budgets | M | Assert query counts, not milliseconds |

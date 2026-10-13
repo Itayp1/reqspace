@@ -60,19 +60,32 @@ export const RequestTabBar: React.FC = () => {
     setDragOverTabId({ id: tabId, pos });
   };
 
-  const handleDragLeave = () => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    // dragleave also fires when the pointer crosses into one of the tab's own
+    // children (the method label, the dirty dot, the close button), which
+    // made the insertion line flicker off mid-drag. Only clear it when the
+    // pointer has actually left the tab.
+    const next = e.relatedTarget as Node | null;
+    if (next && e.currentTarget.contains(next)) return;
     setDragOverTabId(null);
   };
 
   const handleDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
-    if (!draggedTabId || draggedTabId === targetId || !dragOverTabId) {
+    if (!draggedTabId || draggedTabId === targetId) {
       setDraggedTabId(null);
       setDragOverTabId(null);
       return;
     }
-    
-    reorderTabs(draggedTabId, targetId, dragOverTabId.pos);
+
+    // Derive the side from the drop event itself rather than from
+    // dragOverTabId. A dragleave fires whenever the pointer crosses into a
+    // child element of the tab, which nulls dragOverTabId — so a drop landing
+    // on, say, the close button used to silently do nothing.
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = (e.clientX - rect.left) < rect.width / 2 ? 'before' : 'after';
+
+    reorderTabs(draggedTabId, targetId, pos);
     setDraggedTabId(null);
     setDragOverTabId(null);
   };
@@ -93,11 +106,15 @@ export const RequestTabBar: React.FC = () => {
       <div className="flex items-center gap-1 flex-1 min-w-0">
         {tabs.map((tab) => {
           const isActive = tab.tabId === activeTabId;
-          
+          // The side a drop on this tab would land on — rendered as the
+          // insertion line below, and the only cue a dragging user gets.
+          const dropPos = dragOverTabId && dragOverTabId.id === tab.tabId ? dragOverTabId.pos : undefined;
+
           return (
             <div
               key={tab.tabId}
               data-testid={`tab-${tab.tabId}`}
+              data-drop-pos={dropPos}
               draggable
               onDragStart={(e) => handleDragStart(e, tab.tabId!)}
                 onDragOver={(e) => handleDragOver(e, tab.tabId!)}
@@ -117,6 +134,14 @@ export const RequestTabBar: React.FC = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/50 dark:hover:bg-gray-900/50'
               }`}
             >
+              {dropPos && (
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-0 bottom-0 w-0.5 bg-blue-500 ${
+                    dropPos === 'before' ? 'left-0' : 'right-0'
+                  }`}
+                />
+              )}
               {tab.tabType === 'environment' ? (
                 <Settings className="w-3 h-3 text-orange-500 shrink-0" />
               ) : (

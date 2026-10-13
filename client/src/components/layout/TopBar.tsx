@@ -51,8 +51,13 @@ export default function TopBar() {
   useEffect(() => {
     if (activeWorkspace) {
       import('../../db').then(({ db }) => {
+        // The local read and the server fetch race; once the server has
+        // answered, a late local read must not overwrite its fresher list.
+        let serverAnswered = false;
+
         // Optimistic local load
         db.environments.where('workspaceId').equals(activeWorkspace._id).toArray().then(localEnvs => {
+          if (serverAnswered) return;
           const globals = localEnvs.filter(e => e.isGlobal);
           const locals = localEnvs.filter(e => !e.isGlobal);
           if (globals.length > 0) setGlobalEnvironment(globals[0]);
@@ -62,6 +67,7 @@ export default function TopBar() {
         // Background server fetch. The global ("Globals (Common)") env lives
         // in its own table/endpoint, not mixed into the regular list.
         api.get(`/workspaces/${activeWorkspace._id}/environments`).then((res) => {
+          serverAnswered = true;
           setEnvironments(res.data);
           db.environments.bulkPut(res.data.map((e: any) => ({ ...e, workspaceId: activeWorkspace._id })));
         });

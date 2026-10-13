@@ -316,7 +316,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
               ) : (
                 <div className="space-y-3">
                   {activityLogs.map((log) => (
-                    <div key={log._id} className="p-3 bg-surface border border-border rounded text-sm">
+                    <div key={log._id} data-testid="activity-log-entry" className="p-3 bg-surface border border-border rounded text-sm">
                       <div className="flex justify-between items-start mb-1">
                         <span className="font-medium text-text">{log.userId?.name || 'Unknown User'}</span>
                         <span className="text-text-muted text-xs">{new Date(log.createdAt).toLocaleString()}</span>

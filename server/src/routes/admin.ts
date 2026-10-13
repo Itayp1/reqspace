@@ -1,12 +1,14 @@
 import { validate } from '../middleware/validate';
 import * as schemas from '../schemas/admin.schemas';
 import { Router, Response } from 'express';
-import { authenticate, AuthRequest, requireSuperAdmin } from '../middleware/auth';
+import { authenticate, AuthRequest, requireSuperAdmin, createPersonalWorkspace } from '../middleware/auth';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { SqlAuditLog, SqlCollection, SqlFolder, SqlRequest, SqlEnvironment } from '../db/sql-models';
+import { FpErrorRepository } from '../repositories/FpErrorRepository';
+import { listErrorsQuerySchema } from '../schemas/errors.schemas';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -15,6 +17,46 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
   const { cursor, limit } = req.query as Record<string, string>;
   const result = await UserRepository.list({}, { limit: Math.min(Number(limit) || 50, 200), cursor });
   return res.json({ users: result.items, nextCursor: result.nextCursor });
+});
+
+/**
+ * Create a user on someone's behalf. The account is flagged
+ * mustChangePassword, so the password the admin typed is single-use and the
+ * ForcePasswordChangeModal takes over on first login.
+ */
+router.post('/users', validate(schemas.createUserSchema), async (req: AuthRequest, res: Response) => {
+  const { name, email, password, isSuperAdmin } = req.body as {
+    name: string; email: string; password: string; isSuperAdmin?: boolean;
+  };
+
+  const existing = await UserRepository.findByEmail(email);
+  if (existing) return res.status(409).json({ message: 'Email already registered' });
+
+  const bcrypt = await import('bcryptjs');
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await UserRepository.create({
+    name,
+    email,
+    passwordHash,
+    authType: 'password',
+    isSuperAdmin: !!isSuperAdmin,
+    mustChangePassword: true,
+  });
+
+  // Same as self-registration: without a personal workspace the new account
+  // lands on an app with nowhere to put anything, and forking has no target.
+  await createPersonalWorkspace(user);
+
+  await logAudit(String(req.user!._id), 'admin.user.create', {
+    targetType: 'User',
+    targetId: String(user._id),
+    ip: req.ip,
+    details: { email: user.email, isSuperAdmin: !!isSuperAdmin },
+  });
+
+  // Never echo the hash back.
+  const { passwordHash: _omit, ...safe } = user as any;
+  return res.status(201).json(safe);
 });
 
 router.get('/workspaces', async (req: AuthRequest, res: Response) => {
@@ -26,6 +68,32 @@ router.get('/workspaces', async (req: AuthRequest, res: Response) => {
 router.get('/logs', async (req: AuthRequest, res: Response) => {
   const logs = await SqlAuditLog.findAll({ limit: 50, order: [['createdAt', 'DESC']] });
   return res.json({ logs, total: logs.length });
+});
+
+router.get('/errors', async (req: AuthRequest, res: Response) => {
+  const parsed = listErrorsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ message: 'Invalid query', issues: parsed.error.issues });
+  }
+  const groups = await FpErrorRepository.listGroups(parsed.data);
+  return res.json({ groups, hasMore: groups.length === parsed.data.limit });
+});
+
+router.get('/errors/:fingerprint', async (req: AuthRequest, res: Response) => {
+  const items = await FpErrorRepository.findOccurrences(req.params.fingerprint);
+  return res.json({ items });
+});
+
+// "Fixed": the fault is resolved, so every stored occurrence of it is removed.
+router.delete('/errors/:fingerprint', async (req: AuthRequest, res: Response) => {
+  const deleted = await FpErrorRepository.deleteFingerprint(req.params.fingerprint);
+  await logAudit(req.user!.id, 'fperror.resolve', {
+    targetType: 'fperror',
+    targetId: req.params.fingerprint,
+    ip: req.ip,
+    details: { deleted },
+  });
+  return res.json({ deleted });
 });
 
 const SECRET_MASK = '��������';

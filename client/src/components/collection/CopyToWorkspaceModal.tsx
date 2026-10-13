@@ -52,14 +52,24 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
         if (!selectedCollectionId) {
           throw new Error('Please select a target collection');
         }
-        // To duplicate a request to another collection, we can just fetch it and post it
+        // Fetch the source, then post only the fields createRequestSchema
+        // accepts. Spreading the whole fetched request sent server-owned
+        // fields (id, collectionId, order, comments, createdBy, createdAt,
+        // updatedAt) too, and the strict schema rejected the lot with a 400 —
+        // so copying a request never actually worked.
         const { data: sourceReq } = await api.get(`/requests/${sourceId}`);
         await api.post(`/collections/${selectedCollectionId}/requests`, {
-          ...sourceReq,
-          _id: undefined,
-          collectionId: selectedCollectionId,
+          name: `${sourceReq.name} (Copy)`,
+          method: sourceReq.method || 'GET',
+          url: sourceReq.url || '',
+          params: sourceReq.params || [],
+          headers: sourceReq.headers || [],
+          auth: sourceReq.auth || { type: 'none' },
+          body: sourceReq.body || { mode: 'none' },
+          preRequestScript: sourceReq.preRequestScript || '',
+          testScript: sourceReq.testScript || '',
+          description: sourceReq.description || '',
           folderId: null, // Copy to root of target collection
-          name: `${sourceReq.name} (Copy)`
         });
         
         // If we copied to the currently active workspace, we should refresh the collections
@@ -78,7 +88,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div data-testid="copy-to-workspace-modal" className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-surface rounded-lg shadow-xl w-[400px] border border-border flex flex-col overflow-hidden">
         <div className="p-4 border-b border-border bg-gray-50 dark:bg-gray-800">
           <h2 className="text-lg font-bold text-text">Copy {type === 'collection' ? 'Collection' : 'Request'}</h2>
@@ -91,6 +101,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
           <div>
             <label className="block text-sm font-medium mb-1 text-text">Target Workspace</label>
             <select
+              data-testid="copy-target-workspace-select"
               value={selectedWorkspaceId}
               onChange={(e) => setSelectedWorkspaceId(e.target.value)}
               className="w-full p-2 text-sm border border-border rounded bg-surface text-text outline-none focus:border-primary"
@@ -105,6 +116,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
             <div>
               <label className="block text-sm font-medium mb-1 text-text">Target Collection</label>
               <select
+                data-testid="copy-target-collection-select"
                 value={selectedCollectionId}
                 onChange={(e) => setSelectedCollectionId(e.target.value)}
                 className="w-full p-2 text-sm border border-border rounded bg-surface text-text outline-none focus:border-primary"
@@ -128,6 +140,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
             Cancel
           </button>
           <button
+            data-testid="copy-submit-btn"
             onClick={handleCopy}
             className="px-4 py-2 text-sm font-medium bg-primary text-white rounded hover:bg-orange-600 disabled:opacity-50"
             disabled={isLoading || (type === 'request' && !selectedCollectionId)}

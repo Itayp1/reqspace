@@ -1,10 +1,11 @@
-﻿import { useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import type { EnvironmentVariable } from '../../store/environmentStore';
 import { useAuthStore } from '../../store/authStore';
 import { Save, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import api from '../../api/axios';
 import { v4 as uuidv4 } from 'uuid';
+import { useToastStore } from '../../store/toastStore';
 
 type Tab = 'local' | 'profile';
 
@@ -131,6 +132,20 @@ export default function LocalVariablesEditor() {
 
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
 
+  // The two useState initialisers above only run on mount. Both lists are
+  // fetched asynchronously (TopBar kicks that off when the workspace loads),
+  // so opening this tab before the fetch lands — or straight after a reload —
+  // used to leave the table empty even though the server had the variables.
+  // Resync whenever the store's array identity changes: that happens on
+  // fetch, on workspace switch and after a save, and not while editing.
+  useEffect(() => {
+    setLocalVars(localVariables.map(v => ({ ...v, id: uuidv4() })));
+  }, [localVariables]);
+
+  useEffect(() => {
+    setProfileVars(userProfileVariables.map(v => ({ ...v, id: uuidv4() })));
+  }, [userProfileVariables]);
+
   // ── Local handlers ──────────────────────────────────────────────────────────
 
   const handleLocalSave = async () => {
@@ -141,8 +156,11 @@ export default function LocalVariablesEditor() {
       const res = await api.put(`/local-variables/${activeWorkspace._id}`, { variables: payload });
       setLocalVariables(res.data.variables || []);
       setLocalVars((res.data.variables || []).map((v: any) => ({ ...v, id: uuidv4() })));
-    } catch (e) {
-      console.error(e);
+      useToastStore.getState().addToast('success', 'Local variables saved');
+    } catch (e: any) {
+      // A rejected save used to go to console.error only, so the table still
+      // showed the edits and the user had no idea nothing had been stored.
+      useToastStore.getState().addToast('error', e?.response?.data?.message || 'Failed to save local variables');
     } finally {
       setLocalSaving(false);
     }
@@ -157,8 +175,9 @@ export default function LocalVariablesEditor() {
       const res = await api.put('/user-profile-variables', { variables: payload });
       setUserProfileVariables(res.data.variables || []);
       setProfileVars((res.data.variables || []).map((v: any) => ({ ...v, id: uuidv4() })));
-    } catch (e) {
-      console.error(e);
+      useToastStore.getState().addToast('success', 'Profile variables saved');
+    } catch (e: any) {
+      useToastStore.getState().addToast('error', e?.response?.data?.message || 'Failed to save profile variables');
     } finally {
       setProfileSaving(false);
     }

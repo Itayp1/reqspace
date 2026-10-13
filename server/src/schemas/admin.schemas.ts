@@ -31,4 +31,16 @@ export const updateConfigSchema = z.object({
   }).optional()
 });
 
+/**
+ * POST /api/admin/users. The Add User modal has always posted this shape;
+ * the route itself did not exist, so every attempt 404'd and the modal just
+ * sat there saying "Failed to create user".
+ */
+export const createUserSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
+  isSuperAdmin: z.boolean().optional(),
+}).strict();
+
 export const importDumpSchema = z.record(z.any()); // passthrough because multer adds fields

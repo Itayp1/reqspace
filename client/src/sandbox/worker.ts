@@ -90,7 +90,9 @@ self.onmessage = async (e) => {
         }
       },
       console: {
-        log: (...args: any[]) => consoleLines.push({ level: 'info', args }),
+        // 'log' (not 'info') — these levels are fed straight into
+        // ConsoleLogEntry.type, whose union is request | log | error | warn.
+        log: (...args: any[]) => consoleLines.push({ level: 'log', args }),
         warn: (...args: any[]) => consoleLines.push({ level: 'warn', args }),
         error: (...args: any[]) => consoleLines.push({ level: 'error', args }),
       },

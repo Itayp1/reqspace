@@ -29,6 +29,9 @@ import importExportRouter from './routes/importExport';
 import localVariablesRouter from './routes/localVariables';
 import userProfileVariablesRouter from './routes/userProfileVariables';
 import forksRouter from './routes/forks';
+import errorsRouter from './routes/errors';
+import { recordError } from './utils/errorReporter';
+import { FpErrorRepository } from './repositories/FpErrorRepository';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
@@ -190,6 +193,25 @@ app.use(cors({
   credentials: true,
 }));
 
+// Records 5xx responses that routes send without throwing. Exceptions that reach
+// the error handler set res.locals.errorRecorded so they are not recorded twice.
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (res.statusCode < 500 || res.locals.errorRecorded || req.path === '/api/health') return;
+    void recordError({
+      source: 'server',
+      kind: 'server-5xx',
+      message: `${req.method} ${req.path} responded ${res.statusCode}`,
+      route: req.path,
+      method: req.method,
+      status: res.statusCode,
+      userId: (req as { user?: { id?: string } }).user?.id ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
+  });
+  next();
+});
+
 // ג”€ג”€ Health check ג€” always responds, reports DB state ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 app.get('/api/health', (_req, res) => {
   const status = dbStatus === 'ok' ? 200 : (dbStatus === 'starting' ? 503 : 503);
@@ -207,6 +229,9 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ג”€ג”€ Block API routes if DB is not ready ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// Client error reports go to a separate store, so they are accepted even when the main DB is down.
+app.use('/api/errors', errorsRouter);
+
 app.use('/api', (req, res, next) => {
   // Always allow the health check even if the DB is down. (The previous
   // '/admin/db-config' carve-out referenced a route that doesn't exist ג€” CR#18.)
@@ -285,7 +310,7 @@ app.get('*', (_req, res) => {
 // Error handler ג€” logs the real error server-side but never echoes internal
 // messages (DB connection strings, file paths, stack detail) back to the
 // client, which is publicly reachable once this is deployed as a SaaS.
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);
   // Honour explicit client-error statuses (e.g. 413 payload-too-large, 400) so
   // they aren't masked as 500. Server errors stay generic in production.
@@ -293,8 +318,30 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   const message = status < 500
     ? (err.message ?? 'Request error')
     : (process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message ?? 'Internal server error'));
+  if (status >= 500) {
+    res.locals.errorRecorded = true;
+    void recordError({
+      source: 'server',
+      kind: 'server-exception',
+      message: err.message || 'Internal server error',
+      stack: err.stack ?? null,
+      route: req.path,
+      method: req.method,
+      status,
+      userId: (req as { user?: { id?: string } }).user?.id ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
+  }
   res.status(status).json({ message });
 });
+
+const FP_ERROR_RETENTION_DAYS = 30;
+function startFpErrorPurge() {
+  const purge = () => FpErrorRepository.purgeOlderThan(FP_ERROR_RETENTION_DAYS)
+    .catch((err: Error) => console.error('[fperrors] purge failed:', err.message));
+  void purge();
+  setInterval(purge, 24 * 60 * 60 * 1000).unref();
+}
 
 // ג”€ג”€ Start ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 async function bootstrap() {
@@ -351,6 +398,7 @@ async function bootstrap() {
     }
 
     dbStatus = 'ok';
+    startFpErrorPurge();
   } catch (err: any) {
     dbStatus = 'error';
     dbError = err?.message ?? String(err);
@@ -361,6 +409,16 @@ async function bootstrap() {
 }
 
 if (require.main === module) {
+  // Node turns unhandled rejections into uncaught exceptions by default, so this covers both.
+  process.on('uncaughtException', async (err) => {
+    console.error(err);
+    await Promise.race([
+      recordError({ source: 'server', kind: 'process', message: err.message, stack: err.stack ?? null }),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+    process.exit(1);
+  });
+
   bootstrap().catch((err) => {
     console.error('Fatal startup error:', err);
     process.exit(1);

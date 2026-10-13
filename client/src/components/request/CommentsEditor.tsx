@@ -31,7 +31,7 @@ export function CommentsEditor() {
   };
 
   const handleDelete = async (commentId: string) => {
-    if (!activeRequest._id) return;
+    if (!activeRequest._id || !commentId) return;
     try {
       const res = await api.delete(`/requests/${activeRequest._id}/comments/${commentId}`);
       updateActiveRequest({ comments: res.data.comments });
@@ -49,21 +49,28 @@ export function CommentsEditor() {
             <p>No comments yet. Start the conversation!</p>
           </div>
         ) : (
-          comments.map((comment: any) => (
-            <div key={comment._id} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 relative group">
+          comments.map((comment: any) => {
+            // The server stores comments under `id`; this read `_id`, so every
+            // row had an undefined React key and Delete sent
+            // /comments/undefined, which 404'd and silently did nothing.
+            const commentId = comment.id ?? comment._id;
+            const isMine = String(comment.userId) === String(user?.id);
+            return (
+            <div key={commentId} data-testid="comment-item" className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 relative group">
               <div className="flex justify-between items-start mb-1">
-                <span className="font-medium text-sm text-gray-700 dark:text-gray-300">
-                  {comment.userId === user?.id ? 'You' : 'User'}
+                <span data-testid="comment-author" className="font-medium text-sm text-gray-700 dark:text-gray-300">
+                  {isMine ? 'You' : (comment.authorName || 'Unknown user')}
                 </span>
                 <span className="text-xs text-gray-400">
                   {new Date(comment.createdAt).toLocaleDateString()}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">{comment.text}</p>
+              <p data-testid="comment-text" className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">{comment.text}</p>
               
-              {comment.userId === user?.id && (
+              {isMine && (
                 <button 
-                  onClick={() => handleDelete(comment._id)}
+                  data-testid="comment-delete-btn"
+                  onClick={() => handleDelete(commentId)}
                   className="absolute top-2 right-2 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Delete comment"
                 >
@@ -71,7 +78,8 @@ export function CommentsEditor() {
                 </button>
               )}
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -79,6 +87,7 @@ export function CommentsEditor() {
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             type="text"
+            data-testid="comment-input"
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
             placeholder="Add a comment..."
@@ -87,6 +96,7 @@ export function CommentsEditor() {
           />
           <button
             type="submit"
+            data-testid="comment-submit-btn"
             disabled={isSubmitting || !newComment.trim()}
             className="p-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >

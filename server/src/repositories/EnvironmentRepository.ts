@@ -58,9 +58,9 @@ export const EnvironmentRepository = {
     // findOrCreate + update for cross-DB compat (upsert with new id fails on SQLite unique constraint)
     const [existing] = await SqlGlobalEnvironment.findOrCreate({
       where: { workspaceId },
-      defaults: { id: uuidv4(), workspaceId, variables: JSON.stringify(variables), updatedAt: new Date() } as any,
+      defaults: { id: uuidv4(), workspaceId, variables: JSON.stringify(variables) } as any,
     });
-    await existing.update({ variables: JSON.stringify(variables), updatedAt: new Date() });
+    await existing.update({ variables: JSON.stringify(variables) });
     return globalSql(existing);
   },
 };

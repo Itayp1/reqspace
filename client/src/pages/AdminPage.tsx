@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
 import { Shield, ShieldOff, Trash2, Ban } from 'lucide-react';
 import { AddUserModal } from '../components/admin/AddUserModal';
+import { ErrorsPanel } from '../components/admin/ErrorsPanel';
 import { customConfirm } from '../utils/dialog';
 import { useToastStore } from '../store/toastStore';
 
@@ -14,7 +15,7 @@ export default function AdminPage() {
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings' | 'errors'>('users');
   const [loading, setLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
@@ -37,7 +38,7 @@ export default function AdminPage() {
   };
   const fetchLogs = async () => {
     setLoading(true);
-    try { const res = await api.get('/admin/audit-logs'); setAuditLogs(res.data.logs || []); } catch (e) { console.error(e); }
+    try { const res = await api.get('/admin/logs'); setAuditLogs(res.data.logs || []); } catch (e) { console.error(e); }
     setLoading(false);
   };
   const fetchConfig = async () => {
@@ -91,7 +92,7 @@ export default function AdminPage() {
       <h1 data-testid="admin-dashboard-title" className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
       
       <div className="flex border-b border-border mb-6">
-        {['users', 'workspaces', 'logs', 'settings'].map(tab => (
+        {['users', 'workspaces', 'logs', 'settings', 'errors'].map(tab => (
           <button 
             key={tab}
             data-testid={`admin-tab-${tab}`}
@@ -222,6 +223,8 @@ export default function AdminPage() {
             </table>
           </div>
         )}
+
+        {activeTab === 'errors' && <ErrorsPanel />}
 
         {!loading && activeTab === 'settings' && config && (
           <div className="p-8 max-w-2xl space-y-6">

@@ -57,12 +57,12 @@ function ClientCertificatesManager() {
   return (
     <div className="space-y-4">
       {certs.map(c => (
-        <div key={c._id} className="flex items-center justify-between bg-surface p-3 border border-border rounded">
+        <div key={c._id} data-testid="cert-row" className="flex items-center justify-between bg-surface p-3 border border-border rounded">
           <div>
-            <div className="font-mono text-sm text-blue-400">{c.hostname}</div>
+            <div data-testid="cert-hostname" className="font-mono text-sm text-blue-400">{c.hostname}</div>
             <div className="text-xs text-text-muted mt-1">Added: {new Date(c.createdAt).toLocaleDateString()}</div>
           </div>
-          <button onClick={() => handleDelete(c._id)} className="p-2 text-red-400 hover:bg-red-400/10 rounded" title="Delete Certificate">
+          <button data-testid="cert-delete-btn" onClick={() => handleDelete(c._id)} className="p-2 text-red-400 hover:bg-red-400/10 rounded" title="Delete Certificate">
             <Trash2 size={16} />
           </button>
         </div>
@@ -77,7 +77,7 @@ function ClientCertificatesManager() {
           {error && <div className="text-red-400 text-xs">{error}</div>}
           <div>
             <label className="block text-xs mb-1">Hostname (Supports Wildcards e.g. *.example.com)</label>
-            <input type="text" value={hostname} onChange={e => setHostname(e.target.value)} placeholder="api.company.local" className="w-full bg-surface border border-border p-1.5 rounded text-sm font-mono" />
+            <input type="text" data-testid="cert-hostname-input" value={hostname} onChange={e => setHostname(e.target.value)} placeholder="api.company.local" className="w-full bg-surface border border-border p-1.5 rounded text-sm font-mono" />
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
@@ -85,27 +85,27 @@ function ClientCertificatesManager() {
                 <span>Certificate (.pem / .crt)</span>
                 <label className="text-orange-400 cursor-pointer hover:underline flex items-center gap-1"><Upload size={10}/> Upload File <input type="file" className="hidden" accept=".pem,.crt" onChange={e => handleFileUpload(e, setCert)} /></label>
               </label>
-              <textarea value={cert} onChange={e => setCert(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----..." className="w-full h-20 bg-surface border border-border p-1.5 rounded text-[10px] font-mono resize-none" />
+              <textarea data-testid="cert-cert-input" value={cert} onChange={e => setCert(e.target.value)} placeholder="-----BEGIN CERTIFICATE-----..." className="w-full h-20 bg-surface border border-border p-1.5 rounded text-[10px] font-mono resize-none" />
             </div>
             <div className="flex-1">
               <label className="flex items-center justify-between text-xs mb-1">
                 <span>Private Key (.key)</span>
                 <label className="text-orange-400 cursor-pointer hover:underline flex items-center gap-1"><Upload size={10}/> Upload File <input type="file" className="hidden" accept=".pem,.key" onChange={e => handleFileUpload(e, setKey)} /></label>
               </label>
-              <textarea value={key} onChange={e => setKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----..." className="w-full h-20 bg-surface border border-border p-1.5 rounded text-[10px] font-mono resize-none" />
+              <textarea data-testid="cert-key-input" value={key} onChange={e => setKey(e.target.value)} placeholder="-----BEGIN PRIVATE KEY-----..." className="w-full h-20 bg-surface border border-border p-1.5 rounded text-[10px] font-mono resize-none" />
             </div>
           </div>
           <div>
             <label className="block text-xs mb-1">Passphrase (Optional)</label>
-            <input type="password" value={passphrase} onChange={e => setPassphrase(e.target.value)} className="w-full bg-surface border border-border p-1.5 rounded text-sm" />
+            <input type="password" data-testid="cert-passphrase-input" value={passphrase} onChange={e => setPassphrase(e.target.value)} className="w-full bg-surface border border-border p-1.5 rounded text-sm" />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setIsAdding(false)} className="px-3 py-1 text-xs hover:bg-border rounded">Cancel</button>
-            <button onClick={handleAdd} className="px-3 py-1 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded font-medium">Save Certificate</button>
+            <button data-testid="cert-save-btn" onClick={handleAdd} className="px-3 py-1 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded font-medium">Save Certificate</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => setIsAdding(true)} className="flex items-center gap-1 text-sm text-orange-500 hover:text-orange-400 font-medium">
+        <button data-testid="cert-add-btn" onClick={() => setIsAdding(true)} className="flex items-center gap-1 text-sm text-orange-500 hover:text-orange-400 font-medium">
           <Plus size={16} /> Add Certificate
         </button>
       )}
@@ -121,7 +121,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
       <div className="bg-background rounded-lg shadow-xl w-[500px] h-[500px] flex flex-col border border-border">
         <div className="flex items-center justify-between p-4 border-b border-border bg-surface">
           <h2 className="text-lg font-bold">Global Settings</h2>
-          <button onClick={onClose} className="p-1 hover:bg-border rounded"><X className="w-5 h-5" /></button>
+          <button data-testid="global-settings-close-btn" onClick={onClose} className="p-1 hover:bg-border rounded"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">

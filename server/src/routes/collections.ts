@@ -178,9 +178,9 @@ router.put('/collections/reorder', validate(schemas.reorderSchema), async (req: 
 });
 
 router.put('/collections/:id', validate(schemas.updateCollectionSchema), checkPermission('collection', 'editor'), async (req: AuthRequest, res: Response) => {
-  const { name, description, variables, preRequestScript, testScript, order } = req.body;
+  const { name, description, variables, auth, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
-  for (const [k, v] of Object.entries({ name, description, variables, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
+  for (const [k, v] of Object.entries({ name, description, variables, auth, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
   const collection = await CollectionRepository.update(req.params.id, patch);
   emitToWorkspace((req as any).resolvedWorkspaceId, 'collection:updated', collection);
   syncForksAsync(req.params.id);
@@ -213,9 +213,9 @@ router.post('/collections/:collectionId/folders', validate(schemas.createFolderS
 });
 
 router.put('/folders/:id', validate(schemas.updateFolderSchema), checkPermission('folder', 'editor'), async (req: AuthRequest, res: Response) => {
-  const { name, description, parentFolderId, preRequestScript, testScript, order } = req.body;
+  const { name, description, parentFolderId, auth, preRequestScript, testScript, order } = req.body;
   const patch: any = {};
-  for (const [k, v] of Object.entries({ name, description, parentFolderId, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
+  for (const [k, v] of Object.entries({ name, description, parentFolderId, auth, preRequestScript, testScript, order })) { if (v !== undefined) patch[k] = v; }
   const folder = await FolderRepository.update(req.params.id, patch);
   if (!folder) return res.status(404).json({ message: 'Folder not found' });
   emitToWorkspace((req as any).resolvedWorkspaceId, 'folder:updated', folder);
@@ -234,6 +234,23 @@ router.delete('/folders/:id', checkPermission('folder', 'editor'), async (req: A
   return res.json({ message: 'Folder deleted' });
 });
 
+/**
+ * Attaches an `authorName` to every comment. The stored shape only has a
+ * `userId`, so without this the UI had nothing to show but "You" or the
+ * literal word "User" for everyone else.
+ */
+async function withCommentAuthors<T extends { comments: any[] } | null>(request: T): Promise<T> {
+  if (!request || !request.comments?.length) return request;
+  const userIds = [...new Set(request.comments.map((c: any) => String(c.userId)))];
+  const { SqlUser } = await import('../db/sql-models');
+  const users = await SqlUser.findAll({ where: { id: userIds }, attributes: ['id', 'name'], raw: true });
+  const names = new Map(users.map((u: any) => [String(u.id), u.name]));
+  return {
+    ...request,
+    comments: request.comments.map((c: any) => ({ ...c, authorName: names.get(String(c.userId)) ?? 'Unknown user' })),
+  };
+}
+
 router.get('/collections/:collectionId/requests', checkPermission('collection', 'viewer'), async (req: AuthRequest, res: Response) => {
   let requests;
   if (req.query.folderId !== undefined) {
@@ -251,7 +268,15 @@ router.post('/collections/:collectionId/requests', validate(schemas.createReques
   const order = await RequestRepository.countInCollection(req.params.collectionId, req.body.folderId ?? null);
   const { name, method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId } = req.body;
   const request = await RequestRepository.create({ name: name || 'New Request', method, url, params, headers, auth, body, preRequestScript, testScript, description, folderId: folderId ?? null, collectionId: req.params.collectionId, order, createdBy: String(req.user!._id) });
-  logAudit(String(req.user!._id), 'create_request', { targetType: 'Request', targetId: String(request._id), details: { requestId: request._id, requestName: request.name } }).catch(() => {});
+  // targetId is the workspace, not the request: GET /workspaces/:id/activity
+  // filters audit rows by targetId, so logging the request id here meant the
+  // workspace Activity tab could never show this (or anything else). The
+  // request's own id and name stay in `details`.
+  logAudit(String(req.user!._id), 'create_request', {
+    targetType: 'Workspace',
+    targetId: String((req as any).resolvedWorkspaceId),
+    details: { requestId: request._id, requestName: request.name, collectionId: req.params.collectionId },
+  }).catch(() => {});
   emitToWorkspace((req as any).resolvedWorkspaceId, 'request:created', request);
   syncForksAsync(req.params.collectionId);
   return res.status(201).json(request);
@@ -260,7 +285,9 @@ router.post('/collections/:collectionId/requests', validate(schemas.createReques
 router.get('/requests/:id', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
   const request = await RequestRepository.findById(req.params.id);
   if (!request) return res.status(404).json({ message: 'Request not found' });
-  return res.json(request);
+  // This is the route a page reload reads comments back through, so it needs
+  // the same author enrichment the POST/DELETE responses get.
+  return res.json(await withCommentAuthors(request));
 });
 
 router.put('/requests/:id', validate(schemas.updateRequestSchema), checkPermission('request', 'editor'), async (req: AuthRequest, res: Response) => {
@@ -291,7 +318,7 @@ router.post('/requests/:id/comments', validate(schemas.addCommentSchema), checkP
   const commentId = uuidv4();
   const comments = [...request.comments, { id: commentId, userId: String(req.user!._id), text, createdAt: new Date() }];
   const updated = await RequestRepository.update(req.params.id, { comments });
-  return res.json(updated);
+  return res.json(await withCommentAuthors(updated));
 });
 
 router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'viewer'), async (req: AuthRequest, res: Response) => {
@@ -308,7 +335,7 @@ router.delete('/requests/:id/comments/:commentId', checkPermission('request', 'v
   if (!isAuthor && !isEditor) return res.status(403).json({ message: 'You can only delete your own comments' });
   const comments = request.comments.filter((c: any) => String(c.id ?? c._id) !== req.params.commentId);
   const updated = await RequestRepository.update(req.params.id, { comments });
-  return res.json(updated);
+  return res.json(await withCommentAuthors(updated));
 });
 
 export default router;

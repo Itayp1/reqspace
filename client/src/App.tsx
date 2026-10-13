@@ -97,7 +97,13 @@ function App() {
     const handleUnauthorized = () => {
       useAuthStore.getState().setUser(null);
       const path = window.location.pathname;
-      if (path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/auth/')) return;
+      // Routes that are meant to work without a session. `/share/` belongs
+      // here: the bootstrap's own /auth/me 401s for an anonymous visitor, and
+      // without this the redirect fired and bounced every recipient of a
+      // share link to the login page — the one audience the feature exists
+      // for. The page itself is already outside AuthGuard.
+      const PUBLIC_PATHS = ['/login', '/register', '/auth/', '/share/'];
+      if (PUBLIC_PATHS.some(p => path.startsWith(p))) return;
       window.location.assign('/login');
     };
     window.addEventListener('unauthorized', handleUnauthorized);

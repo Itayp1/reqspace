@@ -8,6 +8,10 @@ export const ConnectionEditor: React.FC = () => {
   
   const [messages, setMessages] = useState<{type: 'sent'|'received'|'info'|'error', data: string, time: Date}[]>([]);
   const [inputMsg, setInputMsg] = useState('');
+  // Socket.IO is event-based: emitting is always emit(name, payload). Without
+  // a name field the editor could only ever call socket.send(), i.e. emit a
+  // "message" event, which is the one thing most real servers don't listen for.
+  const [eventName, setEventName] = useState('message');
   const [connected, setConnected] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
@@ -33,6 +37,7 @@ export const ConnectionEditor: React.FC = () => {
         };
         ws.onmessage = (e) => addMsg('received', e.data);
         ws.onclose = () => {
+          if (wsRef.current === ws) wsRef.current = null;
           setConnected(false);
           addMsg('info', 'WebSocket closed');
         };
@@ -43,17 +48,31 @@ export const ConnectionEditor: React.FC = () => {
       }
     } else if (protocol === 'SOCKETIO') {
       try {
-        // Socket.IO expects base URL, we can pass it
-        const socket = io(url, { transports: ['websocket', 'polling'] });
+        // Socket.IO takes an origin plus an optional namespace path, which is
+        // exactly what the URL field already holds.
+        // Capped reconnection: the default is infinite, and every failed
+        // attempt writes a connect_error row, so an unreachable host used to
+        // flood the transcript forever.
+        const socket = io(url, {
+          transports: ['websocket', 'polling'],
+          reconnectionAttempts: 3,
+        });
         socket.on('connect', () => {
           setConnected(true);
           addMsg('info', 'Connected to Socket.IO');
         });
-        socket.on('disconnect', () => {
+        socket.on('disconnect', (reason) => {
           setConnected(false);
-          addMsg('info', 'Socket.IO disconnected');
+          addMsg('info', `Socket.IO disconnected (${reason})`);
         });
-        socket.on('message', (msg) => addMsg('received', typeof msg === 'string' ? msg : JSON.stringify(msg)));
+        // A handshake that never completes used to leave the UI on "Connect"
+        // with an empty transcript and no clue why.
+        socket.on('connect_error', (err: Error) => {
+          setConnected(false);
+          addMsg('error', `Socket.IO connect error: ${err.message}`);
+        });
+        // onAny already covers every inbound event, "message" included — the
+        // extra on('message') handler logged those twice.
         socket.onAny((event, ...args) => {
           addMsg('received', `Event [${event}]: ${JSON.stringify(args)}`);
         });
@@ -86,6 +105,12 @@ export const ConnectionEditor: React.FC = () => {
   };
 
   const disconnect = () => {
+    // Was there anything to tear down? React's dev-mode double-invoked
+    // effects run this cleanup once right after mount, and logging
+    // unconditionally made every fresh connection tab open on a bogus
+    // "Disconnected" line.
+    const hadTransport = !!(wsRef.current || socketIoRef.current || sseRef.current);
+
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -99,18 +124,32 @@ export const ConnectionEditor: React.FC = () => {
       sseRef.current = null;
     }
     setConnected(false);
-    addMsg('info', 'Disconnected');
+    // KAFKA is stubbed and holds no transport, so fall back to `connected`.
+    if (hadTransport || connected) addMsg('info', 'Disconnected');
   };
 
   const sendMessage = () => {
     if (!inputMsg) return;
     
     if (protocol === 'WS' && wsRef.current) {
-      wsRef.current.send(inputMsg);
-      addMsg('sent', inputMsg);
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(inputMsg);
+        addMsg('sent', inputMsg);
+      } else {
+        addMsg('error', 'Not connected — message not sent');
+      }
     } else if (protocol === 'SOCKETIO' && socketIoRef.current) {
-      socketIoRef.current.send(inputMsg);
-      addMsg('sent', inputMsg);
+      const name = eventName.trim() || 'message';
+      // Send structured args when the box holds JSON, so emitting
+      // {"id":1} reaches the server as an object rather than a string.
+      let payload: any = inputMsg;
+      try {
+        payload = JSON.parse(inputMsg);
+      } catch {
+        /* not JSON — emit the raw text */
+      }
+      socketIoRef.current.emit(name, payload);
+      addMsg('sent', `Event [${name}]: ${JSON.stringify([payload])}`);
     } else if (protocol === 'KAFKA') {
       addMsg('sent', `[Kafka Produce]: ${inputMsg}`);
     } else if (protocol === 'SSE') {
@@ -128,7 +167,8 @@ export const ConnectionEditor: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 overflow-hidden">
       <div className="flex items-center gap-2 p-2 border-b border-gray-200 dark:border-gray-800">
-        <select 
+        <select
+          data-testid="connection-protocol-select" 
           className="px-2 py-1 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm"
           value={protocol}
           onChange={(e) => updateActiveRequest({ method: e.target.value })}
@@ -140,6 +180,7 @@ export const ConnectionEditor: React.FC = () => {
         </select>
         <input 
           type="text" 
+          data-testid="connection-url-input"
           className="flex-1 px-3 py-1 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm"
           placeholder="Enter connection URL (e.g., ws://localhost:8080)"
           value={url}
@@ -147,23 +188,23 @@ export const ConnectionEditor: React.FC = () => {
           onKeyDown={(e) => { if (e.key === 'Enter') connect(); }}
         />
         {connected ? (
-          <button onClick={disconnect} className="flex items-center gap-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition-colors">
+          <button data-testid="connection-disconnect-btn" onClick={disconnect} className="flex items-center gap-1 px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition-colors">
             <Square size={14} /> Disconnect
           </button>
         ) : (
-          <button onClick={connect} className="flex items-center gap-1 px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors">
+          <button data-testid="connection-connect-btn" onClick={connect} className="flex items-center gap-1 px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors">
             <Play size={14} /> Connect
           </button>
         )}
       </div>
       
       <div className="flex-1 flex flex-col p-4 overflow-hidden min-h-0">
-        <div className="flex-1 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-2 mb-4 bg-gray-50 dark:bg-gray-950/50 font-mono text-sm flex flex-col gap-1">
+        <div data-testid="connection-message-log" className="flex-1 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded p-2 mb-4 bg-gray-50 dark:bg-gray-950/50 font-mono text-sm flex flex-col gap-1">
           {messages.length === 0 ? (
             <div className="text-gray-400 italic text-center mt-4">No messages yet. Connect to start.</div>
           ) : (
             messages.map((m, i) => (
-              <div key={i} className={`p-1 rounded ${
+              <div key={i} data-testid={`connection-msg-${m.type}`} className={`p-1 rounded ${
                 m.type === 'sent' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 ml-8' : 
                 m.type === 'received' ? 'bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 mr-8' :
                 m.type === 'error' ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 text-center' :
@@ -177,8 +218,20 @@ export const ConnectionEditor: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2">
+          {protocol === 'SOCKETIO' && (
+            <input
+              type="text"
+              data-testid="connection-event-name-input"
+              className="w-40 shrink-0 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm"
+              placeholder="Event name"
+              value={eventName}
+              onChange={(e) => setEventName(e.target.value)}
+              disabled={!connected}
+            />
+          )}
           <input
             type="text"
+            data-testid="connection-message-input"
             className="flex-1 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm"
             placeholder="Type a message to send..."
             value={inputMsg}
@@ -187,6 +240,7 @@ export const ConnectionEditor: React.FC = () => {
             disabled={!connected || protocol === 'SSE'}
           />
           <button 
+            data-testid="connection-send-btn"
             onClick={sendMessage}
             disabled={!connected || protocol === 'SSE'}
             className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition-colors"
@@ -194,6 +248,7 @@ export const ConnectionEditor: React.FC = () => {
             Send
           </button>
           <button 
+            data-testid="connection-clear-btn"
             onClick={() => setMessages([])}
             className="p-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300 transition-colors"
             title="Clear Messages"

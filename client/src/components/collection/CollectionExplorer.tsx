@@ -756,7 +756,7 @@ export const CollectionExplorer: React.FC = () => {
     };
     const handleExportCollection = (e: Event) => {
       const ev = e as CustomEvent;
-      exportCollection(ev.detail.id, ev.detail.name);
+      void exportCollection(ev.detail.id, ev.detail.name);
     };
     const handleRunCollection = (e: Event) => {
       const ev = e as CustomEvent;
@@ -834,7 +834,19 @@ export const CollectionExplorer: React.FC = () => {
     return null;
   };
 
-  const exportCollection = (id: string, name: string) => {
+  const exportCollection = async (id: string, name: string) => {
+    // The tree is lazy-loaded, so a collection the sidebar has never expanded
+    // contributes nothing to the store — the export used to come out as
+    // {"item":[]} with no warning. Pull its folders and their requests in
+    // first, the same way DocumentationModal does.
+    const store = useCollectionStore.getState();
+    await store.loadCollectionChildren(id);
+    const knownFolders = (Object.values(useCollectionStore.getState().foldersByCollection)
+      .filter((v): v is Folder[] => Array.isArray(v)).flat())
+      .filter(f => f.collectionId === id);
+    await Promise.all(knownFolders.map(f => store.loadFolderChildren(id, f._id)));
+
+    const { collections, foldersByCollection, requestsByFolder } = useCollectionStore.getState();
     const collection = collections.find(c => c._id === id);
     if (!collection) return;
     const colFolders = Object.values(foldersByCollection).flat().filter((f: any) => f && f.collectionId === id) as Folder[];

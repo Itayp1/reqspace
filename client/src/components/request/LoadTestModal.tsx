@@ -92,7 +92,7 @@ export function LoadTestModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div data-testid="load-test-modal" className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-[600px] border border-gray-200 dark:border-gray-700 flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-2 text-gray-800 dark:text-gray-100 font-semibold">
@@ -110,6 +110,7 @@ export function LoadTestModal({ onClose }: Props) {
               <label className="block text-sm font-medium mb-1">Iterations</label>
               <input
                 type="number"
+                data-testid="load-test-iterations"
                 min="1"
                 max="1000"
                 value={iterations}
@@ -122,6 +123,7 @@ export function LoadTestModal({ onClose }: Props) {
               <label className="block text-sm font-medium mb-1">Concurrency</label>
               <input
                 type="number"
+                data-testid="load-test-concurrency"
                 min="1"
                 max="50"
                 value={concurrency}
@@ -135,11 +137,11 @@ export function LoadTestModal({ onClose }: Props) {
           <div className="p-4 border border-gray-200 dark:border-gray-800 rounded bg-gray-50 dark:bg-gray-800/50">
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <div className="text-2xl font-bold text-green-500">{results.success}</div>
+                <div data-testid="load-test-success" className="text-2xl font-bold text-green-500">{results.success}</div>
                 <div className="text-xs text-gray-500 uppercase">Success</div>
               </div>
               <div>
-                <div className="text-2xl font-bold text-red-500">{results.failed}</div>
+                <div data-testid="load-test-failed" className="text-2xl font-bold text-red-500">{results.failed}</div>
                 <div className="text-xs text-gray-500 uppercase">Failed</div>
               </div>
               <div>
@@ -165,11 +167,11 @@ export function LoadTestModal({ onClose }: Props) {
             Close
           </button>
           {!isRunning ? (
-            <button onClick={handleStart} className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded text-sm font-medium flex items-center gap-1">
+            <button data-testid="load-test-start-btn" onClick={handleStart} className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded text-sm font-medium flex items-center gap-1">
               <Play size={16} /> Start
             </button>
           ) : (
-            <button onClick={handleStop} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-medium flex items-center gap-1">
+            <button data-testid="load-test-stop-btn" onClick={handleStop} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-medium flex items-center gap-1">
               <StopCircle size={16} /> Stop
             </button>
           )}

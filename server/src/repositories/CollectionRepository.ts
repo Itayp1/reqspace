@@ -8,6 +8,7 @@ export interface ICollectionRecord {
   name: string;
   description: string;
   variables: any[];
+  auth: any;
   preRequestScript: string;
   testScript: string;
   roles: any[];
@@ -24,6 +25,7 @@ function sqlToRecord(c: SqlCollection): ICollectionRecord {
     name: c.name,
     description: c.description,
     variables: typeof c.variables === 'string' ? JSON.parse(c.variables) : c.variables,
+    auth: typeof c.auth === 'string' ? JSON.parse(c.auth || '{"type":"none"}') : (c.auth || { type: 'none' }),
     preRequestScript: c.preRequestScript,
     testScript: c.testScript,
     roles: typeof c.roles === 'string' ? JSON.parse(c.roles) : (c.roles || []),
@@ -52,6 +54,7 @@ export const CollectionRepository = {
     description?: string;
     createdBy: string;
     variables?: any[];
+    auth?: any;
     preRequestScript?: string;
     testScript?: string;
     order?: number;
@@ -62,6 +65,7 @@ export const CollectionRepository = {
       name: data.name,
       description: data.description || '',
       variables: JSON.stringify(data.variables || []),
+      auth: JSON.stringify(data.auth || { type: 'none' }),
       preRequestScript: data.preRequestScript || '',
       testScript: data.testScript || '',
       roles: '[]',
@@ -77,6 +81,9 @@ export const CollectionRepository = {
   async update(id: string, data: Partial<ICollectionRecord>): Promise<ICollectionRecord | null> {
     const patch: any = { ...data };
     if (data.variables) patch.variables = JSON.stringify(data.variables);
+    // `undefined` means "not supplied"; an explicit auth of any shape, {}
+    // included, is a real change and has to be stored.
+    if (data.auth !== undefined) patch.auth = JSON.stringify(data.auth);
     await SqlCollection.update(patch, { where: { id } });
     return this.findById(id);
   },

@@ -324,18 +324,24 @@ export function UrlBar() {
         visualizerData,
       } as any);
 
-      // Log to Console Drawer
+      // Log to Console Drawer. Log the headers and URL that were actually
+      // sent (`reqHeaders` / `finalUrl`), not a fresh re-derivation from
+      // activeRequest.headers — that one dropped the Cookie header, the
+      // resolved auth header, Content-Type, anything a pre-request script
+      // wrote or removed, and any apikey-in-query auth appended to the URL,
+      // and it resolved variables without the local-variable scope. The
+      // Console is meant to show the request as it left the app.
       useConsoleStore.getState().addLog({
         type: 'request',
         method: activeRequest.method,
-        url: resolvedUrl,
+        url: finalUrl,
         status: res.status,
         time: responseTime,
-        requestHeaders: activeRequest.headers?.reduce((acc: any, h: any) => {
-          if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId);
-          return acc;
-        }, {}) || {},
-        requestBody: requestBody,
+        requestHeaders: reqHeaders,
+        // form-data mode makes requestBody a {_isFormData, items} object.
+        // The drawer renders this straight into a <pre>, and React throws on
+        // an object child — so it has to be a string by the time it lands.
+        requestBody: typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody, null, 2),
         responseHeaders: res.headers || {},
         responseBody,
       });
@@ -651,6 +657,7 @@ export function UrlBar() {
           ) : (
             <>
               <button
+                data-testid="load-test-open-btn"
                 onClick={() => setIsLoadTestModalOpen(true)}
                 className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded-md hover:bg-orange-200 dark:hover:bg-orange-900/50 text-sm font-medium transition-colors"
                 title="Load Test"

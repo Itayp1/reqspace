@@ -28,7 +28,7 @@ export const ConsoleDrawer: React.FC = () => {
   };
 
   return (
-    <div className="h-60 border-t border-gray-800 bg-gray-950 flex flex-col text-xs font-mono select-none">
+    <div id="console-drawer" data-testid="console-drawer" className="h-60 border-t border-gray-800 bg-gray-950 flex flex-col text-xs font-mono select-none">
       {/* Console Header */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800">
         <div className="flex items-center gap-2 text-gray-300 font-semibold text-[11px]">
@@ -37,6 +37,7 @@ export const ConsoleDrawer: React.FC = () => {
         </div>
         <div className="flex items-center gap-1">
           <button
+            data-testid="console-clear-btn"
             onClick={clearLogs}
             className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
             title="Clear Console"
@@ -44,6 +45,7 @@ export const ConsoleDrawer: React.FC = () => {
             <Trash2 size={13} />
           </button>
           <button
+            data-testid="console-close-btn"
             onClick={() => setIsOpen(false)}
             className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
             title="Close Console"
@@ -63,7 +65,7 @@ export const ConsoleDrawer: React.FC = () => {
           logs.map(log => {
             const isExpanded = expandedIds.has(log.id);
             return (
-              <div key={log.id} className="py-1 px-2 hover:bg-gray-900/40 rounded">
+              <div key={log.id} data-testid={`console-log-${log.type}`} className="py-1 px-2 hover:bg-gray-900/40 rounded">
                 <div
                   className="flex items-center gap-2 cursor-pointer"
                   onClick={() => toggleExpand(log.id)}
@@ -102,7 +104,7 @@ export const ConsoleDrawer: React.FC = () => {
 
                 {/* Expanded Details */}
                 {isExpanded && log.type === 'request' && (
-                  <div className="mt-2 ml-4 p-2 bg-gray-900/80 rounded border border-gray-800 space-y-2 text-[11px]">
+                  <div data-testid="console-log-details" className="mt-2 ml-4 p-2 bg-gray-900/80 rounded border border-gray-800 space-y-2 text-[11px]">
                     {log.requestHeaders && Object.keys(log.requestHeaders).length > 0 && (
                       <div>
                         <div className="text-gray-500 font-semibold mb-0.5">Request Headers:</div>

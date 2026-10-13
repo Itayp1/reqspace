@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useToastStore } from '../store/toastStore';
+import { pathOnly, reportClientError } from '../utils/errorReporter';
 
 const api = axios.create({
   baseURL: '/api',
@@ -16,6 +17,14 @@ api.interceptors.response.use(
       // Handle forbidden
       const message = error.response.data?.message || 'You do not have permission to perform this action.';
       useToastStore.getState().addToast('error', message);
+    } else if (!axios.isCancel(error) && (!error.response || error.response.status >= 500)) {
+      reportClientError({
+        kind: 'api',
+        message: error.message || 'Request failed',
+        method: error.config?.method?.toUpperCase(),
+        status: error.response?.status,
+        route: pathOnly(error.config ? api.getUri(error.config) : ''),
+      });
     }
     return Promise.reject(error);
   }

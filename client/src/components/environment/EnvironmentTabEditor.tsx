@@ -26,7 +26,8 @@ export function EnvironmentTabEditor() {
   useEffect(() => {
     if (env) {
       setLocalVars(env.variables);
-      setName(env.name);
+      // Globals have no name, and an undefined value would make the input uncontrolled.
+      setName(env.name ?? '');
       setRevealedIndices(new Set());
     }
   }, [envId, !!env]); // Reset when switching tabs or when the env finishes loading

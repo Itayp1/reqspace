@@ -9,8 +9,13 @@ export default function SharedCollectionPage() {
   const { shortId } = useParams();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
-  const [executing, setExecuting] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, any>>({});
+  // Keyed by list index, not by `req._id`: the share endpoint deliberately
+  // projects a safe view with no internal ids, so every row's `_id` was
+  // undefined. React warned about duplicate keys, and because all rows shared
+  // the one `undefined` key, running a single request showed its result under
+  // every row and disabled every Play button at once.
+  const [executing, setExecuting] = useState<number | null>(null);
+  const [results, setResults] = useState<Record<number, any>>({});
   const { setShowDownloadModal } = useExtensionStore();
 
   useEffect(() => {
@@ -19,28 +24,35 @@ export default function SharedCollectionPage() {
       .catch(err => setError(err.response?.data?.message || 'Failed to load shared collection'));
   }, [shortId]);
 
-  const executeRequest = async (req: any) => {
-    setExecuting(req._id);
+  const executeRequest = async (req: any, index: number) => {
+    setExecuting(index);
     try {
       const response = await sendRequest({
         method: req.method,
         url: req.url,
-        headers: req.headers,
+        // The safe view returns headers as a key/value list; the transport
+        // wants a plain object.
+        headers: Array.isArray(req.headers)
+          ? req.headers.reduce((acc: Record<string, string>, h: any) => {
+              if (h?.key && h.enabled !== false) acc[h.key] = h.value ?? '';
+              return acc;
+            }, {})
+          : (req.headers || {}),
         body: req.body
       });
-      setResults(prev => ({ ...prev, [req._id]: response }));
+      setResults(prev => ({ ...prev, [index]: response }));
     } catch (err: any) {
       if ((err as any).code === EXTENSION_NOT_INSTALLED_ERROR) {
         setShowDownloadModal(true);
       } else {
-        setResults(prev => ({ ...prev, [req._id]: err.response?.data || err.message }));
+        setResults(prev => ({ ...prev, [index]: err.response?.data || err.message }));
       }
     }
     setExecuting(null);
   };
 
   if (error) {
-    return <div className="flex h-screen items-center justify-center text-red-500 font-bold text-xl">{error}</div>;
+    return <div data-testid="shared-collection-error" className="flex h-screen items-center justify-center text-red-500 font-bold text-xl">{error}</div>;
   }
 
   if (!data) {
@@ -51,13 +63,13 @@ export default function SharedCollectionPage() {
     <div className="min-h-screen bg-background text-text p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8 border-b border-border pb-4">
-          <h1 className="text-3xl font-bold mb-2">{data.collection.name}</h1>
+          <h1 data-testid="shared-collection-name" className="text-3xl font-bold mb-2">{data.collection.name}</h1>
           <p className="text-text-muted">Shared Collection (Expires {new Date(data.expiresAt).toLocaleString()})</p>
         </div>
 
         <div className="space-y-4">
-          {data.requests.map((req: any) => (
-            <div key={req._id} className="border border-border rounded bg-surface overflow-hidden">
+          {data.requests.map((req: any, index: number) => (
+            <div key={index} data-testid="shared-request-row" className="border border-border rounded bg-surface overflow-hidden">
               <div className="p-4 flex items-center justify-between border-b border-border bg-background">
                 <div className="flex items-center gap-3">
                   <span className={'text-xs font-bold px-2 py-1 rounded ' + (
@@ -68,22 +80,24 @@ export default function SharedCollectionPage() {
                   )}>
                     {req.method}
                   </span>
-                  <span className="font-medium">{req.name}</span>
-                  <span className="text-text-muted text-sm">{req.url}</span>
+                  <span data-testid="shared-request-name" className="font-medium">{req.name}</span>
+                  <span data-testid="shared-request-url" className="text-text-muted text-sm">{req.url}</span>
                 </div>
                 <button
-                  onClick={() => executeRequest(req)}
-                  disabled={executing === req._id}
+                  data-testid="shared-request-run-btn"
+                  aria-label={`Run ${req.name}`}
+                  onClick={() => executeRequest(req, index)}
+                  disabled={executing === index}
                   className="bg-primary text-white p-2 rounded hover:bg-orange-600 disabled:opacity-50"
                 >
                   <Play size={16} />
                 </button>
               </div>
               
-              {results[req._id] && (
+              {results[index] && (
                 <div className="p-4 bg-[#1e1e1e]">
-                  <pre className="text-xs text-green-400 overflow-x-auto">
-                    {JSON.stringify(results[req._id], null, 2)}
+                  <pre data-testid="shared-request-result" className="text-xs text-green-400 overflow-x-auto">
+                    {JSON.stringify(results[index], null, 2)}
                   </pre>
                 </div>
               )}

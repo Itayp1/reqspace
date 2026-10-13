@@ -7,6 +7,7 @@ export interface IFolderRecord {
   parentFolderId: string | null;
   name: string;
   description: string;
+  auth: any;
   preRequestScript: string;
   testScript: string;
   order: number;
@@ -15,7 +16,13 @@ export interface IFolderRecord {
 }
 
 function sqlToRecord(f: SqlFolder): IFolderRecord {
-  return { _id: f.id, id: f.id, collectionId: f.collectionId, parentFolderId: f.parentFolderId, name: f.name, description: f.description, preRequestScript: f.preRequestScript, testScript: f.testScript, order: f.order, createdAt: f.createdAt, updatedAt: f.updatedAt };
+  return {
+    _id: f.id, id: f.id, collectionId: f.collectionId, parentFolderId: f.parentFolderId,
+    name: f.name, description: f.description,
+    auth: typeof f.auth === 'string' ? JSON.parse(f.auth || '{"type":"inherit"}') : (f.auth || { type: 'inherit' }),
+    preRequestScript: f.preRequestScript, testScript: f.testScript, order: f.order,
+    createdAt: f.createdAt, updatedAt: f.updatedAt,
+  };
 }
 
 export const FolderRepository = {
@@ -33,8 +40,8 @@ export const FolderRepository = {
     return (await SqlFolder.findAll({ where: { collectionId: { [Op.in]: collectionIds } }, order: [['order', 'ASC']] })).map(sqlToRecord);
   },
 
-  async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string; preRequestScript?: string; testScript?: string; order?: number }): Promise<IFolderRecord> {
-    return sqlToRecord(await SqlFolder.create({ id: uuidv4(), collectionId: data.collectionId, name: data.name, parentFolderId: data.parentFolderId ?? null, description: data.description || '', preRequestScript: data.preRequestScript || '', testScript: data.testScript || '', order: data.order ?? 0 }));
+  async create(data: { collectionId: string; name: string; parentFolderId?: string | null; description?: string; auth?: any; preRequestScript?: string; testScript?: string; order?: number }): Promise<IFolderRecord> {
+    return sqlToRecord(await SqlFolder.create({ id: uuidv4(), collectionId: data.collectionId, name: data.name, parentFolderId: data.parentFolderId ?? null, description: data.description || '', auth: JSON.stringify(data.auth || { type: 'inherit' }), preRequestScript: data.preRequestScript || '', testScript: data.testScript || '', order: data.order ?? 0 }));
   },
 
   async countInCollection(collectionId: string, parentFolderId: string | null): Promise<number> {
@@ -46,7 +53,10 @@ export const FolderRepository = {
   },
 
   async update(id: string, data: Partial<IFolderRecord>): Promise<IFolderRecord | null> {
-    await SqlFolder.update(data as any, { where: { id } }); return this.findById(id);
+    const patch: any = { ...data };
+    // `undefined` means "not supplied"; an explicit auth is a real change.
+    if (data.auth !== undefined) patch.auth = JSON.stringify(data.auth);
+    await SqlFolder.update(patch, { where: { id } }); return this.findById(id);
   },
 
   async delete(id: string): Promise<void> {

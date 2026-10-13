@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+export const requestAuthSchema = z.object({
+  type: z.enum(['none', 'basic', 'bearer', 'oauth2', 'header', 'apikey', 'ntlm', 'inherit']),
+  basic: z.object({ username: z.string(), password: z.string() }).optional(),
+  bearer: z.object({ token: z.string() }).optional(),
+  header: z.object({ key: z.string(), value: z.string() }).optional(),
+  apikey: z.object({ key: z.string(), value: z.string(), in: z.enum(['header', 'query']) }).optional(),
+  ntlm: z.object({ username: z.string().optional(), password: z.string().optional(), domain: z.string().optional(), workstation: z.string().optional() }).optional(),
+  oauth2: z.record(z.any()).optional()
+}).strict();
+
 export const createCollectionSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -12,6 +22,7 @@ export const updateCollectionSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   variables: z.any().optional(),
+  auth: requestAuthSchema.optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
   order: z.number().optional()
@@ -29,19 +40,10 @@ export const updateFolderSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   parentFolderId: z.string().nullable().optional(),
+  auth: requestAuthSchema.optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
   order: z.number().optional()
-}).strict();
-
-export const requestAuthSchema = z.object({
-  type: z.enum(['none', 'basic', 'bearer', 'oauth2', 'header', 'apikey', 'ntlm', 'inherit']),
-  basic: z.object({ username: z.string(), password: z.string() }).optional(),
-  bearer: z.object({ token: z.string() }).optional(),
-  header: z.object({ key: z.string(), value: z.string() }).optional(),
-  apikey: z.object({ key: z.string(), value: z.string(), in: z.enum(['header', 'query']) }).optional(),
-  ntlm: z.object({ username: z.string().optional(), password: z.string().optional(), domain: z.string().optional(), workstation: z.string().optional() }).optional(),
-  oauth2: z.record(z.any()).optional()
 }).strict();
 
 export const requestItemSchema = z.object({

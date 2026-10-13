@@ -47,7 +47,7 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
   if (!text) return '';
   let result = resolveDynamicVars(text);
 
-  const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars } = useEnvironmentStore.getState();
+  const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars, userProfileVariables } = useEnvironmentStore.getState();
   const activeEnv = environments.find(e => e._id === activeEnvironmentId);
 
   const envVars = new Map<string, string>();
@@ -80,7 +80,16 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     }
   }
 
-  // Store local variables override collection and environment
+  // Profile variables are the user's own cross-workspace values, so they sit
+  // above collection/environment but below the workspace-specific locals that
+  // follow — a local variable is the narrower scope and should win.
+  if (userProfileVariables) {
+    for (const v of userProfileVariables) {
+      if (v.enabled && v.key) envVars.set(v.key, String(v.value !== undefined ? v.value : (v.currentValue || '')));
+    }
+  }
+
+  // Store local variables override collection, environment and profile
   if (storeLocalVars) {
     for (const v of storeLocalVars) {
       if (v.enabled && v.key) envVars.set(v.key, String(v.value !== undefined ? v.value : (v.currentValue || '')));
