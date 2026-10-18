@@ -3,8 +3,6 @@ import { request as pwRequest, type Page, type APIRequestContext } from '@playwr
 import { API_URL } from './fixtures';
 import { registerUser } from './helpers';
 
-// a binary response's history save is rejected with 400 (known issue, see fperrors)
-test.use({ allowFpErrors: [/Failed to save history .*status code 400/] });
 
 /**
  * Group 3 of MANUAL_TEST_PLAN_FAILED.md: E (auth tokens), F (scripts), G (environments), I (response viewer).

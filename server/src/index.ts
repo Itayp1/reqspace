@@ -244,6 +244,11 @@ function hasNul(v: any, depth = 0): boolean {
   return false;
 }
 app.use('/api', (req, res, next) => {
+  // A binary response's text legitimately contains NUL; keep the history entry instead of refusing it
+  // (Postgres cannot store NUL in text either).
+  if (req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/history$/.test(req.originalUrl.split('?')[0]) && typeof req.body?.responseBody === 'string') {
+    req.body.responseBody = req.body.responseBody.split(String.fromCharCode(0)).join('�');
+  }
   if (req.body && typeof req.body === 'object' && hasNul(req.body)) return res.status(400).json({ message: 'Invalid characters in request body' });
   next();
 });
