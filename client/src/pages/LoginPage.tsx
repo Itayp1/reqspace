@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuthStore } from '../store/authStore';
 import OAuthButtons from '../components/common/OAuthButtons';
+import { sessionCookieStored, SESSION_COOKIE_BLOCKED_MESSAGE } from '../utils/sessionCookie';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -24,6 +25,11 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const res = await api.post('/auth/login', { email, password });
+      if (!(await sessionCookieStored())) {
+        setError(SESSION_COOKIE_BLOCKED_MESSAGE);
+        setSubmitting(false);
+        return;
+      }
       setUser(res.data.user);
       navigate('/');
       window.location.reload(); // To fetch workspaces

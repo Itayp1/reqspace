@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuthStore } from '../store/authStore';
 import { OAUTH_LABELS, type OAuthProvider } from '../utils/oauth';
+import { sessionCookieStored, SESSION_COOKIE_BLOCKED_MESSAGE } from '../utils/sessionCookie';
 
 export default function OAuthCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -38,7 +39,11 @@ export default function OAuthCallbackPage() {
     const redirectUri = window.location.origin + window.location.pathname; // /auth/<provider>/callback
 
     api.post(`/auth/${provider}`, { code, redirectUri, state })
-      .then(res => {
+      .then(async res => {
+        if (!(await sessionCookieStored())) {
+          setError(SESSION_COOKIE_BLOCKED_MESSAGE);
+          return;
+        }
         setUser(res.data.user);
         navigate('/');
       })
