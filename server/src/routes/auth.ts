@@ -256,7 +256,9 @@ router.post('/change-password', validate(schemas.changePasswordSchema), authenti
 router.get('/state', async (req: Request, res: Response) => {
   const crypto = await import('crypto');
   const state = crypto.randomBytes(32).toString('hex');
-  res.cookie('oauth_state', state, {
+  // One cookie per attempt (named by the state's prefix) so a second click or tab can't invalidate the first.
+  res.set('Cache-Control', 'no-store');
+  res.cookie(`oauth_state_${state.slice(0, 16)}`, state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -273,8 +275,9 @@ const oauthLogin = (provider: OAuthProviderId) => async (req: Request, res: Resp
   if (!code) return res.status(400).json({ message: 'Code is required' });
 
   const crypto = await import('crypto');
-  const cookieState = req.cookies?.oauth_state;
-  res.clearCookie('oauth_state', { path: '/' }); // clear immediately
+  const cookieName = typeof state === 'string' && /^[0-9a-f]{64}$/.test(state) ? `oauth_state_${state.slice(0, 16)}` : '';
+  const cookieState = cookieName ? req.cookies?.[cookieName] : undefined;
+  if (cookieName) res.clearCookie(cookieName, { path: '/' }); // clear immediately
 
   const ok = typeof state === 'string' && typeof cookieState === 'string' &&
     state.length === 64 && cookieState.length === 64 &&
