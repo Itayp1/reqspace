@@ -1,8 +1,6 @@
 import { test, expect, API_URL } from './fixtures';
 import { request as pwRequest } from '@playwright/test';
 
-// Logging out while the workspace tree is still loading makes that in-flight request answer 401; the app records it in fperrors.
-test.use({ allowFpErrors: [/server-auth|status code 401/] });
 
 test.describe('Authentication', () => {
   const timestamp = Date.now();
@@ -50,6 +48,9 @@ test.describe('Authentication', () => {
     // LoginPage does a full window.location.reload() after navigating — give
     // it more than the default 5s so a slow reload isn't flagged as a failure.
     await expect(page).toHaveURL(/.*\/$/, { timeout: 15000 });
+    // The reload is over once the workspace has loaded; signing out earlier races the app's own start-up requests.
+    await expect(page.getByTestId('workspace-select')).toBeVisible({ timeout: 15000 });
+    await page.waitForLoadState('networkidle');
 
     // Logout
     await page.click('[data-testid="logout-btn"]');

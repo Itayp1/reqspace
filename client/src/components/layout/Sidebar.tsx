@@ -7,7 +7,7 @@ import WorkspaceSettingsModal from '../workspace/WorkspaceSettingsModal';
 import HistorySidebar from '../history/HistorySidebar';
 import ImportModal from '../collection/ImportModal';
 import EnvironmentSidebar from '../environment/EnvironmentSidebar';
-import api from '../../api/axios';
+import api, { beginSignOut } from '../../api/axios';
 
 export default function Sidebar() {
   const { activeWorkspace, workspaces, setActiveWorkspace, user } = useAuthStore();
@@ -16,6 +16,7 @@ export default function Sidebar() {
   const [activeTab, setActiveTab] = useState<'collections' | 'history' | 'environments'>('collections');
 
   const handleLogout = async () => {
+    beginSignOut();
     try {
       await api.post('/auth/logout');
     } catch(err) {

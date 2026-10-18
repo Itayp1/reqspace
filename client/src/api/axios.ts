@@ -7,6 +7,17 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Once the user has asked to sign out, nothing may hit the API any more: the session cookie is about to be
+// cleared and a late call (workspace tree, environments...) would answer 401 for no reason. The page is
+// navigating away, so such a call simply never settles.
+let signingOut = false;
+export function beginSignOut() { signingOut = true; }
+
+api.interceptors.request.use((config) => {
+  if (signingOut && !String(config.url).startsWith('/auth/')) config.adapter = () => new Promise(() => {});
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
