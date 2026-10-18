@@ -3,6 +3,9 @@ import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { API_URL } from './fixtures';
 import { apiAsAdmin } from './helpers';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 /**
  * (Admin-created users are always flagged mustChangePassword; the create schema rejects the field.)
  * A5.6 — while a user is flagged mustChangePassword, direct API calls (with a

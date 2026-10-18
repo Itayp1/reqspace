@@ -2,6 +2,9 @@ import { test, expect } from './fixtures';
 import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { API_URL } from './fixtures';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 /**
  * M1.4 / finding 159. MANUAL_TEST_PLAN.md records a product DECISION: there is intentionally no
  * server-side proxy (shareProxyRouter) for the share page; requests run in the viewer's browser/extension.

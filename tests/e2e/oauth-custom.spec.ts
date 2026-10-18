@@ -2,6 +2,9 @@ import { test, expect } from './fixtures';
 import { apiAsAdmin } from './helpers';
 import { startMockIdp, enableCustomProvider, disableCustomProvider, type MockIdp } from './mock-idp';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 /**
  * End-to-end sign-in through the "custom" OAuth2/OIDC provider, against a mock identity provider
  * started by the test (see mock-idp.ts), which decides whether a sign-in is allowed.

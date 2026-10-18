@@ -1,5 +1,8 @@
 import { test, expect } from './fixtures';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 // UI-3: a 403 (forbidden — logged in, but not allowed) must be handled
 // distinctly from a 401 (not logged in at all). Previously a 403 fell
 // through the axios interceptor silently — the action just didn't happen

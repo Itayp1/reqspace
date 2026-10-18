@@ -1,5 +1,8 @@
 import { test, expect, type Page } from './fixtures';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/console\.error: Network Error/] });
+
 /**
  * The auth types `requests.spec.ts` never covered: API key (header and query),
  * OAuth 2.0, and `inherit`.

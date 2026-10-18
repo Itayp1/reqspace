@@ -156,6 +156,7 @@ export default defineConfig({
         // Record every occurrence of a fault, so a retry that hits the same
         // error is caught too instead of falling inside the dedupe window.
         FPERRORS_DEDUPE_MS: '0',
+        FPERRORS_CAPTURE_AUTH_FAILURES: process.env.FPERRORS_CAPTURE_AUTH_FAILURES ?? 'true',
         ADMIN_PASSWORD: 'admin',
         CERT_ENCRYPTION_KEY: process.env.CERT_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
       }

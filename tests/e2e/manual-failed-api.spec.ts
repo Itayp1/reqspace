@@ -3,6 +3,9 @@ import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { API_URL } from './fixtures';
 import { apiAs, apiAsAdmin } from './helpers';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 /**
  * One Playwright test per HTTP/API-level failure listed in MANUAL_TEST_PLAN_FAILED.md.
  * Each test asserts the CORRECT behaviour and carries the plan id in its title

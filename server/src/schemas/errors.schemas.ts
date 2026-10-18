@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const reportErrorSchema = z.object({
-  kind: z.enum(['window.error', 'unhandledrejection', 'react-boundary', 'api']),
+  kind: z.enum(['window.error', 'unhandledrejection', 'react-boundary', 'api', 'console']),
   message: z.string().min(1).max(2000),
   stack: z.string().max(10000).optional(),
   componentStack: z.string().max(10000).optional(),

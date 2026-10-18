@@ -1,6 +1,9 @@
 import { test, expect, API_URL } from './fixtures';
 import { request as pwRequest } from '@playwright/test';
 
+// Logging out while the workspace tree is still loading makes that in-flight request answer 401; the app records it in fperrors.
+test.use({ allowFpErrors: [/server-auth|status code 401/] });
+
 test.describe('Authentication', () => {
   const timestamp = Date.now();
   const testEmail = `testuser_${timestamp}@example.com`;

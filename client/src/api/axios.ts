@@ -10,6 +10,13 @@ const api = axios.create({
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error.response?.status;
+    const url = pathOnly(error.config ? api.getUri(error.config) : '');
+    // 401 from the session probe / login attempt is normal for a signed-out visitor; every other
+    // 401/403 means the session or a permission is wrong and is worth a record.
+    if ((status === 401 || status === 403) && !/^\/api\/(auth\/(me|login|logout)|errors)$/.test(url)) {
+      reportClientError({ kind: 'api', message: error.message || `Request failed with status code ${status}`, method: error.config?.method?.toUpperCase(), status, route: url });
+    }
     if (error.response?.status === 401) {
       // Handle unauthorized
       window.dispatchEvent(new CustomEvent('unauthorized'));

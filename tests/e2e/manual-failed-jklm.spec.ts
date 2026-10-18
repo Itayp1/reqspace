@@ -4,6 +4,9 @@ import { API_URL } from './fixtures';
 import { apiAsAdmin, openNodeMenu } from './helpers';
 import fs from 'fs';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]|Error parsing data file/] });
+
 /**
  * Group 4 of MANUAL_TEST_PLAN_FAILED.md: J (runner), K (history), L (import/export), M (share/fork).
  * Titles start with the plan id ("[J1.4] ..."). A still-broken bug is marked test.fail().

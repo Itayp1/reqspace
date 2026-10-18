@@ -1,5 +1,8 @@
 import { test, expect } from './fixtures';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 test.describe('Auth API & Security Edge Cases', () => {
   test('API requests for config should 403/401 for unauthorized users', async ({ request }) => {
     // Attempt to fetch admin config without authentication

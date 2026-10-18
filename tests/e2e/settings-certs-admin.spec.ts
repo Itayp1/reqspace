@@ -1,5 +1,8 @@
 import { test, expect } from './fixtures';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 /**
  * Three more surfaces that had no coverage: client certificates (mTLS),
  * the admin Add User modal, and the extension install prompt.

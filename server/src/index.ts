@@ -251,16 +251,20 @@ app.use('/api', (req, res, next) => {
 // Records 5xx responses that routes send without throwing. Exceptions that reach
 // the error handler set res.locals.errorRecorded so they are not recorded twice.
 app.use((req, res, next) => {
+  // req.path is relative to whichever router is current when 'finish' fires, so take the full path now.
+  const fullPath = req.originalUrl.split('?')[0];
   res.on('finish', () => {
-    if (res.statusCode < 500 || res.locals.errorRecorded || req.path === '/api/health') return;
+    const authFailure = (res.statusCode === 401 || res.statusCode === 403) && process.env.FPERRORS_CAPTURE_AUTH_FAILURES !== 'false'
+      && !/^\/api\/auth\/(me|login|logout)$/.test(fullPath);
+    if ((res.statusCode < 500 && !authFailure) || res.locals.errorRecorded || fullPath === '/api/health') return;
     const cause = res.locals.routeError;
     const causeError = cause instanceof Error ? cause : cause != null ? new Error(String(cause)) : null;
     void recordError({
       source: 'server',
-      kind: 'server-5xx',
-      message: causeError ? `${req.method} ${req.path} responded ${res.statusCode}: ${causeError.message}` : `${req.method} ${req.path} responded ${res.statusCode}`,
+      kind: authFailure ? 'server-auth' : 'server-5xx',
+      message: causeError ? `${req.method} ${fullPath} responded ${res.statusCode}: ${causeError.message}` : `${req.method} ${fullPath} responded ${res.statusCode}`,
       stack: causeError?.stack ?? null,
-      route: req.path,
+      route: fullPath,
       method: req.method,
       status: res.statusCode,
       userId: (req as { user?: { id?: string } }).user?.id ?? null,

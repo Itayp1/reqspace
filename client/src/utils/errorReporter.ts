@@ -1,4 +1,4 @@
-export type ClientErrorKind = 'window.error' | 'unhandledrejection' | 'react-boundary' | 'api';
+export type ClientErrorKind = 'window.error' | 'unhandledrejection' | 'react-boundary' | 'api' | 'console';
 
 export interface ClientErrorReport {
   kind: ClientErrorKind;
@@ -59,7 +59,30 @@ export function reportClientError(report: ClientErrorReport): void {
   }
 }
 
+const formatConsoleArg = (a: unknown): string => {
+  if (a instanceof Error) return a.stack ? `${a.message}
+${a.stack}` : a.message;
+  if (typeof a === 'string') return a;
+  try { return JSON.stringify(a); } catch { return String(a); }
+};
+
+/** Mirrors console.error / console.warn into the error store (still printing them as usual). */
+function captureConsole(): void {
+  for (const level of ['error', 'warn'] as const) {
+    const original = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      original(...args);
+      try {
+        const text = args.map(formatConsoleArg).join(' ');
+        const err = args.find((a): a is Error => a instanceof Error);
+        reportClientError({ kind: 'console', message: `console.${level}: ${text}`, stack: err?.stack });
+      } catch { /* never raise into the caller */ }
+    };
+  }
+}
+
 export function installGlobalErrorHandlers(): void {
+  captureConsole();
   window.addEventListener('error', (event) => {
     reportClientError({
       kind: 'window.error',

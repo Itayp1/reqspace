@@ -3,6 +3,9 @@ import { request as pwRequest } from '@playwright/test';
 import { API_URL } from './fixtures';
 import { apiAsAdmin } from './helpers';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 // Isolated source address so the login limiter budget of other specs is untouched.
 let seq = 0;
 const anon = () =>

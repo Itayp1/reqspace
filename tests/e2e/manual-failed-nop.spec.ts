@@ -7,6 +7,9 @@ import path from 'path';
 import { API_URL } from './fixtures';
 import { registerUser, apiAs, treeNode } from './helpers';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
 /**
  * Playwright tests for the failures of groups N1.12, O1-O4, P1-P6 listed in
  * MANUAL_TEST_PLAN_FAILED.md. Each test asserts the CORRECT behaviour and carries

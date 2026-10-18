@@ -1,6 +1,9 @@
 import { test, expect } from './fixtures';
 import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, expectToast, apiAs } from './helpers';
 
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/Failed to update request .*status code 400/] });
+
 /**
  * Sidebar tree operations that were broken or untested:
  *
