@@ -111,6 +111,7 @@ export default function AdminPage() {
       delete (payload as any).id;
       delete (payload as any).createdAt;
       delete (payload as any).updatedAt;
+      delete (payload as any).oauthRedirectAllowlist; // read-only, computed by the server
       await api.put('/admin/config', payload);
       useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
@@ -404,6 +405,27 @@ export default function AdminPage() {
                       {p.enabled && (
                         <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
                           <div className="text-xs text-text-muted">Redirect URI: <code>{oauthRedirectUri(provider)}</code></div>
+                          {(() => {
+                            const required: [string, unknown][] = [['Client ID', p.clientId], ['Client Secret', p.clientSecret],
+                              ...(provider === 'custom' ? [['Authorize URL', p.authorizeUrl], ['Token URL', p.tokenUrl], ['UserInfo URL', p.userinfoUrl]] as [string, unknown][] : [])];
+                            const missing = required.filter(([, v]) => !String(v ?? '').trim()).map(([n]) => n);
+                            const allowed: string[] | undefined = config.oauthRedirectAllowlist?.[provider];
+                            const uri = oauthRedirectUri(provider);
+                            return (
+                              <>
+                                {missing.length > 0 && (
+                                  <div data-testid={`admin-${provider}-missing`} className="text-xs text-red-500">
+                                    Not ready: missing {missing.join(', ')}. Until it is set, people cannot sign in with {label}.
+                                  </div>
+                                )}
+                                {allowed && !allowed.includes(uri) && (
+                                  <div data-testid={`admin-${provider}-redirect-warning`} className="text-xs text-red-500">
+                                    The server will refuse this Redirect URI. Add <code>{uri}</code> to the <code>OAUTH_ALLOWED_REDIRECT_URIS</code> environment variable and restart the server.
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">{provider === 'microsoft' ? 'Application (client) ID' : 'Client ID'}</label>
                             <input data-testid={`admin-${provider}-client-id`} type="text" value={p.clientId || ''} onChange={e => setP({ clientId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />

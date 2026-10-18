@@ -16,6 +16,7 @@ import { superAdminCache, workspaceRoleCache } from '../utils/cache';
 import { likeAnyColumn, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 import { isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
 import { Op, fn, col } from 'sequelize';
+import { OAUTH_PROVIDERS, allowedRedirectUris } from '../utils/oauthProviders';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -281,7 +282,9 @@ function maskConfigSecrets(config: any) {
 
 router.get('/config', async (_req: AuthRequest, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
-  return res.json(maskConfigSecrets(config));
+  // Lets the settings screen warn when a provider's callback URL would be refused.
+  const oauthRedirectAllowlist = Object.fromEntries(OAUTH_PROVIDERS.map((id) => [id, allowedRedirectUris(id)]));
+  return res.json({ ...maskConfigSecrets(config), oauthRedirectAllowlist });
 });
 
 router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequest, res: Response) => {

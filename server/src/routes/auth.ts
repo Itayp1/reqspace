@@ -10,7 +10,7 @@ import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, 
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
 import { noteRouteError } from '../utils/errorReporter';
-import { fetchIdentity, isOAuthProvider, configKey, OAuthProviderId, OAUTH_PROVIDERS } from '../utils/oauthProviders';
+import { fetchIdentity, isOAuthProvider, configKey, OAuthProviderId, OAUTH_PROVIDERS, missingOAuthFields, allowedRedirectUris } from '../utils/oauthProviders';
 
 const router = Router();
 
@@ -290,19 +290,21 @@ const oauthLogin = (provider: OAuthProviderId) => async (req: Request, res: Resp
   const config = await SystemConfigRepository.getConfig();
   const oauthConfig = config?.auth[configKey(provider)];
   if (!oauthConfig?.enabled) return res.status(403).json({ message: `${label} sign-in is disabled` });
+  const missing = missingOAuthFields(provider, oauthConfig);
+  if (missing.length) {
+    console.error(`${label} OAuth: not configured, missing ${missing.join(', ')}`);
+    return res.status(400).json({ message: `${label} sign-in is not configured correctly (an administrator must set: ${missing.join(', ')} in Admin > Settings).` });
+  }
 
   // Hard-allowlist redirect URIs server-side — a client-supplied redirect_uri
   // is a code-interception vector (CR#4). Configure via OAUTH_ALLOWED_REDIRECT_URIS
   // (GOOGLE_ALLOWED_REDIRECT_URIS is still read); the defaults cover local dev and
   // the desktop app's embedded server.
-  const defaults = ['5173', process.env.CLIENT_PORT, '3005', process.env.PORT]
-    .filter(Boolean)
-    .map((port) => `http://localhost:${port}/auth/${provider}/callback`);
-  const allowedRedirects = (process.env.OAUTH_ALLOWED_REDIRECT_URIS || process.env.GOOGLE_ALLOWED_REDIRECT_URIS || defaults.join(','))
-    .split(',').map((s) => s.trim()).filter(Boolean);
+  const allowedRedirects = allowedRedirectUris(provider);
   const chosenRedirect = redirectUri || allowedRedirects[0];
   if (!allowedRedirects.includes(chosenRedirect)) {
-    return res.status(400).json({ message: 'redirect_uri not allowed' });
+    console.error(`${label} OAuth: redirect_uri ${chosenRedirect} is not in OAUTH_ALLOWED_REDIRECT_URIS`);
+    return res.status(400).json({ message: `redirect_uri not allowed. An administrator must add ${chosenRedirect} to OAUTH_ALLOWED_REDIRECT_URIS on the server.` });
   }
 
   try {

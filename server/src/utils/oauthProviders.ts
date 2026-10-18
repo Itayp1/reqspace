@@ -34,6 +34,28 @@ export function configKey(id: OAuthProviderId): 'googleOAuth' | 'githubOAuth' | 
   return `${id}OAuth` as 'googleOAuth' | 'githubOAuth' | 'microsoftOAuth' | 'customOAuth';
 }
 
+/** Required settings that are still empty, as the names the admin sees. Empty list = the provider can sign people in. */
+export function missingOAuthFields(id: OAuthProviderId, cfg: Partial<OAuthProviderConfig> | undefined): string[] {
+  const missing: string[] = [];
+  if (!cfg?.clientId) missing.push('Client ID');
+  if (!cfg?.clientSecret) missing.push('Client Secret');
+  if (id === 'custom') {
+    if (!cfg?.authorizeUrl) missing.push('Authorize URL');
+    if (!cfg?.tokenUrl) missing.push('Token URL');
+    if (!cfg?.userinfoUrl) missing.push('UserInfo URL');
+  }
+  return missing;
+}
+
+/** Redirect URIs the server accepts: OAUTH_ALLOWED_REDIRECT_URIS, else the local dev / desktop defaults. */
+export function allowedRedirectUris(provider: OAuthProviderId): string[] {
+  const defaults = ['5173', process.env.CLIENT_PORT, '3005', process.env.PORT]
+    .filter(Boolean)
+    .map((port) => `http://localhost:${port}/auth/${provider}/callback`);
+  return (process.env.OAUTH_ALLOWED_REDIRECT_URIS || process.env.GOOGLE_ALLOWED_REDIRECT_URIS || defaults.join(','))
+    .split(',').map((x) => x.trim()).filter(Boolean);
+}
+
 /** Tenant is interpolated into a URL path, so it must be a plain identifier. */
 export function safeTenant(tenant: string | undefined): string {
   const t = (tenant || '').trim();
