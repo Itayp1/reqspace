@@ -18,10 +18,12 @@ export default function Sidebar() {
   const handleLogout = async () => {
     try {
       await api.post('/auth/logout');
-      window.location.href = '/login';
     } catch(err) {
+      // Server unreachable: still drop local session state and go to login (A4.6).
       console.error(err);
     }
+    useAuthStore.getState().setUser(null);
+    window.location.href = '/login';
   };
 
   return (
@@ -31,14 +33,15 @@ export default function Sidebar() {
           <img src="/reqspace-logo.jpg" alt="Reqspace Logo" className="h-8 w-8 rounded-md object-cover border border-border" />
           <span className="font-bold text-lg" aria-hidden="true">Reqspace</span>
         </Link>
-        <button 
+        {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || user?.isSuperAdmin) && <button 
+          data-testid="import-btn"
           className="text-text-muted hover:text-text p-1" 
           title="Import"
           aria-label="Import collection"
           onClick={() => setShowImportModal(true)}
         >
           <DownloadCloud className="w-4 h-4" aria-hidden="true" />
-        </button>
+        </button>}
       </div>
 
       <div className="p-2 border-b border-border flex gap-1">

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('WebSocket Sync', () => {
   test('User B sees conflict when User A edits request', async ({ browser }) => {
@@ -75,6 +75,9 @@ test.describe('WebSocket Sync', () => {
     await pageB.getByTestId('node-Shared Request').click();
     await expect(pageB.locator('[data-testid^="tab-"]:not([role="tab"])')).toContainText('Shared Request');
     
+    // 7b. User B has unsaved local edits - only then is a newer server version a conflict (otherwise it is applied silently).
+    await pageB.getByTestId('request-url-input').fill('https://httpbin.org/local-edit');
+
     // 8. User A edits the request and saves
     await pageA.getByTestId('request-url-input').fill('https://httpbin.org/post');
     await pageA.getByTestId('request-save-btn').click();

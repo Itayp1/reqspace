@@ -1,21 +1,19 @@
 import { SqlSystemConfig } from '../db/sql-models';
 import { systemConfigCache } from '../utils/cache';
+import { OAUTH_PROVIDERS, configKey, OAuthProviderConfig } from '../utils/oauthProviders';
 
 export interface ISystemConfigRecord {
   _id: string;
   id: string;
   auth: {
-    mode: 'login' | 'header' | 'both';
-    headerName: string;
     allowSelfRegistration: boolean;
     allowedEmailDomains: string[];
     jwtTtlDays: number;
     jwtRefreshHoursBeforeExpiry: number;
-    googleOAuth?: {
-      enabled: boolean;
-      clientId: string;
-      clientSecret: string;
-    };
+    googleOAuth?: OAuthProviderConfig;
+    githubOAuth?: OAuthProviderConfig;
+    microsoftOAuth?: OAuthProviderConfig;
+    customOAuth?: OAuthProviderConfig;
     smtp?: {
       enabled: boolean;
       host: string;
@@ -28,6 +26,10 @@ export interface ISystemConfigRecord {
   history: {
     maxRequestBodyKB: number;
     maxTotalPerUserMB: number;
+    /** Per-user cap on stored entries; 0 or absent = unlimited. */
+    maxRecords?: number;
+    /** Entries older than this many days are purged; 0 or absent = keep forever. */
+    retentionDays?: number;
     cleanupPolicy: 'fifo';
   };
   proxy: {
@@ -39,11 +41,18 @@ export interface ISystemConfigRecord {
   };
 }
 
+// Header (X-Auth-User) authentication was removed. Stored configs may still carry
+// its fields; drop them so they are never written back.
+function normalizeAuth(auth: any) {
+  const { mode: _mode, headerName: _headerName, ...rest } = auth || {};
+  return rest;
+}
+
 function sqlToRecord(c: SqlSystemConfig): ISystemConfigRecord {
   return {
     _id: c.id,
     id: c.id,
-    auth: JSON.parse(c.auth),
+    auth: normalizeAuth(JSON.parse(c.auth)),
     history: JSON.parse(c.history),
     proxy: JSON.parse(c.proxy),
   };
@@ -51,22 +60,19 @@ function sqlToRecord(c: SqlSystemConfig): ISystemConfigRecord {
 
 const DEFAULT_CONFIG = {
   auth: {
-    mode: 'login' as const,
-    headerName: 'X-Auth-User',
     // Default closed: a fresh deployment should not be open to public signup
     // until an admin explicitly enables it (CR#24).
     allowSelfRegistration: true,
     allowedEmailDomains: [] as string[],
     jwtTtlDays: 7,
     jwtRefreshHoursBeforeExpiry: 24,
-    googleOAuth: {
-      enabled: false,
-      clientId: '',
-      clientSecret: '',
-    }
+    googleOAuth: { enabled: false, clientId: '', clientSecret: '' },
+    githubOAuth: { enabled: false, clientId: '', clientSecret: '' },
+    microsoftOAuth: { enabled: false, clientId: '', clientSecret: '', tenantId: 'common' },
+    customOAuth: { enabled: false, clientId: '', clientSecret: '', name: 'SSO', authorizeUrl: '', tokenUrl: '', userinfoUrl: '', scope: 'openid email profile' },
   },
   history: {
-    maxRequestBodyKB: 5120,
+    maxRequestBodyKB: 1024,
     maxTotalPerUserMB: 100,
     cleanupPolicy: 'fifo' as const,
   },
@@ -87,15 +93,28 @@ export const SystemConfigRepository = {
     if (!c) return null;
     const record = sqlToRecord(c);
 
-    if (process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_SECRET) {
-      record.auth.googleOAuth = record.auth.googleOAuth || { enabled: false, clientId: '', clientSecret: '' };
-      if (process.env.GOOGLE_CLIENT_ID) record.auth.googleOAuth.clientId = process.env.GOOGLE_CLIENT_ID;
-      if (process.env.GOOGLE_CLIENT_SECRET) record.auth.googleOAuth.clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-      if (process.env.GOOGLE_OAUTH_ENABLED) {
-        record.auth.googleOAuth.enabled = process.env.GOOGLE_OAUTH_ENABLED === 'true';
-      } else {
-        record.auth.googleOAuth.enabled = true;
+    // Deployments can supply provider credentials via env instead of the admin UI:
+    // <PROVIDER>_CLIENT_ID / _CLIENT_SECRET / _OAUTH_ENABLED (+ MICROSOFT_TENANT_ID, and for the custom provider CUSTOM_NAME / _AUTHORIZE_URL / _TOKEN_URL /
+    // _USERINFO_URL / _SCOPE).
+    for (const id of OAUTH_PROVIDERS) {
+      const prefix = id.toUpperCase();
+      const clientId = process.env[`${prefix}_CLIENT_ID`];
+      const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
+      if (!clientId && !clientSecret) continue;
+      const key = configKey(id);
+      const cfg = (record.auth[key] = record.auth[key] || { enabled: false, clientId: '', clientSecret: '' });
+      if (clientId) cfg.clientId = clientId;
+      if (clientSecret) cfg.clientSecret = clientSecret;
+      if (id === 'microsoft' && process.env.MICROSOFT_TENANT_ID) cfg.tenantId = process.env.MICROSOFT_TENANT_ID;
+      if (id === 'custom') {
+        if (process.env.CUSTOM_NAME) cfg.name = process.env.CUSTOM_NAME;
+        if (process.env.CUSTOM_AUTHORIZE_URL) cfg.authorizeUrl = process.env.CUSTOM_AUTHORIZE_URL;
+        if (process.env.CUSTOM_TOKEN_URL) cfg.tokenUrl = process.env.CUSTOM_TOKEN_URL;
+        if (process.env.CUSTOM_USERINFO_URL) cfg.userinfoUrl = process.env.CUSTOM_USERINFO_URL;
+        if (process.env.CUSTOM_SCOPE) cfg.scope = process.env.CUSTOM_SCOPE;
       }
+      const flag = process.env[`${prefix}_OAUTH_ENABLED`];
+      cfg.enabled = flag !== undefined ? flag === 'true' : true;
     }
 
     systemConfigCache.set('global', record);
@@ -126,6 +145,9 @@ export const SystemConfigRepository = {
         ...current.auth,
         ...(data.auth || {}),
         googleOAuth: { ...current.auth.googleOAuth, ...(data.auth?.googleOAuth || {}) },
+        githubOAuth: { ...current.auth.githubOAuth, ...(data.auth?.githubOAuth || {}) },
+        microsoftOAuth: { ...current.auth.microsoftOAuth, ...(data.auth?.microsoftOAuth || {}) },
+        customOAuth: { ...current.auth.customOAuth, ...(data.auth?.customOAuth || {}) },
         smtp: { ...current.auth.smtp, ...(data.auth?.smtp || {}) },
       },
       history: { ...current.history, ...(data.history || {}) },

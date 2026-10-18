@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Folder as FolderIcon, FolderPlus, Plus } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToastStore } from '../../store/toastStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
+import { toRequestPayload } from '../../utils/requestPayload';
 
 export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
   const { collections, foldersByCollection, openCollection, loadCollectionChildren, loadFolderChildren, createCollection, createFolder, applyRequestUpserted } = useCollectionStore();
@@ -14,18 +15,26 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
 
   const [name, setName] = useState(activeRequest?.name || 'New Request');
   const [selectedLocation, setSelectedLocation] = useState<{ type: 'collection' | 'folder', id: string } | null>(null);
+  // Only collections the user has picked show their folders (and have them loaded): with hundreds of
+  // collections, rendering and fetching every folder tree made this dialog slow to open.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const expand = (collectionId: string) => setExpanded(prev => (prev.has(collectionId) ? prev : new Set(prev).add(collectionId)));
   const [loading, setLoading] = useState(false);
+  // A ref, not just `loading`: a fast double click fires twice before the
+  // re-render that would disable the button, and would create two requests.
+  const savingRef = useRef(false);
 
   useEffect(() => {
     // Select first collection by default if available
     if (collections.length > 0 && !selectedLocation) {
       setSelectedLocation({ type: 'collection', id: collections[0]._id });
+      expand(collections[0]._id);
     }
   }, [collections]);
 
   useEffect(() => {
-    collections.forEach(c => { loadCollectionChildren(c._id); });
-  }, [collections]);
+    expanded.forEach(id => { loadCollectionChildren(id); });
+  }, [expanded]);
 
   const findCollectionOfFolder = (folderId: string) => {
     for (const fols of Object.values(foldersByCollection)) {
@@ -45,6 +54,7 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
         if (!activeWorkspace) { useToastStore.getState().addToast('error', 'No workspace selected'); return; }
         const col = await createCollection(activeWorkspace._id, n);
         setSelectedLocation({ type: 'collection', id: col._id });
+        expand(col._id);
       } else if (selectedLocation) {
         const colId = selectedLocation.type === 'collection' ? selectedLocation.id : findCollectionOfFolder(selectedLocation.id);
         const parent = selectedLocation.type === 'folder' ? selectedLocation.id : undefined;
@@ -81,8 +91,9 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !selectedLocation || !activeRequest) return;
-    
+    if (!name.trim() || !selectedLocation || !activeRequest || savingRef.current) return;
+
+    savingRef.current = true;
     setLoading(true);
     try {
       let collectionId = '';
@@ -97,15 +108,10 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
       
       const { default: api } = await import('../../api/axios');
       
-      // Build a clean payload (not spreading activeRequest directly to avoid TS issues with delete)
+      // Every request field, scripts included — Save As used to drop the
+      // pre-request and test scripts, so they vanished on the next reload.
       const payload: Record<string, any> = {
-        name,
-        method: activeRequest.method || 'GET',
-        url: activeRequest.url || '',
-        params: activeRequest.params || [],
-        headers: activeRequest.headers || [],
-        auth: activeRequest.auth || { type: 'none' },
-        body: activeRequest.body || { mode: 'none' },
+        ...toRequestPayload({ ...activeRequest, name }),
         folderId: folderId || null
       };
 
@@ -119,6 +125,9 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
       // duplicate tab and left the original tab behind still marked dirty.
       setActiveRequest({
         tabId: activeRequest.tabId,
+        tabType: activeRequest.tabType,
+        connection: activeRequest.connection,
+        settings: savedRequest.settings ?? activeRequest.settings,
         _id: savedRequest._id,
         collectionId: savedRequest.collectionId,
         folderId: savedRequest.folderId || null,
@@ -144,8 +153,9 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
       onClose();
     } catch (err) {
       console.error('Failed to save request', err);
-      useToastStore.getState().addToast('error', 'Failed to save request');
+      useToastStore.getState().addToast('error', (err as any)?.response?.data?.message || 'Failed to save request');
     } finally {
+      savingRef.current = false;
       setLoading(false);
     }
   };
@@ -205,12 +215,12 @@ export const SaveRequestModal = ({ onClose }: { onClose: () => void }) => {
                   <div key={collection._id} className="border-b border-border last:border-b-0">
                     <div 
                       className={`flex items-center px-2 py-2 cursor-pointer text-sm font-medium ${selectedLocation?.type === 'collection' && selectedLocation.id === collection._id ? 'bg-primary/20 text-primary' : 'text-gray-200 hover:bg-gray-800'}`}
-                      onClick={() => setSelectedLocation({ type: 'collection', id: collection._id })}
+                      onClick={() => { setSelectedLocation({ type: 'collection', id: collection._id }); expand(collection._id); }}
                     >
                       <FolderIcon size={14} className="mr-2" />
                       {collection.name}
                     </div>
-                    {renderTree(collection._id)}
+                    {expanded.has(collection._id) && renderTree(collection._id)}
                   </div>
                 ))
               )}

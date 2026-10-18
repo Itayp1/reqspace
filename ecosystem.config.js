@@ -1,3 +1,19 @@
+const fs = require("fs");
+const path = require("path");
+
+// Production refuses to boot without a real JWT_SECRET. Reuse the secret the
+// server generated on first run (server/.jwt-secret.local, gitignored) so
+// restarts keep existing sessions valid and the value never lands in git.
+// An explicit JWT_SECRET in the environment wins.
+function loadJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  try {
+    return fs.readFileSync(path.join(__dirname, "server", ".jwt-secret.local"), "utf8").trim();
+  } catch {
+    return undefined;
+  }
+}
+
 module.exports = {
   apps: [
     {
@@ -16,6 +32,7 @@ module.exports = {
       min_uptime: 30000,
       env: {
         NODE_ENV: "production",
+        JWT_SECRET: loadJwtSecret(),
         // This file is the local PM2 deployment only. Skip request throttling
         // here so local use and tests are not blocked by login/mutation limits.
         DISABLE_RATE_LIMIT: "true"

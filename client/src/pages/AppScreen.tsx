@@ -46,7 +46,7 @@ export default function AppScreen() {
           {isEnvTab ? (
             activeRequest?.environmentId === 'local-variables' ? <LocalVariablesEditor /> : <EnvironmentTabEditor />
           ) : isConnTab ? (
-            <ConnectionEditor />
+            <ConnectionEditor key={activeRequest?.tabId} />
           ) : <RequestEditor />}
         </div>
       </div>

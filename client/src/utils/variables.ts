@@ -107,7 +107,8 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     const trimmed = varName.trim();
     if (trimmed.startsWith('$')) return match; // already handled
     if (envVars.has(trimmed)) {
-      return envVars.get(trimmed)!;
+      // A variable's value may itself hold dynamic ({{$guid}}) placeholders.
+      return resolveDynamicVars(envVars.get(trimmed)!);
     }
     return match;
   });

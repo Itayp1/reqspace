@@ -28,8 +28,10 @@ export async function up({ context: qi }: { context: QueryInterface }) {
   // newly created personal workspaces are marked correctly going forward
   // regardless of this backfill.
   const sequelize = (qi as any).sequelize;
+  // Dialect-aware quoting: "x" on sqlite/postgres, `x` on mysql.
+  const isPersonalCol = qi.quoteIdentifier('isPersonal');
   const candidates: { id: string; members: string }[] = await sequelize.query(
-    `SELECT id, members FROM workspaces WHERE description = 'Personal workspace' AND "isPersonal" = false`,
+    `SELECT id, members FROM workspaces WHERE description = 'Personal workspace' AND ${isPersonalCol} = false`,
     { type: QueryTypes.SELECT },
   );
   let backfilled = 0;

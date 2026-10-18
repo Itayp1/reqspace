@@ -4,6 +4,35 @@ import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
 
+const MAX_LOG_LEN = 10000;
+
+// Console arguments are turned into strings inside the worker: Symbols,
+// functions and DOM-like objects can't be structured-cloned by postMessage,
+// and circular objects break JSON.stringify on the host.
+function safeString(value: any): string {
+  let out: string;
+  try {
+    if (typeof value === 'string') out = value;
+    else if (typeof value === 'symbol' || typeof value === 'function' || value === undefined) out = String(value);
+    else if (typeof value === 'bigint') out = `${value}n`;
+    else if (value && typeof value === 'object') {
+      const seen = new WeakSet();
+      out = JSON.stringify(value, (_k, v) => {
+        if (typeof v === 'bigint') return `${v}n`;
+        if (typeof v === 'symbol' || typeof v === 'function') return String(v);
+        if (v && typeof v === 'object') {
+          if (seen.has(v)) return '[Circular]';
+          seen.add(v);
+        }
+        return v;
+      });
+    } else out = String(value);
+  } catch {
+    try { out = String(value); } catch { out = '[unserializable]'; }
+  }
+  return out.length > MAX_LOG_LEN ? out.slice(0, MAX_LOG_LEN) + '… [truncated]' : out;
+}
+
 const callbacks = new Map<string, (err: any, res: any) => void>();
 
 self.onmessage = async (e) => {
@@ -32,24 +61,58 @@ self.onmessage = async (e) => {
     let consoleLines: Array<{ level: string; args: any[] }> = [];
     let visualizer: { template: string; data?: any } | undefined;
 
+    // In-run copies so a get() after a set()/unset() in the same script sees
+    // the change (the real stores are only updated by the host afterwards).
+    const envState: Record<string, any> = { ...(variables?.environment || {}) };
+    const globState: Record<string, any> = { ...(variables?.globals || {}) };
+    const localState: Record<string, any> = { ...(variables?.local || {}) };
+    const makeScope = (scope: string, state: Record<string, any>) => ({
+      get: (key: string) => state[key],
+      has: (key: string) => Object.prototype.hasOwnProperty.call(state, key),
+      set: (key: string, value: any) => {
+        state[key] = value;
+        variableWrites.push({ scope, action: 'set', key, value });
+      },
+      unset: (key: string) => {
+        delete state[key];
+        variableWrites.push({ scope, action: 'unset', key, value: undefined });
+      },
+      clear: () => {
+        Object.keys(state).forEach((k) => delete state[k]);
+        variableWrites.push({ scope, action: 'clear', key: '', value: undefined });
+      },
+    });
+
+    // Response helpers (pm.response.json()/text()/headers.get()).
+    let pmResponse: any = response;
+    if (response) {
+      const rawHeaders = response.headers || {};
+      const findHeader = (name: string) => {
+        const k = Object.keys(rawHeaders).find((h) => h.toLowerCase() === String(name).toLowerCase());
+        return k === undefined ? undefined : rawHeaders[k];
+      };
+      const headers: any = { ...rawHeaders };
+      Object.defineProperty(headers, 'get', { value: findHeader, enumerable: false });
+      Object.defineProperty(headers, 'has', { value: (n: string) => findHeader(n) !== undefined, enumerable: false });
+      const text = () => typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
+      pmResponse = {
+        ...response,
+        headers,
+        text,
+        json: () => typeof response.body === 'string' ? JSON.parse(response.body) : response.body,
+      };
+    }
+
+    // pm.request is a mutable copy; changes are returned to the host as requestMods.
+    const pmRequest: any = request ? { ...request, headers: { ...(request.headers || {}) } } : undefined;
+
     const pm = {
-      environment: {
-        get: (key: string) => variables?.environment?.[key],
-        set: (key: string, value: any) => {
-          variableWrites.push({ scope: 'environment', action: 'set', key, value });
-        }
-      },
-      globals: {
-        get: (key: string) => variables?.globals?.[key],
-        set: (key: string, value: any) => {
-          variableWrites.push({ scope: 'globals', action: 'set', key, value });
-        }
-      },
-      variables: {
-        get: (key: string) => variables?.local?.[key]
-      },
-      request,
-      response,
+      environment: makeScope('environment', envState),
+      globals: makeScope('globals', globState),
+      collectionVariables: makeScope('collection', localState),
+      variables: makeScope('local', localState),
+      request: pmRequest,
+      response: pmResponse,
       test: (name: string, fn: () => void) => {
         try {
           fn();
@@ -85,16 +148,16 @@ self.onmessage = async (e) => {
           get: (name: string) => request?.headers?.[name] || request?.header?.[name]
         },
         variables: {
-          set: (key: string, value: any) => variableWrites.push({ scope: 'local', action: 'set', key, value }),
-          get: (key: string) => variables?.local?.[key]
+          set: (key: string, value: any) => { localState[key] = value; variableWrites.push({ scope: 'local', action: 'set', key, value }); },
+          get: (key: string) => localState[key]
         }
       },
       console: {
         // 'log' (not 'info') — these levels are fed straight into
         // ConsoleLogEntry.type, whose union is request | log | error | warn.
-        log: (...args: any[]) => consoleLines.push({ level: 'log', args }),
-        warn: (...args: any[]) => consoleLines.push({ level: 'warn', args }),
-        error: (...args: any[]) => consoleLines.push({ level: 'error', args }),
+        log: (...args: any[]) => consoleLines.push({ level: 'log', args: args.map(safeString) }),
+        warn: (...args: any[]) => consoleLines.push({ level: 'warn', args: args.map(safeString) }),
+        error: (...args: any[]) => consoleLines.push({ level: 'error', args: args.map(safeString) }),
       },
       require: (moduleName: string) => {
         if (moduleName === 'lodash') return _;
@@ -133,7 +196,7 @@ self.onmessage = async (e) => {
       
       const checkDone = () => {
         if (callbacks.size === 0) {
-          postMessage({ type: 'result', variableWrites, testResults, consoleLines, visualizer });
+          postMessage({ type: 'result', variableWrites, testResults, consoleLines, visualizer, requestMods: pmRequest });
         } else {
           setTimeout(checkDone, 50);
         }

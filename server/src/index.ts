@@ -10,6 +10,7 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 import compression from 'compression';
 import path from 'path';
+import { zipDirectory } from './utils/zipDir';
 // import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
@@ -35,6 +36,7 @@ import { FpErrorRepository } from './repositories/FpErrorRepository';
 import { SystemConfigRepository } from './repositories/SystemConfigRepository';
 import { UserRepository } from './repositories/UserRepository';
 import { WorkspaceRepository } from './repositories/WorkspaceRepository';
+import { SqlWorkspace } from './db/sql-models';
 import { getUserWorkspaceRole } from './middleware/rbac';
 import { resolveJwtSecret } from './utils/jwtSecret';
 import { dbDownBody } from './utils/dbGate';
@@ -44,7 +46,6 @@ import bcrypt from 'bcryptjs';
 const JWT_SECRET = resolveJwtSecret();
 
 const app = express();
-app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // ג”€ג”€ DB state (updated during bootstrap) ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
@@ -58,7 +59,7 @@ export const io = new SocketIOServer(server, {
   // the Vite dev server in development. '*' would let any site open an
   // authenticated socket against this server.
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173',
+    origin: process.env.NODE_ENV === 'production' ? false : ['http://localhost:5173', ...(process.env.DEV_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean)],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -94,6 +95,15 @@ import { workspaceRoleCache, superAdminCache } from './utils/cache';
 io.on('connection', (socket) => {
   socket.data.userId = getSocketUserId(socket);
   const userId = socket.data.userId;
+  // Per-user room: lets the server push user-targeted events (e.g. workspace
+  // access revoked) to every tab/device of that user.
+  if (userId) socket.join('user:' + userId);
+  // A suspended (or deleted) user must not be able to (re)open a live socket (A9.3).
+  if (userId) {
+    UserRepository.findById(userId)
+      .then((u) => { if (!u || u.status !== 'active') socket.disconnect(true); })
+      .catch(() => {});
+  }
   const MAX_ROOMS = 50;
 
   const authorizedWorkspaces = new Set<string>();
@@ -133,25 +143,32 @@ io.on('connection', (socket) => {
   });
 
   socket.on('presence:open', ({ workspaceId, requestId, user }) => {
-    if (!authorizedWorkspaces.has(workspaceId)) return;
+    if (!socket.rooms.has('workspace:' + workspaceId)) return;
     socket.to('workspace:' + workspaceId).emit('presence:open', { requestId, user });
   });
   socket.on('presence:close', ({ workspaceId, requestId, user }) => {
-    if (!authorizedWorkspaces.has(workspaceId)) return;
+    if (!socket.rooms.has('workspace:' + workspaceId)) return;
     socket.to('workspace:' + workspaceId).emit('presence:close', { requestId, user });
   });
 });
 
 // Behind an Ingress/reverse proxy, trust X-Forwarded-* so req.ip, rate limiting
-// and `secure` cookies work correctly (CR#8, CR#16). Configurable; defaults to
-// one hop (typical single proxy) ג€” set TRUST_PROXY=false to disable.
-app.set('trust proxy', process.env.TRUST_PROXY === 'false' ? false : (process.env.TRUST_PROXY ?? 1));
+// and `secure` cookies work correctly (CR#8, CR#16). Opt-in via TRUST_PROXY.
+// R5.5: the default is NOT to trust X-Forwarded-For (a directly reachable server
+// would let any client pick its own req.ip and dodge the rate limiters). Behind
+// a proxy set TRUST_PROXY to the hop count (e.g. 1) or a CIDR/IP list.
+const trustProxyEnv = (process.env.TRUST_PROXY ?? '').trim();
+app.set('trust proxy', trustProxyEnv === '' || trustProxyEnv === 'false' ? false : (/^\d+$/.test(trustProxyEnv) ? parseInt(trustProxyEnv, 10) : trustProxyEnv));
 
 // Middleware
 app.use(morgan('dev'));
 // Baseline HTTP hardening. CSP is left disabled here because the SPA + Monaco
 // currently need a permissive policy; tighten via a dedicated CSP later.
 const isProd = process.env.NODE_ENV === 'production';
+// HTTPS-only behaviour (upgrade-insecure-requests, HSTS) follows the same switch
+// as the session cookie's Secure flag: COOKIE_SECURE=false is the documented
+// opt-out for HTTP-only self-hosting, where forcing an upgrade breaks the app.
+const httpsOnly = isProd && process.env.COOKIE_SECURE !== 'false';
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -173,10 +190,10 @@ app.use(helmet({
       childSrc: ["'self'", "blob:"],
       frameSrc: ["'self'", "data:"],
       objectSrc: ["'none'"],
-      upgradeInsecureRequests: isProd ? [] : null,
+      upgradeInsecureRequests: httpsOnly ? [] : null,
     },
   },
-  hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+  hsts: httpsOnly ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
 }));
 // PERF-6: gzip API responses. The tree/list endpoints are the ones this
 // actually matters for — JSON compresses well, and text-heavy request
@@ -189,9 +206,47 @@ app.use(express.json({ limit: MAX_BODY_SIZE }));
 app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 app.use(cookieParser());
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production' ? false : ['http://localhost:5173', ...(process.env.DEV_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean)],
   credentials: true,
 }));
+
+// R5.3b: defence in depth next to SameSite=Lax — reject state-changing API calls
+// whose Origin is a foreign site. Requests without an Origin (curl, server-to-server,
+// same-origin GET-like navigations) are unaffected.
+// DEV_ORIGINS (comma-separated) lets parallel dev/test clients on other ports pass the check in non-production.
+const devOrigins = ['http://localhost:5173', ...(process.env.DEV_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean)];
+app.use('/api', (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const origin = req.get('origin');
+  if (!origin) return next();
+  let originHost: string | null = null;
+  try { originHost = new URL(origin).host; } catch { /* malformed -> rejected below */ }
+  const fwdHost = req.app.get('trust proxy') ? req.get('x-forwarded-host') : undefined;
+  if (originHost && (originHost === req.get('host') || originHost === fwdHost || (!isProd && devOrigins.includes(origin)))) return next();
+  res.status(403).json({ message: 'Cross-origin request blocked' });
+});
+
+// A NUL byte in the URL path can never be a valid id/segment; letting it reach
+// the DB layer surfaces as an SQL syntax error (500). Reject it as a 400 instead.
+app.use('/api', (req, res, next) => {
+  let decoded = req.path;
+  try { decoded = decodeURIComponent(req.path); } catch { return res.status(400).json({ message: 'Malformed URL' }); }
+  if (decoded.includes(' ')) return res.status(400).json({ message: 'Invalid characters in URL' });
+  next();
+});
+
+// Same for NUL characters inside JSON string values (ids, names, ...): embedded in a
+// query they break the SQL (500). No legitimate payload contains one.
+function hasNul(v: any, depth = 0): boolean {
+  if (typeof v === 'string') return v.includes(String.fromCharCode(0));
+  if (!v || typeof v !== 'object' || depth > 20) return false;
+  for (const k of Object.keys(v)) { if (k.includes(String.fromCharCode(0)) || hasNul(v[k], depth + 1)) return true; }
+  return false;
+}
+app.use('/api', (req, res, next) => {
+  if (req.body && typeof req.body === 'object' && hasNul(req.body)) return res.status(400).json({ message: 'Invalid characters in request body' });
+  next();
+});
 
 // Records 5xx responses that routes send without throwing. Exceptions that reach
 // the error handler set res.locals.errorRecorded so they are not recorded twice.
@@ -292,12 +347,23 @@ app.use('/api', forksRouter);
 // Serve the extension as a zip (built in the Dockerfile) for "Load unpacked";
 // Chrome no longer allows installing a self-hosted .crx outside the Web Store.
 const extensionZipPath = path.resolve(__dirname, '../../reqspace-transport.zip');
+const extensionDirPath = path.resolve(__dirname, '../../extension');
 app.get('/extension/reqspace-transport.zip', (_req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  if (!require('fs').existsSync(extensionZipPath)) {
-    return res.status(404).json({ error: 'Extension zip not built. Run: cd extension && zip -r ../reqspace-transport.zip .' });
+  const fs = require('fs');
+  // Production/Docker ship a prebuilt zip; in dev/Electron, zip the extension folder on the fly.
+  if (fs.existsSync(extensionZipPath)) return res.download(extensionZipPath, 'reqspace-transport.zip');
+  if (fs.existsSync(path.join(extensionDirPath, 'manifest.json'))) {
+    res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="reqspace-transport.zip"' });
+    return res.send(zipDirectory(extensionDirPath));
   }
-  res.download(extensionZipPath, 'reqspace-transport.zip');
+  return res.status(404).json({ error: 'The browser extension package is not available on this server' });
+});
+
+// Catch unmatched /api/* routes before the SPA fallback to return a JSON 404
+// instead of the client's index.html (R2.2).
+app.use('/api', (_req, res) => {
+  res.status(404).json({ message: 'Not found' });
 });
 
 // Serve client static files (production)
@@ -354,7 +420,9 @@ async function bootstrap() {
   const port = parseInt(process.env.PORT ?? '3005', 10);
 
   // Start listening first ג€” so the client can load and show errors
-  server.listen(port, () => {
+  // Offline mode signs in the local user automatically, so never listen beyond this machine.
+  const listenHost = process.env.REQSPACE_OFFLINE === 'true' ? '127.0.0.1' : undefined;
+  server.listen(port, listenHost as any, () => {
     console.log('נ€ Server running on http://localhost:' + port);
   });
 
@@ -394,9 +462,13 @@ async function bootstrap() {
         name: `Admin's Workspace`,
         description: 'Personal workspace',
         ownerId: adminUser.id,
+        isPersonal: true,
       });
       console.log(`ג… Default superadmin created (${adminEmail} / ${'*'.repeat(adminPassword.length)})`);
     } else {
+      // Databases created before the bootstrap admin's workspace was flagged
+      // personal: without the flag Fork targets and menus misbehave for the admin.
+      await SqlWorkspace.update({ isPersonal: true }, { where: { name: "Admin's Workspace", description: 'Personal workspace', isPersonal: false } });
       console.log('ג… Superadmin exists');
     }
 

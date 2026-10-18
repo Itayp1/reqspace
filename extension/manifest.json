@@ -22,7 +22,9 @@
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
-    "storage"
+    "storage",
+    "webRequest",
+    "proxy"
   ],
   "host_permissions": [
     "<all_urls>"

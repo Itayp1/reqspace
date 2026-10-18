@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState, useRef } from 'react';
 import { Search, Eye, Settings, Cookie, Sun, Moon, SlidersHorizontal } from 'lucide-react';
+import { matchesShortcut } from '../../utils/shortcuts';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -12,13 +13,16 @@ import GlobalSearchModal from '../common/GlobalSearchModal';
 
 export default function TopBar() {
   const { activeWorkspace } = useAuthStore();
-  const { environments, activeEnvironmentId, setActiveEnvironmentId, setEnvironments, setGlobalEnvironment, fetchLocalVariables, fetchUserProfileVariables } = useEnvironmentStore();
+  const { environments, activeEnvironmentId, setActiveEnvironmentId, setEnvironments, setGlobalEnvironment, fetchLocalVariables, fetchUserProfileVariables, restoreActiveEnvironment } = useEnvironmentStore();
   const { openEnvironmentTab } = useRequestStore();
   const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('reqspace_theme') as 'dark' | 'light') || 'dark';
+    const saved = localStorage.getItem('reqspace_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    // First visit: follow the OS/browser preference (P5.2).
+    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   });
   const [isQuickLookOpen, setIsQuickLookOpen] = useState(false);
   const eyeRef = useRef<HTMLDivElement>(null);
@@ -69,8 +73,9 @@ export default function TopBar() {
         api.get(`/workspaces/${activeWorkspace._id}/environments`).then((res) => {
           serverAnswered = true;
           setEnvironments(res.data);
+          restoreActiveEnvironment(activeWorkspace._id, res.data);
           db.environments.bulkPut(res.data.map((e: any) => ({ ...e, workspaceId: activeWorkspace._id })));
-        });
+        }).catch((err) => console.error('Failed to load environments', err));
         api.get(`/workspaces/${activeWorkspace._id}/global-environment`).then((res) => {
           const global = { ...res.data, isGlobal: true };
           setGlobalEnvironment(global);
@@ -81,18 +86,14 @@ export default function TopBar() {
         fetchUserProfileVariables();
       });
     }
-  }, [activeWorkspace, setEnvironments, setGlobalEnvironment, fetchLocalVariables, fetchUserProfileVariables]);
+  }, [activeWorkspace, setEnvironments, setGlobalEnvironment, fetchLocalVariables, fetchUserProfileVariables, restoreActiveEnvironment]);
 
   const { settings } = useSettingsStore();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const searchShortcut = settings.shortcuts?.search || 'ctrl+k';
-      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-      const key = (e.key ?? '').toLowerCase();
-      const shortcutMatch = searchShortcut.includes('ctrl') ? (isCtrlOrCmd && key === searchShortcut.split('+')[1]) : (key === searchShortcut);
-      
-      if (shortcutMatch) {
+      if (matchesShortcut(e, searchShortcut)) {
         e.preventDefault();
         setIsSearchModalOpen(true);
       }

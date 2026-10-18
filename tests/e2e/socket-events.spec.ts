@@ -1,11 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { io } from 'socket.io-client';
 
 test.describe('Socket events coverage', () => {
   test('Cover all 13 event families via direct socket connection', async ({ request, baseURL }) => {
     // 1. Login as admin and get cookie
     // We will override baseURL for API calls
-    const apiUrl = 'http://localhost:3005/api';
+    const apiUrl = (process.env.REQSPACE_API_URL || 'http://localhost:3005') + '/api';
     let res = await request.post(`${apiUrl}/auth/login`, {
       data: { email: 'admin', password: 'admin' }
     });
@@ -25,7 +25,7 @@ test.describe('Socket events coverage', () => {
     const wsId = wsList[0]._id;
     
     // 2. Connect socket
-    const socket = io('http://localhost:3005', {
+    const socket = io(process.env.REQSPACE_API_URL || 'http://localhost:3005', {
       path: '/ws',
       extraHeaders: { Cookie: cookieHeader },
       transports: ['websocket']

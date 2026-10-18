@@ -1,9 +1,21 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, API_URL } from './fixtures';
+import { request as pwRequest } from '@playwright/test';
 
 test.describe('Authentication', () => {
   const timestamp = Date.now();
   const testEmail = `testuser_${timestamp}@example.com`;
   const testPassword = 'password123';
+  // The login tests get their own account instead of relying on the register test above: when a
+  // test fails, Playwright starts a new worker, `timestamp` changes and the account the earlier
+  // test created no longer matches, so one failure used to take the later login tests down with it.
+  const loginEmail = `loginuser_${timestamp}@example.com`;
+
+  test.beforeAll(async () => {
+    const api = await pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': `10.55.${timestamp % 250}.${(timestamp >> 3) % 250 + 1}` } });
+    const res = await api.post('/api/auth/register', { data: { name: 'Login User', email: loginEmail, password: testPassword } });
+    expect([201, 409]).toContain(res.status());
+    await api.dispose();
+  });
 
   test('should fail to login with non-existent user', async ({ page }) => {
     await page.goto('/login');
@@ -28,7 +40,7 @@ test.describe('Authentication', () => {
 
   test('should login and logout successfully', async ({ page }) => {
     await page.goto('/login');
-    await page.fill('[data-testid="login-email"]', testEmail);
+    await page.fill('[data-testid="login-email"]', loginEmail);
     await page.fill('[data-testid="login-password"]', testPassword);
     await page.click('[data-testid="login-submit"]');
 
@@ -118,7 +130,7 @@ test.describe('Authentication', () => {
 
   test('should handle expired session gracefully', async ({ page }) => {
     await page.goto('/login');
-    await page.fill('[data-testid="login-email"]', testEmail);
+    await page.fill('[data-testid="login-email"]', loginEmail);
     await page.fill('[data-testid="login-password"]', testPassword);
     await page.click('[data-testid="login-submit"]');
 

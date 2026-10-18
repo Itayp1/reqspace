@@ -25,7 +25,7 @@ export function getCursorWhere(cursor: { key1: any, key2: string } | null, order
   return {
     [Op.or]: [
       { [orderField]: { [opGt]: key1 } },
-      { [orderField]: key1, id: { [Op.gt]: key2 } }
+      { [orderField]: key1, id: { [isDesc ? Op.lt : Op.gt]: key2 } }
     ]
   };
 }

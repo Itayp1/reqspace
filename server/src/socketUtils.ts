@@ -20,3 +20,22 @@ export function emitToWorkspace(workspaceId: string | string[] | undefined, even
   const room = 'workspace:' + workspaceId;
   io.to(room).emit(event, data);
 }
+
+/** Pushes an event to every socket (tab/device) of one user. */
+export function emitToUser(userId: string, event: string, data: unknown) {
+  io.to('user:' + userId).emit(event, data);
+}
+
+/**
+ * Removes all of a user's sockets from a workspace room so they stop receiving
+ * live events (B6.6), and tells the user's clients their access is gone (B6.2).
+ */
+export function revokeWorkspaceAccess(userId: string, workspaceId: string) {
+  io.in('user:' + userId).socketsLeave('workspace:' + workspaceId);
+  emitToUser(userId, 'workspace:access_revoked', { workspaceId });
+}
+
+/** Closes every live socket (tab/device) of a user, e.g. when suspended (A9.3). */
+export function disconnectUserSockets(userId: string) {
+  io.in('user:' + userId).disconnectSockets(true);
+}

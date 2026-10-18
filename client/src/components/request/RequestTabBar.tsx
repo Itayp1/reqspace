@@ -8,13 +8,14 @@ export const RequestTabBar: React.FC = () => {
   // and stable action refs — without this it re-renders on every keystroke
   // typed anywhere in the request editor (URL, headers, body, scripts...),
   // since those all flow through the same store's activeRequest/tabs fields.
-  const { tabs, activeTabId, selectTab, closeTab, newTab, closeAllToRight, closeAllToLeft, closeOtherTabs, reorderTabs } = useRequestStore(
+  const { tabs, activeTabId, selectTab, closeTab, newTab, duplicateTab, closeAllToRight, closeAllToLeft, closeOtherTabs, reorderTabs } = useRequestStore(
     useShallow((state) => ({
       tabs: state.tabs,
       activeTabId: state.activeTabId,
       selectTab: state.selectTab,
       closeTab: state.closeTab,
       newTab: state.newTab,
+      duplicateTab: state.duplicateTab,
       closeAllToRight: state.closeAllToRight,
       closeAllToLeft: state.closeAllToLeft,
       closeOtherTabs: state.closeOtherTabs,
@@ -88,6 +89,27 @@ export const RequestTabBar: React.FC = () => {
     reorderTabs(draggedTabId, targetId, pos);
     setDraggedTabId(null);
     setDragOverTabId(null);
+  };
+
+  // Bulk closes from the context menu went straight through, discarding any
+  // unsaved edits in the tabs they removed without a word. Ask first, the
+  // same way the x button does for a single tab.
+  const runCloseAction = async (tabIdsToClose: string[], action: () => void) => {
+    setContextMenu(null);
+    const dirty = tabs.filter(t => t.tabId && tabIdsToClose.includes(t.tabId) && t.isDirty);
+    if (dirty.length) {
+      const { customConfirm } = await import('../../utils/dialog');
+      const msg = dirty.length === 1
+        ? 'A tab you are closing has unsaved changes. Close it without saving?'
+        : `${dirty.length} tabs you are closing have unsaved changes. Close them without saving?`;
+      if (!(await customConfirm('Unsaved Changes', msg, 'Close anyway'))) return;
+    }
+    action();
+  };
+
+  const tabIdsWhere = (pred: (index: number, pivot: number) => boolean, pivotId: string) => {
+    const pivot = tabs.findIndex(t => t.tabId === pivotId);
+    return tabs.map((t, i) => (pred(i, pivot) ? t.tabId : undefined)).filter((id): id is string => !!id);
   };
 
   const handleClose = async (e: React.MouseEvent, tab: any) => {
@@ -194,10 +216,13 @@ export const RequestTabBar: React.FC = () => {
           className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[160px] text-sm text-gray-700 dark:text-gray-200"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
-          <div className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { closeTab(contextMenu.tabId); setContextMenu(null); }}>Close Tab</div>
-          <div className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { closeOtherTabs(contextMenu.tabId); setContextMenu(null); }}>Close Other Tabs</div>
-          <div className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { closeAllToRight(contextMenu.tabId); setContextMenu(null); }}>Close All to the Right</div>
-          <div className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { closeAllToLeft(contextMenu.tabId); setContextMenu(null); }}>Close All to the Left</div>
+          {tabs.find(t => t.tabId === contextMenu.tabId)?.tabType !== 'environment' && (
+            <div data-testid="tab-menu-duplicate" className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { const id = contextMenu.tabId; setContextMenu(null); duplicateTab(id); }}>Duplicate Tab</div>
+          )}
+          <div data-testid="tab-menu-close" className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { const id = contextMenu.tabId; void runCloseAction([id], () => closeTab(id)); }}>Close Tab</div>
+          <div data-testid="tab-menu-close-others" className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { const id = contextMenu.tabId; void runCloseAction(tabIdsWhere((i, p) => i !== p, id), () => closeOtherTabs(id)); }}>Close Other Tabs</div>
+          <div data-testid="tab-menu-close-right" className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { const id = contextMenu.tabId; void runCloseAction(tabIdsWhere((i, p) => i > p, id), () => closeAllToRight(id)); }}>Close All to the Right</div>
+          <div data-testid="tab-menu-close-left" className="px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { const id = contextMenu.tabId; void runCloseAction(tabIdsWhere((i, p) => i < p, id), () => closeAllToLeft(id)); }}>Close All to the Left</div>
         </div>
       )}
     </div>

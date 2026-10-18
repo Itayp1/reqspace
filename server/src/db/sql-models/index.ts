@@ -19,6 +19,7 @@ export class SqlUser extends Model {
   declare historyUsedBytes: number;
   declare mustChangePassword: boolean;
   declare lastLoginAt: Date | null;
+  declare tokenVersion: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -89,6 +90,7 @@ export class SqlRequest extends Model {
   declare headers: string; // JSON
   declare auth: string; // JSON
   declare body: string; // JSON
+  declare settings: string; // JSON
   declare preRequestScript: string;
   declare testScript: string;
   declare description: string;
@@ -241,6 +243,7 @@ export class SqlFpError extends Model {
   declare userId: string | null;
   declare userAgent: string | null;
   declare fingerprint: string;
+  declare repeats: number;
   declare createdAt: Date;
 }
 
@@ -261,6 +264,7 @@ export function initSqlModels() {
     historyUsedBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
     mustChangePassword: { type: DataTypes.BOOLEAN, defaultValue: false },
     lastLoginAt: { type: DataTypes.DATE, allowNull: true },
+    tokenVersion: { type: DataTypes.INTEGER, defaultValue: 0, allowNull: false },
   }, { sequelize: sq, tableName: 'users', timestamps: true });
 
   SqlWorkspace.init({
@@ -325,6 +329,7 @@ export function initSqlModels() {
     headers: { type: DataTypes.TEXT, defaultValue: '[]' },
     auth: { type: DataTypes.TEXT, defaultValue: '{"type":"none"}' },
     body: { type: DataTypes.TEXT, defaultValue: '{"mode":"none"}' },
+    settings: { type: DataTypes.TEXT, defaultValue: '{}' },
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
     description: { type: DataTypes.TEXT, defaultValue: '' },
@@ -443,6 +448,8 @@ export function initSqlModels() {
     userId: { type: DataTypes.STRING(36), allowNull: true },
     userAgent: { type: DataTypes.STRING(500), allowNull: true },
     fingerprint: { type: DataTypes.STRING(64), allowNull: false },
+    // Occurrences swallowed by the dedupe window after this row was stored.
+    repeats: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   }, { sequelize: sq, tableName: 'fperrors', timestamps: true, createdAt: 'createdAt', updatedAt: false,
     indexes: [{ fields: ['createdAt'] }, { fields: ['fingerprint'] }] });
 }

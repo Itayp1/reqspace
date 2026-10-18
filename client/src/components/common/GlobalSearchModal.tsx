@@ -27,10 +27,27 @@ export default function GlobalSearchModal({ onClose }: GlobalSearchModalProps) {
     }
   };
 
-  const results = !query.trim() ? [] : [
-    ...collections.filter(c => c.name.toLowerCase().includes(query.toLowerCase())).map(c => ({ ...c, type: 'collection' })),
-    ...folders.filter(f => f.name.toLowerCase().includes(query.toLowerCase())).map(f => ({ ...f, type: 'folder' })),
-    ...requests.filter(r => r.name.toLowerCase().includes(query.toLowerCase()) || r.url?.toLowerCase().includes(query.toLowerCase())).map(r => ({ ...r, type: 'request' }))
+  // "Collection › Folder › Sub" breadcrumb for an item (P1.2), so identically
+  // named items in different places can be told apart.
+  const pathOf = (item: { collectionId?: string; folderId?: string | null; parentFolderId?: string | null; type: string }) => {
+    const parts: string[] = [];
+    let folderId = item.type === 'folder' ? item.parentFolderId : item.folderId;
+    for (let guard = 0; folderId && guard < 50; guard++) {
+      const f = folders.find(x => x._id === folderId);
+      if (!f) break;
+      parts.unshift(f.name);
+      folderId = f.parentFolderId;
+    }
+    const col = collections.find(c => c._id === item.collectionId);
+    if (col && item.type !== 'collection') parts.unshift(col.name);
+    return parts.join(' › ');
+  };
+
+  const q = query.trim().toLowerCase();
+  const results = !q ? [] : [
+    ...collections.filter(c => c.name.toLowerCase().includes(q)).map(c => ({ ...c, type: 'collection' })),
+    ...folders.filter(f => f.name.toLowerCase().includes(q)).map(f => ({ ...f, type: 'folder' })),
+    ...requests.filter(r => r.name.toLowerCase().includes(q) || r.url?.toLowerCase().includes(q) || r.method?.toLowerCase() === q).map(r => ({ ...r, type: 'request' }))
   ].slice(0, 50); // limit to 50 results
 
   useEffect(() => {
@@ -152,6 +169,9 @@ export default function GlobalSearchModal({ onClose }: GlobalSearchModalProps) {
                     </span>
                   )}
                 </div>
+                {item.type !== 'collection' && pathOf(item) && (
+                  <div data-testid="search-result-path" className="text-xs text-gray-500 truncate mt-0.5">{pathOf(item)}</div>
+                )}
                 {item.type === 'request' && item.url && (
                   <div className="text-xs text-gray-500 truncate mt-0.5">{item.url}</div>
                 )}

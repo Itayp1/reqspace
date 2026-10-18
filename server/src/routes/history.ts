@@ -5,7 +5,9 @@ import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
 import { requireRoleOnCollection } from '../middleware/resolveWorkspace';
+import { Op } from 'sequelize';
 import { SqlHistory } from '../db/sql-models';
+import { sanitizeRequestSnapshot } from '../utils/historySnapshot';
 import { UserRepository } from '../repositories/UserRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
 
@@ -55,14 +57,18 @@ router.get('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer'), a
     userId: req.user!._id || req.user!.id,
     workspaceId: req.params.workspaceId,
   };
-  if (method) where.method = method.toUpperCase();
-  if (status) where.statusCode = +status;
+  if (typeof method === 'string' && method) where.method = method.toUpperCase();
+  if (status && Number.isFinite(+status)) where.statusCode = +status;
+  // Non-numeric page/limit used to reach the query as NaN and fail with a 500,
+  // and limit had no ceiling at all.
+  const pageNum = Math.max(1, Math.floor(Number(page)) || 1);
+  const limitNum = Math.min(200, Math.max(1, Math.floor(Number(limit)) || 50));
 
   const items = await SqlHistory.findAll({
     where,
     order: [['createdAt', 'DESC']],
-    offset: (+page - 1) * +limit,
-    limit: +limit,
+    offset: (pageNum - 1) * limitNum,
+    limit: limitNum,
   });
   const total = await SqlHistory.count({ where });
   return res.json({ items: items.map(i => ({...i.toJSON(), requestSnapshot: JSON.parse(i.requestData), responseSnapshot: JSON.parse(i.responseData), _id: i.id})), total });
@@ -101,14 +107,22 @@ router.delete('/history/:id', async (req: AuthRequest, res: Response) => {
   return res.json({ message: 'Deleted' });
 });
 
-// ── DELETE /api/history ─ Clear all history for user ──────────────────
+// ── DELETE /api/history ─ Clear history for the specified workspace ────
+// workspaceId is required — omitting it previously deleted ALL history for
+// the user across every workspace (K4.6 data-loss bug).
 router.delete('/history', async (req: AuthRequest, res: Response) => {
-  await SqlHistory.destroy({ where: { userId: req.user!._id || req.user!.id } });
-  const user = await UserRepository.findById(req.user!._id || req.user!.id);
-  if (user) {
-    await UserRepository.update(user.id, { historyUsedBytes: 0 } as any);
+  const { workspaceId } = req.query;
+  if (!workspaceId || typeof workspaceId !== 'string') {
+    return res.status(400).json({ message: 'workspaceId is required' });
   }
-  return res.json({ message: 'All history cleared' });
+  const userId = req.user!._id || req.user!.id;
+  const freed = (await SqlHistory.sum('responseSizeBytes', { where: { userId, workspaceId } })) || 0;
+  await SqlHistory.destroy({ where: { userId, workspaceId } });
+  const user = await UserRepository.findById(userId);
+  if (user) {
+    await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, user.historyUsedBytes - freed) } as any);
+  }
+  return res.json({ message: 'History cleared' });
 });
 
 // ── DELETE /api/workspaces/:workspaceId/history – Clear all ─────────────────
@@ -139,8 +153,28 @@ router.post('/history/:id/save', validate(schemas.saveHistorySchema), requireRol
   const { collectionId, folderId, name } = req.body;
   if (!collectionId) return res.status(400).json({ message: 'collectionId required' });
 
+  // Idempotent: saving the same history entry into the same collection/folder
+  // again returns the request created the first time. Concurrent saves are
+  // serialised per (entry, collection, folder) so the race can't create two.
+  const lockKey = `${item.id}|${collectionId}|${folderId ?? ''}|${name ?? ''}`;
+  const prior = saveLocks.get(lockKey) ?? Promise.resolve();
+  const run = prior.catch(() => undefined).then(async () => {
+    const reqName = name || parsedItem.requestSnapshot.url;
+    const existing = (await RequestRepository.findByCollection(collectionId)).find(r =>
+      (r.folderId ?? null) === (folderId ?? null) &&
+      r.name === reqName && r.method === parsedItem.requestSnapshot.method && r.url === parsedItem.requestSnapshot.url &&
+      r.createdBy === (req.user!._id || req.user!.id));
+    if (existing) return { request: existing, created: false };
+    return { request: await createFromHistory(), created: true };
+  });
+  saveLocks.set(lockKey, run);
+  let outcome;
+  try { outcome = await run; } finally { if (saveLocks.get(lockKey) === run) saveLocks.delete(lockKey); }
+  return res.status(outcome.created ? 201 : 200).json(outcome.request);
+
+  async function createFromHistory() {
   const count = await RequestRepository.countInCollection(collectionId, folderId ?? null);
-  const request = await RequestRepository.create({
+  return RequestRepository.create({
     collectionId,
     folderId: folderId ?? null,
     name: name || parsedItem.requestSnapshot.url,
@@ -159,8 +193,9 @@ router.post('/history/:id/save', validate(schemas.saveHistorySchema), requireRol
     comments: [],
     description: ''
   });
-  return res.status(201).json(request);
+  }
 });
+const saveLocks = new Map<string, Promise<unknown>>();
 
 export default router;
 
@@ -196,6 +231,7 @@ export async function saveHistoryEntry(
   }
 
   const bodySize = Buffer.byteLength(body, 'utf8');
+  const requestSnapshot = sanitizeRequestSnapshot(data.requestSnapshot, maxBodyKB);
 
   // GC: remove oldest entries if over limit
   let usedBytes = user.historyUsedBytes ?? 0;
@@ -218,6 +254,24 @@ export async function saveHistoryEntry(
     }
   }
 
+  // Age and count caps from System Settings (0 / unset = off). Applied before
+  // the insert so the new entry always survives its own pruning.
+  const retentionDays = config?.history.retentionDays ?? 0;
+  if (retentionDays > 0) {
+    await SqlHistory.destroy({ where: { userId, createdAt: { [Op.lt]: new Date(Date.now() - retentionDays * 86_400_000) } } });
+  }
+  const maxRecords = config?.history.maxRecords ?? 0;
+  if (maxRecords > 0) {
+    const stale = await SqlHistory.findAll({
+      attributes: ['id'],
+      where: { userId },
+      order: [['createdAt', 'DESC']],
+      offset: maxRecords - 1,
+      raw: true,
+    });
+    if (stale.length > 0) await SqlHistory.destroy({ where: { id: stale.map((h: any) => h.id) } });
+  }
+
   await SqlHistory.create({
     userId,
     workspaceId,
@@ -225,7 +279,7 @@ export async function saveHistoryEntry(
     url: data.requestSnapshot.url as string || '',
     statusCode: data.responseStatus,
     duration: data.responseTime,
-    requestData: JSON.stringify(data.requestSnapshot),
+    requestData: JSON.stringify(requestSnapshot),
     responseData: JSON.stringify({
       status: data.responseStatus,
       statusText: data.responseStatusText,

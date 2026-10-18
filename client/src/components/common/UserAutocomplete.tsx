@@ -30,18 +30,29 @@ export function UserAutocomplete({ onSelect, value, onChange }: Props) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Debounced search; the cleanup cancels the timer and aborts the in-flight
+  // request so a slow earlier response can never overwrite a newer one.
   useEffect(() => {
-    if (value.length >= 2) {
-      api.get('/users/search?q=' + encodeURIComponent(value))
+    if (value.length < 2) {
+      setResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      api.get('/users/search?q=' + encodeURIComponent(value), { signal: controller.signal })
         .then(res => {
           setResults(res.data);
           setShowDropdown(true);
         })
-        .catch(err => console.error(err));
-    } else {
-      setResults([]);
-      setShowDropdown(false);
-    }
+        .catch(err => {
+          if (!controller.signal.aborted) console.error(err);
+        });
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [value]);
 
   return (

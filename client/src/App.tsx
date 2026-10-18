@@ -85,6 +85,12 @@ function AuthGuard({ children, requireSuperAdmin = false }: { children: React.Re
   return children;
 }
 
+// Login/register are for signed-out visitors; a signed-in user is sent to the app (A1.11).
+function GuestGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  return isAuthenticated ? <Navigate to="/" replace /> : <>{children}</>;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [loading, setLoading] = useState(true);
@@ -144,7 +150,7 @@ function App() {
             const fresh = currentActive
               ? workspaces.find((w: any) => w._id === currentActive._id)
               : undefined;
-            setActiveWorkspace(fresh || workspaces[0]);
+            setActiveWorkspace(fresh || workspaces.find((w: any) => w.isPersonal) || workspaces[0]);
           } else {
             setActiveWorkspace(null);
           }
@@ -195,15 +201,17 @@ function App() {
       <ContextMenuProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/auth/google/callback" element={<OAuthCallbackPage />} />
+            <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
+            <Route path="/register" element={<GuestGuard><RegisterPage /></GuestGuard>} />
+            <Route path="/auth/:provider/callback" element={<OAuthCallbackPage />} />
             <Route path="/share/:shortId" element={<SharedCollectionPage />} />
             
             <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
               <Route index element={<AppScreen />} />
               <Route path="admin" element={<AuthGuard requireSuperAdmin><AdminPage /></AuthGuard>} />
             </Route>
+            {/* An unknown path used to render a blank page. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ContextMenuProvider>

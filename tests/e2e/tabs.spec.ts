@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from './fixtures';
 
 /**
  * Drag `source` onto the left half of `target`, so the drop resolves to

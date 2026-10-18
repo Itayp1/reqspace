@@ -7,7 +7,7 @@ import { recordError } from '../utils/errorReporter';
 const router = Router();
 
 // Public on purpose: the login page can fail before any session exists.
-const reportLimiter = rateLimit({ windowMs: 60_000, max: 60, message: 'Too many error reports.' });
+const reportLimiter = rateLimit({ windowMs: 60_000, max: 30, message: 'Too many error reports.' });
 
 router.post('/', reportLimiter, validate(schemas.reportErrorSchema), (req: Request, res: Response) => {
   void recordError({

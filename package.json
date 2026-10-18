@@ -6,14 +6,19 @@
   "scripts": {
     "start": "electron .",
     "build:client": "cd client && npm run build",
-    "build:server": "cd server && npm run build",
+    "build:server": "cd server && npm run build && cd .. && node scripts/build-extension-zip.js",
     "build:extension": "powershell -File scripts/build-extension.ps1",
     "pack": "npm run build:client && npm run build:server && electron-builder --dir",
     "dist": "npm run build:client && npm run build:server && electron-builder",
     "wipe:db": "node scripts/wipe-db.js",
     "test:server": "node scripts/run-server-e2e.js",
     "test:e2e": "playwright test",
-    "test:all": "npm run test:server && npm run test:e2e"
+    "test:e2e:all": "node scripts/run-e2e-all.js",
+    "test:e2e:electron": "node scripts/run-e2e-targets.js --electron-only --shards=auto",
+    "test:e2e:targets": "node scripts/run-e2e-targets.js --shards=auto",
+    "test:all": "npm run test:server && npm run test:e2e",
+    "video:dev": "npm --prefix video run dev",
+    "video:render": "npm --prefix video run render"
   },
   "build": {
     "appId": "com.reqspace.app",
@@ -24,6 +29,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "electron/**/*",
       "setup.html",
       "loading.html"
     ],

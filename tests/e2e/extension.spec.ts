@@ -1,4 +1,4 @@
-import { test as base, chromium, expect } from '@playwright/test';
+import { test as base, chromium, expect } from './fixtures';
 import path from 'path';
 
 const extensionPath = path.join(__dirname, '../../extension');

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
-import { Play } from 'lucide-react';
+import { Play, GitFork } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { useToastStore } from '../store/toastStore';
 import { sendRequest, EXTENSION_NOT_INSTALLED_ERROR } from '../transport';
 import { useExtensionStore } from '../store/extensionStore';
 
@@ -17,6 +19,23 @@ export default function SharedCollectionPage() {
   const [executing, setExecuting] = useState<number | null>(null);
   const [results, setResults] = useState<Record<number, any>>({});
   const { setShowDownloadModal } = useExtensionStore();
+  const navigate = useNavigate();
+  const { isAuthenticated, activeWorkspace } = useAuthStore();
+  const [forking, setForking] = useState(false);
+
+  // A signed-in viewer can take a copy into the workspace they are working in.
+  const forkToWorkspace = async () => {
+    if (!activeWorkspace) return;
+    setForking(true);
+    try {
+      await api.post('/share/' + shortId + '/fork', { workspaceId: activeWorkspace._id });
+      useToastStore.getState().addToast('success', 'Collection forked to your workspace');
+      navigate('/');
+    } catch (err: any) {
+      useToastStore.getState().addToast('error', err.response?.data?.message || 'Fork failed');
+    }
+    setForking(false);
+  };
 
   useEffect(() => {
     api.get('/share/' + shortId)
@@ -65,6 +84,16 @@ export default function SharedCollectionPage() {
         <div className="mb-8 border-b border-border pb-4">
           <h1 data-testid="shared-collection-name" className="text-3xl font-bold mb-2">{data.collection.name}</h1>
           <p className="text-text-muted">Shared Collection (Expires {new Date(data.expiresAt).toLocaleString()})</p>
+          {isAuthenticated && activeWorkspace && (
+            <button
+              data-testid="share-page-fork"
+              onClick={forkToWorkspace}
+              disabled={forking}
+              className="mt-3 inline-flex items-center gap-2 bg-primary text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
+            >
+              <GitFork size={16} /> Fork to My Workspace
+            </button>
+          )}
         </div>
 
         <div className="space-y-4">

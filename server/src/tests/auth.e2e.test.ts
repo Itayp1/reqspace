@@ -89,6 +89,10 @@ describe('E2E Auth - Registration and Login', () => {
     expect(loginRes.status).toBe(401);
   });
 
+  // A real self-signed pair: the server now validates PEM and key/cert match (P4.4).
+  const TEST_CERT_PEM = "-----BEGIN CERTIFICATE-----\r\nMIIBhzCCAS2gAwIBAgIUSC01PKBBLEzZ4okJFaSgUTfq454wCgYIKoZIzj0EAwIw\r\nGDEWMBQGA1UEAwwNcmVxc3BhY2UtdGVzdDAgFw0yNjEwMTYwOTM4NTBaGA8yMTI2\r\nMDkyMjA5Mzg1MFowGDEWMBQGA1UEAwwNcmVxc3BhY2UtdGVzdDBZMBMGByqGSM49\r\nAgEGCCqGSM49AwEHA0IABKTR0pLsVVpt/H4g2XcyGnYR4CKehPYxaTxALWy32T15\r\nQN2AGDqLgMknFCgGu1Z6Hvp5YQtlz6ZUYow90cP910CjUzBRMB0GA1UdDgQWBBRa\r\nFZjWtRBOs5BKsYxKZZZQhFcYsTAfBgNVHSMEGDAWgBRaFZjWtRBOs5BKsYxKZZZQ\r\nhFcYsTAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0gAMEUCIQC8VVrIpLt0\r\nG1bGJQSqK8SoqGJqrjYyLhhqX+8/drKmqQIgETNqoXOhtRdIH8ec/vv9o4hIC5bg\r\nzPI4mEPRkPc4dw8=\r\n-----END CERTIFICATE-----";
+  const TEST_KEY_PEM = "-----BEGIN PRIVATE KEY-----\r\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgnrQB7AqhdPqXamWJ\r\nv+LJM+oqmHIRWaB7Iylu9LrMLkChRANCAASk0dKS7FVabfx+INl3Mhp2EeAinoT2\r\nMWk8QC1st9k9eUDdgBg6i4DJJxQoBrtWeh76eWELZc+mVGKMPdHD/ddA\r\n-----END PRIVATE KEY-----";
+
   it('should not leak client certificates (SEC-8)', async () => {
     const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
@@ -100,8 +104,8 @@ describe('E2E Auth - Registration and Login', () => {
 
     const certPayload = {
       hostname: 'test.example.com',
-      cert: '-----BEGIN CERTIFICATE-----\nMIIB...test...cert\n-----END CERTIFICATE-----',
-      key: '-----BEGIN PRIVATE KEY-----\nMIIE...test...key\n-----END PRIVATE KEY-----',
+      cert: TEST_CERT_PEM,
+      key: TEST_KEY_PEM,
       passphrase: 'supersecretpassphrase123!'
     };
     const postRes = await fetch(`${BASE_URL}/api/auth/certificates`, {

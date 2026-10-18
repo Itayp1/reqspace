@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 const ADMIN_PASSWORD = 'admin';
 
 // UI-2: an error raised by a request that finishes after its modal has

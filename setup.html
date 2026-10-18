@@ -138,6 +138,19 @@
         <input type="url" id="server-url" placeholder="https://your-server.com" autocomplete="url" />
       </div>
 
+      <!-- Local-mode options -->
+      <div id="local-options" class="section">
+        <label>Database folder</label>
+        <div style="display:flex;gap:8px;margin-bottom:1rem">
+          <input type="text" id="db-dir" readonly style="margin-bottom:0" />
+          <button type="button" class="btn" style="width:auto;padding:0 16px;margin:0;background:#334155;color:#f1f5f9" onclick="pickFolder()">Browse…</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+          <input type="checkbox" id="offline" style="width:auto;margin:0" />
+          Offline mode — skip sign-in (single user on this computer)
+        </label>
+      </div>
+
       <div id="error-box" class="error-box"></div>
 
       <button class="btn btn-primary" id="continue-btn" onclick="doConnect()">
@@ -146,7 +159,7 @@
 
       <p class="hint" id="hint-text">
         SQLite database will be created automatically on first run.
-        <br>You can change settings later from the Admin panel.
+        <br>You can change the folder or offline mode later from the File menu.
       </p>
     </div>
   </div>
@@ -155,18 +168,26 @@
     const ipcRenderer = { send: (_channel, choice) => window.reqspaceSetup.choose(choice) };
     let selectedMode = 'local';
 
+    // Default database folder = the folder the app runs from; Browse... changes it.
+    window.reqspaceSetup.defaultDbDir().then(dir => { document.getElementById('db-dir').value = dir; });
+    async function pickFolder() {
+      const dir = await window.reqspaceSetup.pickDbFolder();
+      if (dir) document.getElementById('db-dir').value = dir;
+    }
+
     function selectMode(mode) {
       selectedMode = mode;
       document.getElementById('opt-local').classList.toggle('selected', mode === 'local');
       document.getElementById('opt-server').classList.toggle('selected', mode === 'server');
       document.getElementById('server-url-section').style.display = mode === 'server' ? 'block' : 'none';
+      document.getElementById('local-options').style.display = mode === 'local' ? 'block' : 'none';
 
       const btn = document.getElementById('continue-btn');
       const hint = document.getElementById('hint-text');
 
       if (mode === 'local') {
         btn.textContent = 'Continue with Local Storage';
-        hint.innerHTML = 'SQLite database will be created automatically on first run.<br>You can change settings later from the Admin panel.';
+        hint.innerHTML = 'SQLite database will be created automatically on first run.<br>You can change the folder or offline mode later from the File menu.';
       } else {
         btn.textContent = 'Connect to Server';
         hint.innerHTML = 'Your data will be stored on the remote server.<br>Make sure the server is running and accessible.';
@@ -190,7 +211,11 @@
       if (selectedMode === 'local') {
         btn.innerHTML = '<span class="spinner"></span>Starting local server...';
         btn.disabled = true;
-        ipcRenderer.send('setup-choice', { mode: 'local' });
+        ipcRenderer.send('setup-choice', {
+          mode: 'local',
+          dbDir: document.getElementById('db-dir').value || undefined,
+          offline: document.getElementById('offline').checked,
+        });
         return;
       }
 

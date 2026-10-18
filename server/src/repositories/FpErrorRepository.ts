@@ -6,6 +6,10 @@ export interface FpErrorGroupQuery {
   source?: string;
   kind?: string;
   q?: string;
+  since?: Date;
+  until?: Date;
+  sort?: 'lastSeen' | 'firstSeen' | 'count';
+  dir?: 'asc' | 'desc';
   limit: number;
   offset: number;
 }
@@ -16,6 +20,13 @@ export const FpErrorRepository = {
     if (query.source) where.source = query.source;
     if (query.kind) where.kind = query.kind;
     if (query.q) where.message = { [Op.like]: `%${escapeLike(query.q.slice(0, MAX_SEARCH_LENGTH))}%` };
+    if (query.since || query.until) {
+      where.createdAt = { ...(query.since ? { [Op.gte]: query.since } : {}), ...(query.until ? { [Op.lte]: query.until } : {}) };
+    }
+    const dir = query.dir === 'asc' ? 'ASC' : 'DESC';
+    const sortExpr = query.sort === 'count'
+      ? literal('COUNT(id) + COALESCE(SUM(repeats), 0)')
+      : fn(query.sort === 'firstSeen' ? 'MIN' : 'MAX', col('createdAt'));
 
     const rows = await SqlFpError.findAll({
       attributes: [
@@ -24,13 +35,15 @@ export const FpErrorRepository = {
         [fn('MAX', col('kind')), 'kind'],
         [fn('MAX', col('message')), 'message'],
         [fn('MAX', col('route')), 'route'],
-        [fn('COUNT', col('id')), 'count'],
+        [literal('COUNT(id) + COALESCE(SUM(repeats), 0)'), 'count'],
         [fn('MIN', col('createdAt')), 'firstSeen'],
         [fn('MAX', col('createdAt')), 'lastSeen'],
       ],
       where,
       group: ['fingerprint'],
-      order: [[literal('lastSeen'), 'DESC']],
+      // Order by the aggregate itself, not its alias: an unquoted alias is
+      // folded to lower case on postgres and no longer matches "lastSeen".
+      order: [[sortExpr, dir]],
       limit: query.limit,
       offset: query.offset,
       raw: true,

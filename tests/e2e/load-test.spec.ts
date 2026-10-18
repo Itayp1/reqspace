@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 /**
  * The Load Tester had no coverage. It isn't a perf benchmark — what matters

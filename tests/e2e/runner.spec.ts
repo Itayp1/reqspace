@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Collection Runner', () => {
   test('should open CollectionRunnerModal, configure and run', async ({ page }) => {

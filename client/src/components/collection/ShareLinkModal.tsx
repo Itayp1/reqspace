@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Copy, Check } from 'lucide-react';
 import api from '../../api/axios';
@@ -17,6 +17,28 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
   const [sharedLink, setSharedLink] = useState('');
   const [shortId, setShortId] = useState('');
   const [copied, setCopied] = useState(false);
+  // Links created earlier (possibly in a previous session of this dialog).
+  const [links, setLinks] = useState<{ shortId: string; url: string; expiresAt: string | null; canRevoke: boolean }[]>([]);
+
+  const loadLinks = useCallback(async () => {
+    try {
+      const res = await api.get('/share/collection/' + collectionId + '/links');
+      setLinks(res.data);
+    } catch {
+      setLinks([]);
+    }
+  }, [collectionId]);
+
+  useEffect(() => { loadLinks(); }, [loadLinks]);
+
+  const revokeExisting = async (id: string) => {
+    try {
+      await api.delete('/share/' + id);
+      setLinks(prev => prev.filter(l => l.shortId !== id));
+    } catch (e: any) {
+      useToastStore.getState().addToast('error', e.response?.data?.message || 'Failed to revoke link');
+    }
+  };
 
   const handleShare = async () => {
     try {
@@ -25,6 +47,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
       setSharedLink(window.location.origin + res.data.url);
       setShortId(res.data.shortId);
       setLoading(false);
+      loadLinks();
     } catch (err: any) {
       const message = err.response?.data?.message || 'Failed to generate link';
       // Local state for inline feedback while the modal is still open, plus a
@@ -72,6 +95,30 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
 
             {error && <div className="text-red-500 text-sm">{error}</div>}
 
+            {links.length > 0 && (
+              <div data-testid="share-link-existing" className="border-t border-border pt-3">
+                <div className="text-sm font-medium mb-2">Active links</div>
+                <ul className="space-y-2 max-h-40 overflow-y-auto">
+                  {links.map(l => (
+                    <li key={l.shortId} data-testid="share-link-existing-row" className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate" title={window.location.origin + l.url}>
+                        {l.url}{l.expiresAt ? ' (expires ' + new Date(l.expiresAt).toLocaleDateString() + ')' : ''}
+                      </span>
+                      {l.canRevoke && (
+                        <button
+                          data-testid="share-link-existing-revoke"
+                          onClick={() => revokeExisting(l.shortId)}
+                          className="text-red-500 hover:underline shrink-0"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="pt-4 flex justify-end gap-2">
               <button onClick={onClose} className="px-4 py-2 hover:bg-background rounded text-sm font-medium">
                 Cancel
@@ -111,6 +158,7 @@ export function ShareLinkModal({ collectionId, collectionName, onClose }: Props)
                   try {
                     await api.delete('/share/' + shortId);
                     setSharedLink('');
+                    loadLinks();
                   } catch (e) {
                     console.error('Failed to revoke:', e);
                   }

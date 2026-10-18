@@ -25,6 +25,11 @@ export class TtlCache<T> {
   delete(key: string): void {
     this.map.delete(key);
   }
+  deleteBySuffix(suffix: string): void {
+    for (const key of this.map.keys()) {
+      if (key.endsWith(suffix)) this.map.delete(key);
+    }
+  }
   deleteByPrefix(prefix: string): void {
     for (const key of this.map.keys()) {
       if (key.startsWith(prefix)) {

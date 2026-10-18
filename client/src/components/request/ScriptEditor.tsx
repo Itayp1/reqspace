@@ -1,4 +1,5 @@
-import Editor from '@monaco-editor/react';
+import Editor from '../common/LazyEditor';
+import { useMonacoTheme } from '../../utils/useMonacoTheme';
 
 interface ScriptEditorProps {
   value: string;
@@ -18,6 +19,7 @@ const SNIPPETS = [
 ];
 
 export function ScriptEditor({ value, onChange }: ScriptEditorProps) {
+  const monacoTheme = useMonacoTheme();
   const insertSnippet = (code: string) => {
     const newVal = value ? value + '\n' + code : code;
     onChange(newVal);
@@ -29,6 +31,7 @@ export function ScriptEditor({ value, onChange }: ScriptEditorProps) {
         <Editor
           height="100%"
           language="javascript"
+          theme={monacoTheme}
           value={value}
           onChange={(val) => onChange(val || '')}
           options={{

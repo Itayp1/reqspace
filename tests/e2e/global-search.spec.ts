@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 /**
  * Global search (Ctrl+K) had no coverage at all. The modal is built on real

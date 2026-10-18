@@ -6,6 +6,7 @@ import { BodyEditor } from './BodyEditor';
 import { ScriptEditor } from './ScriptEditor';
 import { AuthEditor } from './AuthEditor';
 import { CommentsEditor } from './CommentsEditor';
+import { useSettingsStore } from '../../store/settingsStore';
 
 const TABS = [
   'Params',
@@ -15,6 +16,7 @@ const TABS = [
   'Pre-request Script',
   'Tests',
   'Comments',
+  'Settings',
 ] as const;
 
 type TabType = typeof TABS[number];
@@ -22,6 +24,7 @@ type TabType = typeof TABS[number];
 export function RequestEditor() {
   const { activeRequest, updateActiveRequest } = useRequestStore();
   const [activeTab, setActiveTab] = useState<TabType>('Params');
+  const globalSettings = useSettingsStore((s) => s.settings);
 
   if (!activeRequest) {
     return (
@@ -154,6 +157,51 @@ export function RequestEditor() {
             />
           </div>
         )}
+
+        {activeTab === 'Settings' && (() => {
+          const rs = activeRequest.settings || {};
+          const set = (patch: Record<string, unknown>) => updateActiveRequest({ settings: { ...rs, ...patch } as any });
+          const clear = (key: string) => { const next: any = { ...rs }; delete next[key]; updateActiveRequest({ settings: next }); };
+          const boolRow = (key: 'followRedirects' | 'verifySsl' | 'encodeUrl', label: string) => {
+            const value = (rs as any)[key];
+            const global = (globalSettings as any)[key];
+            return (
+              <div className="flex items-center gap-3 text-sm">
+                <label className="w-56 text-gray-700 dark:text-gray-300">{label}</label>
+                <select
+                  data-testid={`req-setting-${key}`}
+                  value={typeof value === 'boolean' ? String(value) : 'default'}
+                  onChange={(e) => (e.target.value === 'default' ? clear(key) : set({ [key]: e.target.value === 'true' }))}
+                  className="px-2 py-1 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded"
+                >
+                  <option value="default">Use global setting ({global === false ? 'off' : 'on'})</option>
+                  <option value="true">On</option>
+                  <option value="false">Off</option>
+                </select>
+              </div>
+            );
+          };
+          return (
+            <div className="flex flex-col gap-3" data-testid="req-settings-panel">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Override the global settings for this request only.</p>
+              {boolRow('followRedirects', 'Follow redirects')}
+              {boolRow('verifySsl', 'Verify SSL certificates')}
+              {boolRow('encodeUrl', 'Encode URL automatically')}
+              <div className="flex items-center gap-3 text-sm">
+                <label className="w-56 text-gray-700 dark:text-gray-300">Request timeout (ms, 0 = none)</label>
+                <input
+                  type="number"
+                  min={0}
+                  data-testid="req-setting-timeout"
+                  placeholder={`Global: ${globalSettings.timeout ?? 0}`}
+                  value={typeof rs.timeout === 'number' ? rs.timeout : ''}
+                  onChange={(e) => (e.target.value === '' ? clear('timeout') : set({ timeout: Math.max(0, Math.trunc(Number(e.target.value)) || 0) }))}
+                  className="w-40 px-2 py-1 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded"
+                />
+              </div>
+            </div>
+          );
+        })()}
 
         {activeTab === 'Comments' && (
           <div className="flex-1 overflow-y-auto">

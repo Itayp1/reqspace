@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 /**
  * Connection tabs (FEAT-1 WebSocket, FEAT-2 Socket.IO, FEAT-3 SSE,
@@ -22,6 +22,14 @@ test.describe('Connection Tabs', () => {
     //   /echo   — echoes every frame back with a prefix, so a received
     //             message can only have come through the real socket
     //   /closes — closes the connection as soon as it receives anything
+    // page.routeWebSocket swaps every WebSocket in the page for Playwright's
+    // mock, the app's own realtime socket (Socket.IO on /ws) included. Passed
+    // through, that socket made the mock throw "WebSocket is already in
+    // CLOSING or CLOSED state" when React's dev double-mount closed it
+    // mid-handshake (a real browser only logs that line), and the error landed
+    // in fperrors. Realtime is not what these tests are about, so that socket
+    // gets a handler that simply never answers.
+    await page.routeWebSocket(/\/ws\/\?EIO=/, () => {});
     await page.routeWebSocket(/^ws:\/\/localhost:9999\//, (ws) => {
       const path = new URL(ws.url()).pathname;
       // An echo can land after the page has already closed the socket; the mock throws on that.
@@ -123,16 +131,13 @@ test.describe('Connection Tabs', () => {
     await page.getByTestId('new-connection-btn').click();
     await page.getByTestId('connection-protocol-select').selectOption('KAFKA');
     await page.getByTestId('connection-url-input').fill('kafka://localhost:9092');
-    await page.getByTestId('connection-connect-btn').click();
 
-    // Kafka has no browser client; the editor says so instead of failing
-    // silently. This assertion is here to catch that message quietly
-    // disappearing — if real Kafka support lands, update it, don't delete it.
-    await expect(page.getByTestId('connection-message-log')).toContainText('requires backend integration');
-
-    await page.getByTestId('connection-message-input').fill('produce-me');
-    await page.getByTestId('connection-send-btn').click();
-    await expect(page.getByTestId('connection-msg-sent')).toContainText('[Kafka Produce]: produce-me');
+    // Kafka has no browser client: the editor says so explicitly and offers no
+    // Connect button, so it can never show a fake "connected" state. If real
+    // Kafka support lands, update this test, don't delete it.
+    await expect(page.getByTestId('connection-kafka-stub-banner')).toContainText('stub');
+    await expect(page.getByTestId('connection-connect-btn')).toBeHidden();
+    await expect(page.getByTestId('connection-send-btn')).toBeDisabled();
   });
 
   test('connect failures are reported for both WS and SSE, not swallowed', async ({ page }) => {
@@ -153,7 +158,7 @@ test.describe('Connection Tabs', () => {
     await page.route('**/sse-broken', (route) => route.fulfill({ status: 500, body: 'nope' }));
     await page.getByTestId('connection-url-input').fill('http://localhost:5173/sse-broken');
     await page.getByTestId('connection-connect-btn').click();
-    await expect(page.getByTestId('connection-msg-error').first()).toContainText('SSE connection error');
+    await expect(page.getByTestId('connection-msg-error').first()).toContainText('SSE HTTP 500');
     await expect(page.getByTestId('connection-connect-btn')).toBeVisible();
   });
 });

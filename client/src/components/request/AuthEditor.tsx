@@ -68,6 +68,17 @@ export function AuthEditor({ value, onChange, hideInherit }: {
 
       {/* Bearer Token */}
       {auth.type === 'bearer' && (
+        <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Prefix</label>
+          <input
+            data-testid="auth-bearer-prefix"
+            className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono"
+            placeholder="Bearer"
+            value={auth.bearer?.prefix || ''}
+            onChange={e => update({ bearer: { token: auth.bearer?.token || '', prefix: e.target.value } })}
+          />
+        </div>
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Token</label>
           <div className="flex-1 relative">
@@ -77,7 +88,7 @@ export function AuthEditor({ value, onChange, hideInherit }: {
               className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono pr-9"
               placeholder="Enter token..."
               value={auth.bearer?.token || ''}
-              onChange={e => update({ bearer: { token: e.target.value } })}
+              onChange={e => update({ bearer: { ...auth.bearer, token: e.target.value } })}
             />
             <button
               type="button"
@@ -87,6 +98,7 @@ export function AuthEditor({ value, onChange, hideInherit }: {
               {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           </div>
+        </div>
         </div>
       )}
 

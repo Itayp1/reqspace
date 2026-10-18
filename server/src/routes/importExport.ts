@@ -1,6 +1,9 @@
 import { validate } from '../middleware/validate';
 import * as schemas from '../schemas/importExport.schemas';
 import { Router, Response } from 'express';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
@@ -12,39 +15,30 @@ import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
 import { assertSsrfSafe } from '../utils/ssrf';
 import * as soap from 'soap';
 import { noteRouteError } from '../utils/errorReporter';
+import { parseCurl } from '../utils/curlParser';
+import { emitToWorkspace } from '../socketUtils';
+import { parsePostmanCollection, toPostmanCollection, ImportError, type ParsedCollection } from '../utils/postmanCollection';
 
 const router = Router();
 router.use(authenticate);
 
+// Postman v2.1 export of the whole tree. Secrets (tokens, passwords, API key
+// values) come out as "STRIPPED" unless ?includeSecrets=true.
 router.get('/collections/:id/export',
   requireRoleOnCollection('viewer', (req) => req.params.id),
   async (req: AuthRequest, res: Response) => {
     const collection = await CollectionRepository.findById(req.params.id);
     if (!collection) return res.status(404).json({ message: 'Not found' });
-    
-    const requests = await RequestRepository.findByCollection(req.params.id);
+    const [folders, requests] = await Promise.all([
+      FolderRepository.findByCollection(req.params.id),
+      RequestRepository.findByCollection(req.params.id),
+    ]);
     const includeSecrets = req.query.includeSecrets === 'true';
-    
-    const item = requests.map(r => {
-      let authArr: any = undefined;
-      if (r.auth && r.auth.type === 'bearer' && r.auth.bearer) {
-        authArr = [{ key: 'token', value: includeSecrets ? r.auth.bearer.token : 'STRIPPED' }];
-      }
-      return {
-        name: r.name,
-        request: {
-          auth: r.auth ? { type: r.auth.type, bearer: authArr } : undefined
-        }
-      };
-    });
-
-    res.json({
-      info: { name: collection.name },
-      variable: collection.variables || [],
-      item
-    });
+    res.json(toPostmanCollection(collection, folders, requests, { includeSecrets }));
   });
 
+// Imports a Postman / reqSpace v2.0 or v2.1 collection file with its whole
+// tree: folders, requests, auth, bodies, scripts and variables.
 router.post('/collections/import',
   validate(schemas.importCollectionSchema),
   requireWorkspaceRole('editor'),
@@ -52,85 +46,83 @@ router.post('/collections/import',
     const { workspaceId, collection } = req.body;
     if (!workspaceId || !collection) return res.status(400).json({ message: 'Invalid body' });
 
+    let parsed: ParsedCollection;
+    try {
+      parsed = parsePostmanCollection(collection);
+    } catch (err) {
+      if (err instanceof ImportError) return res.status(400).json({ message: err.message });
+      throw err;
+    }
+
+    const userId = String(req.user!._id);
+    // Importing the same file twice must not leave two collections with one name.
+    const taken = new Set((await CollectionRepository.findByWorkspace(workspaceId)).map(c => c.name));
+    let name = parsed.name;
+    for (let n = 2; taken.has(name); n++) name = `${parsed.name} (${n})`;
+
     const newCol = await CollectionRepository.create({
-      name: collection.info?.name || 'Imported Collection',
+      name,
+      description: parsed.description,
       workspaceId,
-      createdBy: req.user!._id,
-      variables: collection.variable || []
+      createdBy: userId,
+      variables: parsed.variables,
+      auth: parsed.auth,
+      preRequestScript: parsed.preRequestScript,
+      testScript: parsed.testScript,
+      order: await CollectionRepository.countByWorkspace(workspaceId),
     });
 
-    for (let i = 0; i < (collection.item || []).length; i++) {
-      const r = collection.item[i];
-      let auth: any = undefined;
-      if (r.request?.auth) {
-        auth = { type: r.request.auth.type };
-        if (auth.type === 'bearer' && r.request.auth.bearer) {
-          const t = r.request.auth.bearer.find((x: any) => x.key === 'token');
-          if (t) auth.bearer = { token: t.value };
+    let folderCount = 0;
+    let requestCount = 0;
+    const createLevel = async (items: ParsedCollection['items'], parentFolderId: string | null) => {
+      let folderOrder = 0;
+      let requestOrder = 0;
+      for (const node of items) {
+        if (node.kind === 'folder') {
+          const folder = await FolderRepository.create({
+            collectionId: newCol._id,
+            parentFolderId,
+            name: node.name,
+            description: node.description,
+            auth: node.auth,
+            preRequestScript: node.preRequestScript,
+            testScript: node.testScript,
+            order: folderOrder++,
+          });
+          folderCount++;
+          await createLevel(node.items, folder._id);
+        } else {
+          await RequestRepository.create({
+            collectionId: newCol._id,
+            folderId: parentFolderId,
+            name: node.name,
+            method: node.method,
+            url: node.url,
+            params: node.params,
+            headers: node.headers,
+            auth: node.auth,
+            body: node.body,
+            preRequestScript: node.preRequestScript,
+            testScript: node.testScript,
+            description: node.description,
+            createdBy: userId,
+            order: requestOrder++,
+          });
+          requestCount++;
         }
       }
-      await RequestRepository.create({
-        collectionId: newCol.id || newCol._id,
-        name: r.name || 'Request',
-        method: 'GET',
-        url: 'https://example.com',
-        auth,
-        headers: [],
-        createdBy: req.user!._id,
-        order: i
-      });
-    }
-    res.json({ collectionId: newCol.id || newCol._id });
+    };
+    await createLevel(parsed.items, null);
+
+    emitToWorkspace(workspaceId, 'collection:created', newCol);
+    res.json({ collectionId: newCol._id, collection: newCol, folders: folderCount, requests: requestCount });
   });
 
 router.post('/requests/import/curl', validate(schemas.importCurlSchema), async (req: AuthRequest, res: Response) => {
   const { curl, workspaceId } = req.body;
   if (!curl) return res.status(400).json({ message: 'curl string required' });
 
-  let method = 'GET';
-  const methodMatch = curl.match(/-X\s+([A-Z]+)/);
-  if (methodMatch) method = methodMatch[1];
-  else if (curl.includes('-d ') || curl.includes('--data ')) method = 'POST';
-
-  let url = '';
-  const tokens = curl.split(/\s+/);
-  for (const token of tokens) {
-    const clean = token.replace(/^['"]|['"]$/g, '');
-    if (clean.startsWith('http://') || clean.startsWith('https://')) {
-      url = clean;
-      break;
-    }
-  }
-
-  const headers: any[] = [];
-  const headerRegex = /-H\s+(['"])(.*?)\1/g;
-  let match;
-  while ((match = headerRegex.exec(curl)) !== null) {
-    const headerStr = match[2];
-    const splitIdx = headerStr.indexOf(':');
-    if (splitIdx > 0) {
-      headers.push({
-        key: headerStr.substring(0, splitIdx).trim(),
-        value: headerStr.substring(splitIdx + 1).trim(),
-        enabled: true
-      });
-    }
-  }
-
-  let body = '';
-  const bodyRegex = /(?:-d|--data(?:-raw)?)\s+(['"])(.*?)\1/g;
-  const bodyMatch = bodyRegex.exec(curl);
-  if (bodyMatch) {
-    body = bodyMatch[2];
-  }
-
-  return res.json({
-    name: 'Imported cURL',
-    method,
-    url,
-    headers,
-    body: { mode: body ? 'raw' : 'none', raw: body },
-  });
+  return res.json({ name: 'Imported cURL', ...parseCurl(curl) });
 });
 
 router.post('/requests/import/raw-http', validate(schemas.importRawHttpSchema), async (req: AuthRequest, res: Response) => {
@@ -163,7 +155,24 @@ router.post('/requests/import/raw-http', validate(schemas.importRawHttpSchema), 
     }
   }
 
-  const body = lines.slice(i).join('\n');
+  let body = lines.slice(i).join('\n');
+  // A chunked body is sent un-chunked by the client, so decode it and drop the
+  // header that describes framing that no longer exists.
+  const chunkedIdx = headers.findIndex(h => h.key.toLowerCase() === 'transfer-encoding' && /chunked/i.test(h.value));
+  if (chunkedIdx !== -1) {
+    headers.splice(chunkedIdx, 1);
+    let decoded = '';
+    let rest = body;
+    for (;;) {
+      const m = /^\s*([0-9a-fA-F]+)[^\n]*\n/.exec(rest);
+      if (!m) break;
+      const size = parseInt(m[1], 16);
+      if (size === 0) break;
+      decoded += rest.substr(m[0].length, size);
+      rest = rest.slice(m[0].length + size).replace(/^\r?\n/, '');
+    }
+    body = decoded;
+  }
   
   if (url.startsWith('/')) {
     if (host) {
@@ -187,16 +196,26 @@ router.post('/requests/import/raw-http', validate(schemas.importRawHttpSchema), 
 // route takes it from — without the guard it creates a collection in any
 // workspace the caller names.
 router.post('/import/wsdl', validate(schemas.importWsdlSchema), requireWorkspaceRole('editor'), async (req: AuthRequest, res: Response) => {
-  const { url, workspaceId } = req.body;
-  if (!url || !workspaceId) {
-    return res.status(400).json({ message: 'url and workspaceId are required' });
+  const { url: wsdlUrl, wsdl: wsdlText, workspaceId } = req.body;
+  if ((!wsdlUrl && !wsdlText) || !workspaceId) {
+    return res.status(400).json({ message: 'url (or wsdl) and workspaceId are required' });
   }
+  const url: string = wsdlUrl || '';
 
+  let tmpDir: string | null = null;
   try {
-    const systemConfig = await SystemConfigRepository.getConfig();
-    await assertSsrfSafe(url, systemConfig?.proxy?.allowPrivateTargets ?? false);
+    let source = url;
+    if (wsdlText) {
+      // Pasted or uploaded document: hand soap a temp file, never a path from the client.
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wsdl-'));
+      source = path.join(tmpDir, 'service.wsdl');
+      fs.writeFileSync(source, wsdlText);
+    } else {
+      const systemConfig = await SystemConfigRepository.getConfig();
+      await assertSsrfSafe(url, systemConfig?.proxy?.allowPrivateTargets ?? false);
+    }
 
-    const client = await soap.createClientAsync(url);
+    const client = await soap.createClientAsync(source);
     const description = client.describe();
     
     // Create Collection
@@ -245,8 +264,8 @@ router.post('/import/wsdl', validate(schemas.importWsdlSchema), requireWorkspace
             method: 'POST',
             url: location,
             headers: [
-              { key: 'Content-Type', value: 'text/xml; charset=utf-8', enabled: true, _id: uuidv4() },
-              ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true, _id: uuidv4() }] : [])
+              { key: 'Content-Type', value: 'text/xml; charset=utf-8', enabled: true },
+              ...(soapAction ? [{ key: 'SOAPAction', value: `"${soapAction}"`, enabled: true }] : [])
             ],
             body: { mode: 'raw', raw: xmlBody, rawLanguage: 'xml' },
             createdBy: req.user!._id,
@@ -264,8 +283,11 @@ router.post('/import/wsdl', validate(schemas.importWsdlSchema), requireWorkspace
 
     res.json({ message: 'WSDL Imported Successfully', collectionId: collection._id });
   } catch (error: any) {
-    noteRouteError(res, error);
-    res.status(500).json({ message: 'Failed to parse WSDL: ' + error.message });
+    // An unreachable, blocked or malformed WSDL is a problem with the URL the
+    // user gave, not a server fault.
+    res.status(400).json({ message: 'Failed to parse WSDL: ' + error.message });
+  } finally {
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 

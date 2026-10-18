@@ -7,10 +7,11 @@ export type UserRole = 'viewer' | 'editor' | 'owner';
 import { WorkspaceRepository, IWorkspaceMemberRecord } from '../repositories/WorkspaceRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { EnvironmentRepository } from '../repositories/EnvironmentRepository';
-import { CollectionRepository } from '../repositories/CollectionRepository';
-import { AuditLogRepository } from '../repositories/AuditLogRepository';
+import { CascadeRepository } from '../repositories/CascadeRepository';
+import { AuditLogRepository, logAudit } from '../repositories/AuditLogRepository';
 import { workspaceRoleCache } from '../utils/cache';
 import { noteRouteError } from '../utils/errorReporter';
+import { emitToWorkspace, emitToUser, revokeWorkspaceAccess } from '../socketUtils';
 
 const router = Router();
 router.use(authenticate);
@@ -73,7 +74,9 @@ router.get('/:id', requireWorkspaceRole('viewer'), async (req: AuthRequest, res:
 
 router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   try {
-    const logs = await AuditLogRepository.list({ targetId: req.params.id }, 50);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit), 10) || 50, 1), 200);
+    const skip = Math.max(parseInt(String(req.query.skip), 10) || 0, 0);
+    const logs = await AuditLogRepository.list({ targetId: req.params.id }, limit, skip);
     const userIds = [...new Set(logs.map(l => String(l.userId)))];
     const { SqlUser } = await import('../db/sql-models');
     const users = await SqlUser.findAll({ where: { id: userIds }, attributes: ['id', 'name', 'email'], raw: true });
@@ -100,15 +103,31 @@ router.put('/:id', validate(schemas.updateWorkspaceSchema), requireWorkspaceRole
   if (isPublic !== undefined) patch.isPublic = isPublic;
   const workspace = await WorkspaceRepository.update(req.params.id, patch);
   if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
+  // Public visibility changes who may access the workspace — drop cached roles.
+  if (patch.isPublic !== undefined) workspaceRoleCache.deleteBySuffix(`:${req.params.id}`);
+  logAudit(String(req.user!._id), 'workspace.update', {
+    targetType: 'Workspace', targetId: req.params.id, ip: req.ip, details: patch,
+  });
+  emitToWorkspace(req.params.id, 'workspace:updated', {
+    _id: workspace._id, name: workspace.name, description: workspace.description, isPublic: workspace.isPublic,
+  });
   return res.json(workspace);
 });
 
 // ── DELETE /api/workspaces/:id ──────────────────────────────────────────────
 router.delete('/:id', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
-  // Cascade: drop the workspace's collections (and their folders/requests are
-  // cleaned up by the collection delete path elsewhere).
-  await CollectionRepository.deleteByWorkspace(req.params.id);
-  await WorkspaceRepository.delete(req.params.id);
+  const workspace = await WorkspaceRepository.findById(req.params.id);
+  if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
+  if (workspace.isPersonal) return res.status(409).json({ message: 'A personal workspace cannot be deleted' });
+  // Everything inside goes too: collections, folders, requests, environments,
+  // globals, local variables, history, share links. Only the collections used
+  // to be removed, which orphaned the rest.
+  await CascadeRepository.deleteWorkspaceTree(req.params.id);
+  workspaceRoleCache.deleteBySuffix(`:${req.params.id}`);
+  logAudit(String(req.user!._id), 'workspace.delete', {
+    targetType: 'Workspace', targetId: req.params.id, ip: req.ip, details: { name: workspace.name },
+  });
+  emitToWorkspace(req.params.id, 'workspace:deleted', { workspaceId: req.params.id, name: workspace.name });
   return res.json({ message: 'Workspace deleted' });
 });
 
@@ -155,6 +174,10 @@ router.post(
     ];
     await WorkspaceRepository.update(req.params.id, { members });
     workspaceRoleCache.delete(`${String(targetUser._id)}:${req.params.id}`);
+    logAudit(String(req.user!._id), 'workspace.member.add', {
+      targetType: 'Workspace', targetId: req.params.id, ip: req.ip,
+      details: { targetUserId: String(targetUser._id), email: targetUser.email, role },
+    });
 
     return res.status(201).json({ message: 'Member added', member: { userId: targetUser._id, role } });
   }
@@ -185,11 +208,27 @@ router.put(
       return res.status(403).json({ message: 'Cannot change owner role' });
     }
 
+    // B5.3 — prevent demoting the last owner, which would leave the workspace
+    // without any active owner.
+    if (member.role === 'owner' && role !== 'owner') {
+      const ownerCount = workspace.members.filter((m) => m.role === 'owner').length;
+      if (ownerCount <= 1) {
+        return res.status(409).json({ message: 'Cannot demote the last owner' });
+      }
+    }
+
     const members = workspace.members.map((m) =>
       String(m.userId) === req.params.userId ? { ...m, role: role as UserRole } : m
     );
     await WorkspaceRepository.update(req.params.id, { members });
     workspaceRoleCache.delete(`${req.params.userId}:${req.params.id}`);
+    logAudit(String(req.user!._id), 'workspace.member.role_change', {
+      targetType: 'Workspace', targetId: req.params.id, ip: req.ip,
+      details: { targetUserId: req.params.userId, oldRole: member.role, newRole: role },
+    });
+
+    // The member's open tabs switch to the new permissions without a reload.
+    emitToUser(req.params.userId, 'workspace:role_changed', { workspaceId: req.params.id, role });
 
     return res.json({ message: 'Role updated', userId: req.params.userId, role });
   }
@@ -198,20 +237,35 @@ router.put(
 // ── DELETE /api/workspaces/:id/members/:userId – Remove ─────────────────────
 router.delete(
   '/:id/members/:userId',
-  requireWorkspaceRole('owner'),
+  // Owners may remove anyone; any member (incl. editor/viewer) may remove
+  // themselves ("Leave workspace") — enforced in the handler.
+  requireWorkspaceRole('viewer'),
   async (req: AuthRequest, res: Response) => {
+    const isSelf = String(req.user!._id) === req.params.userId;
+    if (!isSelf && (req as AuthRequest & { workspaceRole?: UserRole }).workspaceRole !== 'owner' && !req.user?.isSuperAdmin) {
+      return res.status(403).json({ message: 'Requires owner role' });
+    }
     const workspace = await WorkspaceRepository.findById(req.params.id);
     if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
 
     const member = workspace.members.find((m) => String(m.userId) === req.params.userId);
     if (!member) return res.status(404).json({ message: 'Member not found' });
     if (member.role === 'owner') {
-      return res.status(403).json({ message: 'Cannot remove workspace owner' });
+      // Removing an owner is only allowed if there's another owner remaining.
+      const ownerCount = workspace.members.filter((m) => m.role === 'owner').length;
+      if (ownerCount <= 1) {
+        return res.status(409).json({ message: 'Cannot remove the last owner' });
+      }
     }
 
     const members = workspace.members.filter((m) => String(m.userId) !== req.params.userId);
     await WorkspaceRepository.update(req.params.id, { members });
     workspaceRoleCache.delete(`${req.params.userId}:${req.params.id}`);
+    logAudit(String(req.user!._id), isSelf ? 'workspace.member.leave' : 'workspace.member.remove', {
+      targetType: 'Workspace', targetId: req.params.id, ip: req.ip,
+      details: { targetUserId: req.params.userId, role: member.role },
+    });
+    revokeWorkspaceAccess(req.params.userId, req.params.id);
 
     return res.json({ message: 'Member removed' });
   }

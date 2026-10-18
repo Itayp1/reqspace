@@ -14,6 +14,12 @@ export const listErrorsQuerySchema = z.object({
   source: z.enum(['client', 'server']).optional(),
   kind: z.string().max(40).optional(),
   q: z.string().max(100).optional(),
+  // Only rows recorded at or after this instant (ISO 8601). The e2e suite uses it
+  // to check that a test left no new faults behind.
+  since: z.coerce.date().optional(),
+  until: z.coerce.date().optional(),
+  sort: z.enum(['lastSeen', 'firstSeen', 'count']).optional(),
+  dir: z.enum(['asc', 'desc']).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });

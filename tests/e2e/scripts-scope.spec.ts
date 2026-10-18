@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Scripts Scope', () => {
   test('Pre-request scripts run at Collection and Folder levels', async ({ page }) => {
@@ -35,7 +35,7 @@ test.describe('Scripts Scope', () => {
 
     await page.getByTestId('group-edit-prerequest-tab').click();
     const collectionEditor = page.getByTestId('group-prerequest-editor');
-    await collectionEditor.getByTestId('monaco-editor-container').click();
+    await collectionEditor.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.insertText(`req.headers.set('X-Collection-Script', 'executed');\nreq.variables.set('colVar', 'from-col');`);
     await expect(collectionEditor.locator('.view-lines')).toContainText('executed');
     await page.getByTestId('group-edit-save-btn').click();
@@ -55,7 +55,7 @@ test.describe('Scripts Scope', () => {
 
     await page.getByTestId('group-edit-prerequest-tab').click();
     const folderEditor = page.getByTestId('group-prerequest-editor');
-    await folderEditor.getByTestId('monaco-editor-container').click();
+    await folderEditor.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.insertText(`req.headers.set('X-Folder-Script', 'executed');\nreq.variables.set('folderVar', 'from-folder');`);
     await expect(folderEditor.locator('.view-lines')).toContainText('executed');
     await page.getByTestId('group-edit-save-btn').click();
@@ -95,7 +95,7 @@ test.describe('Scripts Scope', () => {
     // Add Request-level script
     await page.getByTestId('req-tab-pre-request-script').click();
     const requestEditor = page.getByTestId('monaco-editor-container');
-    await requestEditor.click();
+    await requestEditor.locator('.monaco-editor').first().click();
     await page.keyboard.insertText(`req.headers.set('X-Request-Script', 'executed');`);
     await expect(requestEditor.locator('.view-lines')).toContainText('executed');
 

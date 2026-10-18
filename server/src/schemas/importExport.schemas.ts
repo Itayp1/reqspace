@@ -11,9 +11,11 @@ export const importRawHttpSchema = z.object({
 }).strict();
 
 export const importWsdlSchema = z.object({
-  url: z.string().url(),
+  url: z.string().url().optional(),
+  // The WSDL document itself, for services that are not reachable from the server.
+  wsdl: z.string().min(1).max(5_000_000).optional(),
   workspaceId: z.string()
-}).strict();
+}).strict().refine(d => !!d.url !== !!d.wsdl, { message: 'Provide either url or wsdl' });
 
 export const importCollectionSchema = z.object({
   workspaceId: z.string(),

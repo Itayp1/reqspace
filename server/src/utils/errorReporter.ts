@@ -16,9 +16,16 @@ export interface FpErrorInput {
   userAgent?: string | null;
 }
 
-const DEDUPE_WINDOW_MS = 60_000;
+// The e2e suite sets FPERRORS_DEDUPE_MS=0 so a fault that repeats on a retry
+// is recorded again instead of being swallowed by the window.
+const DEDUPE_WINDOW_MS = (() => {
+  const n = Number(process.env.FPERRORS_DEDUPE_MS);
+  return Number.isFinite(n) && n >= 0 && process.env.FPERRORS_DEDUPE_MS !== '' && process.env.FPERRORS_DEDUPE_MS !== undefined ? n : 60_000;
+})();
 const DEDUPE_SWEEP_THRESHOLD = 5_000;
-const recentFingerprints = new Map<string, number>();
+// fingerprint -> when it was last stored and the id of that row, so repeats
+// swallowed inside the window can still be counted on it.
+const recentFingerprints = new Map<string, { at: number; id?: string }>();
 
 const FALLBACK_PATH = path.join(process.cwd(), 'fperrors-fallback.jsonl');
 
@@ -62,16 +69,17 @@ function buildRow(input: FpErrorInput) {
   };
 }
 
-function isDuplicate(fingerprint: string, now: number): boolean {
+/** Returns the already-stored entry when this fingerprint was seen inside the window; otherwise registers it. */
+function checkDuplicate(fingerprint: string, now: number): { at: number; id?: string } | null {
   const last = recentFingerprints.get(fingerprint);
-  if (last !== undefined && now - last < DEDUPE_WINDOW_MS) return true;
-  recentFingerprints.set(fingerprint, now);
+  if (last !== undefined && now - last.at < DEDUPE_WINDOW_MS) return last;
+  recentFingerprints.set(fingerprint, { at: now });
   if (recentFingerprints.size > DEDUPE_SWEEP_THRESHOLD) {
-    for (const [key, seenAt] of recentFingerprints) {
-      if (now - seenAt >= DEDUPE_WINDOW_MS) recentFingerprints.delete(key);
+    for (const [key, seen] of recentFingerprints) {
+      if (now - seen.at >= DEDUPE_WINDOW_MS) recentFingerprints.delete(key);
     }
   }
-  return false;
+  return null;
 }
 
 function appendFallback(row: object): void {
@@ -85,9 +93,19 @@ function appendFallback(row: object): void {
 /** Never rejects. Callers that must not block (request handlers) call it without awaiting. */
 export async function recordError(input: FpErrorInput): Promise<void> {
   const row = buildRow(input);
-  if (isDuplicate(row.fingerprint, Date.now())) return;
+  const seen = checkDuplicate(row.fingerprint, Date.now());
+  if (seen) {
+    // Suppressed, but still counted: the stored row keeps a tally so the
+    // group's count reflects every occurrence, not just the first in a window.
+    if (seen.id) {
+      try { await SqlFpError.increment('repeats', { by: 1, where: { id: seen.id } }); } catch { /* best effort */ }
+    }
+    return;
+  }
   try {
-    await SqlFpError.create(row);
+    const created = await SqlFpError.create(row);
+    const entry = recentFingerprints.get(row.fingerprint);
+    if (entry && (created as any)?.id) entry.id = (created as any).id;
   } catch (err) {
     console.error('[fperrors] insert failed, writing fallback file:', (err as Error).message);
     appendFallback(row);

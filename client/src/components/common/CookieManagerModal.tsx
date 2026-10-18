@@ -22,6 +22,7 @@ export const CookieManagerModal: React.FC<CookieManagerModalProps> = ({
     addCookie,
     updateCookie,
     deleteCookie,
+    deleteAllCookies,
   } = useCookieStore();
 
   const [newDomainInput, setNewDomainInput] = useState('');
@@ -176,6 +177,16 @@ export const CookieManagerModal: React.FC<CookieManagerModalProps> = ({
                 <span className="text-xs text-gray-400">Domain:</span>
                 <span className="text-xs font-semibold text-gray-200">{activeDomain || 'None'}</span>
               </div>
+              <div className="flex items-center gap-2">
+              <button
+                data-testid="cookie-delete-all-btn"
+                onClick={() => { if (cookies.length > 0) deleteAllCookies(); }}
+                disabled={cookies.length === 0}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-600 hover:border-red-500 hover:text-red-400 disabled:opacity-50 text-gray-300 rounded font-medium transition"
+              >
+                <Trash2 size={13} />
+                <span>Delete All</span>
+              </button>
               <button
                 data-testid="cookie-add-btn"
                 onClick={handleCreateCookie}
@@ -185,6 +196,7 @@ export const CookieManagerModal: React.FC<CookieManagerModalProps> = ({
                 <Plus size={13} />
                 <span>Add Cookie</span>
               </button>
+              </div>
             </div>
 
             {/* Cookies Table */}
@@ -203,6 +215,7 @@ export const CookieManagerModal: React.FC<CookieManagerModalProps> = ({
                         <th className="px-3 py-2 w-1/4">Name</th>
                         <th className="px-3 py-2 w-1/3">Value</th>
                         <th className="px-3 py-2 w-20">Path</th>
+                        <th className="px-3 py-2 w-32">Expires</th>
                         <th className="px-2 py-2 text-center w-16">HttpOnly</th>
                         <th className="px-2 py-2 text-center w-16">Secure</th>
                         <th className="px-2 py-2 text-center w-12">Action</th>
@@ -239,6 +252,17 @@ export const CookieManagerModal: React.FC<CookieManagerModalProps> = ({
                               onChange={(e) => updateCookie(cookie.id, { path: e.target.value })}
                               className="w-full bg-transparent text-gray-300 outline-none border-b border-transparent focus:border-orange-500 font-mono text-xs"
                               placeholder="/"
+                            />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <input
+                              type="text"
+                              data-testid="cookie-expires-input"
+                              value={cookie.expires || ''}
+                              onChange={(e) => updateCookie(cookie.id, { expires: e.target.value || undefined })}
+                              className="w-full bg-transparent text-gray-300 outline-none border-b border-transparent focus:border-orange-500 font-mono text-xs"
+                              placeholder="Session"
+                              title="ISO date, e.g. 2030-01-01T00:00:00Z. Empty = session cookie"
                             />
                           </td>
                           <td className="px-2 py-1.5 text-center">

@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { X, BookOpen } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, BookOpen, Eye, EyeOff } from 'lucide-react';
 import { useCollectionStore, useLoadedTree } from '../../store/collectionStore';
 
 interface DocumentationModalProps {
@@ -7,6 +7,28 @@ interface DocumentationModalProps {
   collectionName: string;
   onClose: () => void;
 }
+
+const SENSITIVE_KEY = /authorization|cookie|token|secret|password|passwd|api[-_]?key|apikey|auth/i;
+
+// Secrets in the generated docs stay masked until the reader asks for them.
+const MaskedValue: React.FC<{ name: string; value: string }> = ({ name, value }) => {
+  const [shown, setShown] = useState(false);
+  if (!value || !SENSITIVE_KEY.test(name)) return <>{value}</>;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span data-testid="doc-masked-value">{shown ? value : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
+      <button
+        type="button"
+        data-testid="doc-reveal-btn"
+        aria-label={shown ? 'Hide value' : 'Reveal value'}
+        onClick={() => setShown(v => !v)}
+        className="text-gray-500 hover:text-gray-200"
+      >
+        {shown ? <EyeOff size={12} /> : <Eye size={12} />}
+      </button>
+    </span>
+  );
+};
 
 export const DocumentationModal: React.FC<DocumentationModalProps> = ({ collectionId, collectionName, onClose }) => {
   const { collections, loadCollectionChildren, loadFolderChildren } = useCollectionStore();
@@ -54,7 +76,7 @@ export const DocumentationModal: React.FC<DocumentationModalProps> = ({ collecti
                 {request.headers.filter((h: any) => h.enabled && h.key).map((h: any, i: number) => (
                   <tr key={i}>
                     <td className="px-3 py-2 font-mono text-xs">{h.key}</td>
-                    <td className="px-3 py-2 font-mono text-xs break-all">{h.value}</td>
+                    <td className="px-3 py-2 font-mono text-xs break-all"><MaskedValue name={h.key} value={h.value} /></td>
                     <td className="px-3 py-2 text-gray-500">{h.description || ''}</td>
                   </tr>
                 ))}
@@ -82,7 +104,7 @@ export const DocumentationModal: React.FC<DocumentationModalProps> = ({ collecti
                   {request.body.formData.filter((i: any) => i.enabled && i.key).map((item: any, i: number) => (
                     <tr key={i}>
                       <td className="px-3 py-2 font-mono text-xs">{item.key}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{item.type === 'file' ? '(File)' : item.value}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{item.type === 'file' ? '(File)' : <MaskedValue name={item.key} value={item.value} />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -98,7 +120,7 @@ export const DocumentationModal: React.FC<DocumentationModalProps> = ({ collecti
                   {request.body.urlencoded.filter((i: any) => i.enabled && i.key).map((item: any, i: number) => (
                     <tr key={i}>
                       <td className="px-3 py-2 font-mono text-xs">{item.key}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{item.value}</td>
+                      <td className="px-3 py-2 font-mono text-xs"><MaskedValue name={item.key} value={item.value} /></td>
                     </tr>
                   ))}
                 </tbody>

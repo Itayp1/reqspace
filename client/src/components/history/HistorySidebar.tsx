@@ -7,6 +7,9 @@ import { ConfirmModal } from '../common/ConfirmModal';
 import { customConfirm } from '../../utils/dialog';
 import { SaveRequestModal } from '../request/SaveRequestModal';
 import { useSettingsStore } from '../../store/settingsStore';
+import { subscribeHistoryUpdated } from '../../utils/historySync';
+
+const PAGE_SIZE = 50;
 
 export default function HistorySidebar() {
   const { settings, updateSettings } = useSettingsStore();
@@ -17,17 +20,24 @@ export default function HistorySidebar() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const fetchHistory = async () => {
+  // Page 1 replaces the list; later pages are appended ("Load more").
+  const fetchHistory = async (pageNum = 1) => {
     if (!activeWorkspace) return;
-    setLoading(true);
+    if (pageNum === 1) setLoading(true); else setLoadingMore(true);
     try {
-      const res = await api.get(`/workspaces/${activeWorkspace._id}/history`);
-      setHistory(res.data.items);
+      const res = await api.get(`/workspaces/${activeWorkspace._id}/history`, { params: { page: pageNum, limit: PAGE_SIZE } });
+      setHistory(prev => pageNum === 1 ? res.data.items : [...prev, ...res.data.items]);
+      setTotal(res.data.total ?? res.data.items.length);
+      setPage(pageNum);
     } catch (err) {
       console.error('Failed to fetch history', err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -36,50 +46,72 @@ export default function HistorySidebar() {
   }, [activeWorkspace]);
 
   useEffect(() => {
-    const refresh = () => { fetchHistory(); };
-    window.addEventListener('history-updated', refresh);
-    return () => window.removeEventListener('history-updated', refresh);
+    // Also fires for requests sent from another tab of the same browser.
+    return subscribeHistoryUpdated(() => { fetchHistory(1); });
   }, [activeWorkspace]);
 
+  const isFiltered = searchQuery.trim() !== '';
+
+  // With a search active only the entries on screen are removed; with none,
+  // the whole workspace history is cleared.
   const handleClearHistory = async () => {
     if (!activeWorkspace) return;
     try {
-      await api.delete(`/workspaces/${activeWorkspace._id}/history`);
-      setHistory([]);
+      if (isFiltered) {
+        const ids = filteredHistory.map(h => h._id);
+        const results = await Promise.allSettled(ids.map(id => api.delete(`/history/${id}`)));
+        const removed = new Set(ids.filter((_, i) => results[i].status === 'fulfilled'));
+        setHistory(prev => prev.filter(h => !removed.has(h._id)));
+        setTotal(t => Math.max(0, t - removed.size));
+      } else {
+        await api.delete(`/workspaces/${activeWorkspace._id}/history`);
+        setHistory([]);
+        setTotal(0);
+      }
     } catch (err) {
       console.error(err);
     }
     setShowClearConfirm(false);
   };
 
+  // The snapshot holds the body exactly as it was sent: a string for raw /
+  // urlencoded / GraphQL, an { _isFormData, items } object for form-data, or
+  // nothing at all. Forcing every one of those into a raw editor put an
+  // object into Monaco and turned a GET into a request with an empty body.
+  const bodyFromSnapshot = (body: any) => {
+    if (body && typeof body === 'object' && body._isFormData) {
+      return {
+        mode: 'form-data' as const,
+        formData: (body.items || []).filter((i: any) => i && i.key).map((i: any) => (
+          i.type === 'file'
+            ? { key: i.key, value: '', enabled: true, type: 'file' as const }
+            : { key: i.key, value: String(i.value ?? ''), enabled: true, type: 'text' as const }
+        )),
+      };
+    }
+    if (body == null || body === '') return { mode: 'none' as const };
+    return { mode: 'raw' as const, raw: typeof body === 'string' ? body : JSON.stringify(body, null, 2) };
+  };
+
+  const requestFromHistory = (item: any) => ({
+    name: item.requestSnapshot.url,
+    method: item.requestSnapshot.method,
+    url: item.requestSnapshot.url,
+    headers: Object.entries(item.requestSnapshot.headers || {}).map(([k, v]) => ({
+      key: k, value: String(v ?? ''), enabled: true, description: '',
+    })),
+    params: item.requestSnapshot.params || [],
+    auth: { type: 'none' as const },
+    body: bodyFromSnapshot(item.requestSnapshot.body),
+  });
+
   const handleReplay = (item: any) => {
-    setActiveRequest({
-      name: item.requestSnapshot.url,
-      method: item.requestSnapshot.method,
-      url: item.requestSnapshot.url,
-      headers: Object.entries(item.requestSnapshot.headers || {}).map(([k, v]) => ({
-        key: k, value: v as string, enabled: true, description: '',
-      })),
-      params: item.requestSnapshot.params || [],
-      auth: { type: 'none' },
-      body: { mode: 'raw', raw: item.requestSnapshot.body || '' },
-    });
+    setActiveRequest(requestFromHistory(item));
   };
 
   const handleSaveFromHistory = (item: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Set the active request from history item
-    setActiveRequest({
-      name: item.requestSnapshot.url,
-      method: item.requestSnapshot.method,
-      url: item.requestSnapshot.url,
-      headers: Object.entries(item.requestSnapshot.headers || {}).map(([k, v]) => ({
-        key: k, value: v as string, enabled: true, description: '',
-      })),
-      params: item.requestSnapshot.params || [],
-      auth: { type: 'none' },
-      body: { mode: 'raw', raw: item.requestSnapshot.body || '' },
-    });
+    setActiveRequest(requestFromHistory(item));
     setShowSaveModal(true);
   };
 
@@ -88,6 +120,7 @@ export default function HistorySidebar() {
     try {
       await api.delete(`/history/${id}`);
       setHistory(history.filter(h => h._id !== id));
+      setTotal(t => Math.max(0, t - 1));
     } catch (err) {
       console.error(err);
     }
@@ -103,10 +136,14 @@ export default function HistorySidebar() {
     }
   };
 
-  const filteredHistory = history.filter(item => 
-    item.requestSnapshot.url.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    item.requestSnapshot.method.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Matches URL, method or response status code (e.g. "404").
+  const filteredHistory = history.filter(item => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return String(item.requestSnapshot?.url ?? '').toLowerCase().includes(q)
+      || String(item.requestSnapshot?.method ?? '').toLowerCase().includes(q)
+      || String(item.responseSnapshot?.status ?? item.statusCode ?? '').includes(q);
+  });
 
   return (
     <>
@@ -116,10 +153,10 @@ export default function HistorySidebar() {
           <button
             onClick={() => setShowClearConfirm(true)}
             className="flex items-center gap-1 px-2 py-1 text-xs text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
-            title="Clear All"
+            title={isFiltered ? 'Clear the filtered entries' : 'Clear All'}
           >
             <Trash2 className="w-3.5 h-3.5" />
-            Clear All
+            {isFiltered ? 'Clear Filtered' : 'Clear All'}
           </button>
         </div>
 
@@ -134,6 +171,11 @@ export default function HistorySidebar() {
               className="w-full bg-background border border-border rounded pl-7 pr-2 py-1.5 text-xs text-text outline-none focus:border-primary transition-colors"
             />
           </div>
+          {settings?.saveHistory === false && (
+            <p className="mt-2 text-[11px] text-yellow-500" data-testid="history-saving-off-note">
+              History saving is off - new requests are not recorded.
+            </p>
+          )}
           <div className="flex items-center justify-between mt-3">
             <label htmlFor="saveHistoryToggle" className="text-[11px] text-text-muted flex-1 cursor-pointer">
               Save Request History
@@ -148,8 +190,9 @@ export default function HistorySidebar() {
                   if (await customConfirm('Confirm Action', "Disabling this will delete all your previously saved request history. Are you sure you want to proceed?")) {
                     updateSettings({ saveHistory: false });
                     try {
-                      await api.delete('/history');
+                      if (activeWorkspace) await api.delete('/history', { params: { workspaceId: activeWorkspace._id } });
                       setHistory([]);
+                      setTotal(0);
                     } catch(err) {
                       console.error(err);
                     }
@@ -172,7 +215,8 @@ export default function HistorySidebar() {
               No history found.
             </div>
           ) : (
-            filteredHistory.map(item => (
+            <>
+            {filteredHistory.map(item => (
               <div
                 key={item._id}
                 data-testid="history-item"
@@ -217,7 +261,18 @@ export default function HistorySidebar() {
                   </div>
                 </div>
               </div>
-            ))
+            ))}
+            {history.length < total && (
+              <button
+                data-testid="history-load-more"
+                onClick={() => fetchHistory(page + 1)}
+                disabled={loadingMore}
+                className="w-full p-2 text-xs text-text-muted hover:text-text hover:bg-background disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading...' : `Load more (${history.length} of ${total})`}
+              </button>
+            )}
+            </>
           )}
         </div>
       </div>
@@ -226,8 +281,10 @@ export default function HistorySidebar() {
       {showClearConfirm && (
         <ConfirmModal
           title="Clear History"
-          message="Are you sure you want to clear all request history? This cannot be undone."
-          confirmLabel="Clear All"
+          message={isFiltered
+            ? `Delete the ${filteredHistory.length} history entries matching "${searchQuery.trim()}"? Other entries are kept. This cannot be undone.`
+            : 'Are you sure you want to clear all request history? This cannot be undone.'}
+          confirmLabel={isFiltered ? 'Clear Filtered' : 'Clear All'}
           onConfirm={handleClearHistory}
           onCancel={() => setShowClearConfirm(false)}
         />

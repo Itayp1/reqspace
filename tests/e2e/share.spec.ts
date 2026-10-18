@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Share Links', () => {
   test('should generate a link, strip sensitive data for anonymous view, and handle revocation', async ({ page, context, request }) => {
@@ -41,7 +41,7 @@ test.describe('Share Links', () => {
     
     // Add Test Script
     await page.getByTestId('req-tab-tests').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("leak", function() { pm.expect(1).to.eql(1); });');
     await page.keyboard.press('Control+V');

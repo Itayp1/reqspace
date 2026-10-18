@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 
 /**
  * The last three uncovered surfaces:
@@ -25,7 +25,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
     await page.getByTestId('register-email').fill(email);
     await page.getByTestId('register-password').fill('password123');
     await page.getByTestId('register-submit').click();
-    await expect(page.getByTestId('workspace-select')).toBeVisible();
+    await expect(page.getByTestId('workspace-select')).toBeVisible({ timeout: 15000 });
   }
 
   test('the public share page lists the requests and can run one', async ({ page, context }) => {

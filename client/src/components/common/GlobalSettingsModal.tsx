@@ -1,10 +1,55 @@
 import { createPortal } from 'react-dom';
 import { X, Trash2, Plus, Upload } from 'lucide-react';
-import { useSettingsStore } from '../../store/settingsStore';
-import { useState } from 'react';
+import { useSettingsStore, isValidProxyUrl } from '../../store/settingsStore';
+import { isExtensionInstalled } from '../../transport';
+import { DEFAULT_SHORTCUTS, validateShortcut, normalizeShortcut } from '../../utils/shortcuts';
+import type { ShortcutName } from '../../utils/shortcuts';
+import { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { useAuthStore } from '../../store/authStore';
 import { useToastStore } from '../../store/toastStore';
+
+// mTLS certificates and the local proxy can only be applied by a transport that
+// controls the connection; a plain browser fetch() cannot (P3.3, P4.10).
+const isPureBrowser = () => !(window as any).electron && !isExtensionInstalled();
+
+const SHORTCUT_LABELS: Record<ShortcutName, string> = { search: 'Global Search', save: 'Save Request', send: 'Send Request' };
+
+function ShortcutField({ name }: { name: ShortcutName }) {
+  const { settings, updateSettings } = useSettingsStore();
+  const saved = settings.shortcuts?.[name] || DEFAULT_SHORTCUTS[name];
+  const [draft, setDraft] = useState(saved);
+  const [error, setError] = useState<string | null>(null);
+
+  // Keep in sync when the stored value changes elsewhere (e.g. Reset to default).
+  useEffect(() => { setDraft(saved); setError(null); }, [saved]);
+
+  const onChange = (value: string) => {
+    setDraft(value);
+    const err = validateShortcut(value, name, settings.shortcuts || {});
+    setError(err);
+    if (!err) updateSettings({ shortcuts: { ...DEFAULT_SHORTCUTS, ...settings.shortcuts, [name]: normalizeShortcut(value) } });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium block">{SHORTCUT_LABELS[name]}</label>
+        <input
+          type="text"
+          data-testid={`shortcut-${name}-input`}
+          aria-label={SHORTCUT_LABELS[name]}
+          aria-invalid={!!error}
+          value={draft}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={() => { if (error) { setDraft(saved); setError(null); } }}
+          className={`w-32 p-1 border rounded bg-background text-sm text-center ${error ? 'border-red-500' : 'border-border'}`}
+        />
+      </div>
+      {error && <p role="alert" data-testid={`shortcut-${name}-error`} className="text-xs text-red-400 mt-1">{error}</p>}
+    </div>
+  );
+}
 
 function ClientCertificatesManager() {
   const user = useAuthStore(state => state.user);
@@ -115,6 +160,7 @@ function ClientCertificatesManager() {
 
 export default function GlobalSettingsModal({ onClose }: { onClose: () => void }) {
   const { settings, updateSettings } = useSettingsStore();
+  const proxyUrlInvalid = settings.proxyEnabled && !isValidProxyUrl(settings.proxyUrl || '');
 
   return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
@@ -157,6 +203,36 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
 
               <div className="flex items-center justify-between">
                 <div>
+                  <label htmlFor="sendCookies" className="text-sm font-medium block">Send Cookies Automatically</label>
+                  <p className="text-xs text-text-muted">Attach matching cookies from the Cookie Jar to outgoing requests.</p>
+                </div>
+                <input
+                  type="checkbox"
+                  id="sendCookies"
+                  checked={settings.sendCookies !== false}
+                  onChange={(e) => updateSettings({ sendCookies: e.target.checked })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <label htmlFor="saveHistory" className="text-sm font-medium block">Save Request History</label>
+                  <p className="text-xs text-text-muted">
+                    {settings.saveHistory !== false
+                      ? 'Sent requests are recorded in the History panel.'
+                      : 'Off: new requests are not recorded in History (existing entries are kept).'}
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  id="saveHistory"
+                  checked={settings.saveHistory !== false}
+                  onChange={(e) => updateSettings({ saveHistory: e.target.checked })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
                   <label htmlFor="requestTimeout" className="text-sm font-medium block">Request Timeout (ms)</label>
                   <p className="text-xs text-text-muted">Maximum time to wait for a response. 0 = no timeout.</p>
                 </div>
@@ -164,6 +240,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                   type="number"
                   id="requestTimeout"
                   min={0}
+                  max={3600000}
                   step={1000}
                   value={settings.timeout ?? 0}
                   onChange={(e) => updateSettings({ timeout: Math.max(0, parseInt(e.target.value, 10) || 0) })}
@@ -176,6 +253,11 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
               <div className="pt-4 mt-4 border-t border-border">
                 <h3 className="font-semibold mb-3">Client Certificates (mTLS)</h3>
                 <p className="text-xs text-text-muted mb-4">Upload client certificates to authenticate against specific hostnames.</p>
+                {!(window as any).electron && (
+                  <p data-testid="cert-browser-warning" className="text-xs text-yellow-500 mb-4">
+                    Client certificates (mTLS) are supported only in the Reqspace Desktop (Electron) app. Web browsers and the browser extension cannot attach a client certificate to a request, so certificates saved here are stored with your account but are NOT applied in this environment.
+                  </p>
+                )}
                 <ClientCertificatesManager />
               </div>
             </div>
@@ -184,38 +266,17 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
           <div>
             <h3 className="font-semibold mb-3">Keyboard Shortcuts</h3>
             <div className="space-y-3 bg-surface p-4 rounded border border-border">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-medium block">Global Search</label>
-                </div>
-                <input
-                  type="text"
-                  value={settings.shortcuts?.search || 'ctrl+k'}
-                  onChange={(e) => updateSettings({ shortcuts: { ...settings.shortcuts, search: e.target.value } })}
-                  className="w-24 p-1 border border-border rounded bg-background text-sm text-center"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-medium block">Save Request</label>
-                </div>
-                <input
-                  type="text"
-                  value={settings.shortcuts?.save || 'ctrl+s'}
-                  onChange={(e) => updateSettings({ shortcuts: { ...settings.shortcuts, save: e.target.value } })}
-                  className="w-24 p-1 border border-border rounded bg-background text-sm text-center"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-medium block">Send Request</label>
-                </div>
-                <input
-                  type="text"
-                  value={settings.shortcuts?.send || 'ctrl+enter'}
-                  onChange={(e) => updateSettings({ shortcuts: { ...settings.shortcuts, send: e.target.value } })}
-                  className="w-24 p-1 border border-border rounded bg-background text-sm text-center"
-                />
+              <ShortcutField name="search" />
+              <ShortcutField name="save" />
+              <ShortcutField name="send" />
+              <div className="flex items-center justify-between pt-1">
+                <p className="text-xs text-text-muted">e.g. ctrl+k, ctrl+shift+p. Browser-reserved keys (ctrl+t, ctrl+w...) and duplicates are rejected.</p>
+                <button
+                  type="button"
+                  data-testid="shortcuts-reset-btn"
+                  onClick={() => updateSettings({ shortcuts: { ...DEFAULT_SHORTCUTS } })}
+                  className="px-2 py-1 text-xs border border-border rounded hover:bg-border whitespace-nowrap"
+                >Reset to default</button>
               </div>
             </div>
           </div>
@@ -245,10 +306,30 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                       value={settings.proxyUrl}
                       onChange={(e) => updateSettings({ proxyUrl: e.target.value })}
                       placeholder="http://127.0.0.1:8080"
+                      className={`w-full p-2 border rounded bg-background text-sm ${proxyUrlInvalid ? 'border-red-500' : 'border-border'}`}
+                    />
+                    {proxyUrlInvalid && (
+                      <p role="alert" data-testid="proxy-url-error" className="text-xs text-red-400 mt-1">Enter a full proxy URL such as http://127.0.0.1:8080 - the proxy will not be used until it is valid.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium mb-1">No proxy (comma-separated hosts that bypass the proxy)</label>
+                    <input
+                      data-testid="proxy-noproxy-input"
+                      type="text"
+                      value={settings.noProxy || ''}
+                      onChange={(e) => updateSettings({ noProxy: e.target.value })}
+                      placeholder="localhost, 127.0.0.1, *.internal"
                       className="w-full p-2 border border-border rounded bg-background text-sm"
                     />
                   </div>
-                  
+                  {isPureBrowser() && (
+                    <p data-testid="proxy-browser-warning" className="text-xs text-yellow-500">
+                      A plain browser can't route requests through a proxy. The proxy applies only with the Reqspace Desktop app or browser extension transport.
+                    </p>
+                  )}
+
                   <div className="flex items-center gap-2 pt-2">
                     <input
                       data-testid="proxy-auth-checkbox"

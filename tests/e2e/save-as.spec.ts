@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 /**
  * The Save split-button's dropdown ("Save" / "Save As...") and the Save

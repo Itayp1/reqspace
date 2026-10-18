@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 
 /**
  * Request comments had no coverage, and Delete never worked: the server
@@ -168,5 +168,28 @@ test.describe('Request comments', () => {
 
     await ownerCtx.close();
     await mateCtx.close();
+  });
+
+  // Posting a comment used to bump the request's updatedAt on the server and
+  // mark the tab dirty, so the author's very next Save raised "A newer version
+  // of this request exists on the server" — a conflict with their own comment.
+  test('posting a comment leaves the tab clean, and the next save raises no conflict', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByTestId('login-email').fill(OWNER);
+    await page.getByTestId('login-password').fill('password123');
+    await page.getByTestId('login-submit').click();
+    await openTheRequest(page);
+
+    await page.getByTestId('comment-input').fill('No conflict please');
+    await page.getByTestId('comment-submit-btn').click();
+    await expect(page.getByTestId('comment-text').filter({ hasText: 'No conflict please' })).toBeVisible();
+    await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
+
+    await page.getByTestId('request-url-input').fill('https://after-comment.example.test');
+    const put = page.waitForResponse(r => /\/api\/requests\/[^/]+$/.test(r.url()) && r.request().method() === 'PUT');
+    await page.getByTestId('request-save-btn').click();
+    expect((await put).status()).toBe(200);
+    await expect(page.getByText('Conflict Detected')).toHaveCount(0);
+    await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
   });
 });

@@ -17,7 +17,14 @@ api.interceptors.response.use(
       // Handle forbidden
       const message = error.response.data?.message || 'You do not have permission to perform this action.';
       useToastStore.getState().addToast('error', message);
-    } else if (!axios.isCancel(error) && (!error.response || error.response.status >= 500)) {
+    } else if (
+      !axios.isCancel(error)
+      // The browser aborts in-flight calls when the page navigates or reloads;
+      // that is not a fault worth recording.
+      && error.code !== 'ECONNABORTED'
+      && error.code !== 'ERR_CANCELED'
+      && (!error.response || error.response.status >= 500)
+    ) {
       reportClientError({
         kind: 'api',
         message: error.message || 'Request failed',

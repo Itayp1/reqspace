@@ -452,7 +452,7 @@ describe('AuditLogRepository (SQL)', () => {
 describe('SystemConfigRepository (SQL)', () => {
   it('returns null before config exists', async () => {
     const cfg = await SystemConfigRepository.ensure();
-    expect(cfg.auth.mode).toBe('login');
+    expect(cfg.auth.allowSelfRegistration).toBe(true);
     expect(cfg.history.cleanupPolicy).toBe('fifo');
   });
 
@@ -463,9 +463,32 @@ describe('SystemConfigRepository (SQL)', () => {
 
   it('updates config', async () => {
     const updated = await SystemConfigRepository.updateConfig({
-      auth: { mode: 'header', allowSelfRegistration: false }
+      auth: { allowSelfRegistration: false }
     });
-    expect(updated!.auth.mode).toBe('header');
+    expect(updated!.auth.allowSelfRegistration).toBe(false);
+  });
+
+  it('reads the custom OAuth provider from CUSTOM_* environment variables', async () => {
+    const { systemConfigCache } = await import('../utils/cache');
+    const keys = ['CUSTOM_CLIENT_ID', 'CUSTOM_CLIENT_SECRET', 'CUSTOM_NAME', 'CUSTOM_AUTHORIZE_URL', 'CUSTOM_TOKEN_URL', 'CUSTOM_USERINFO_URL', 'CUSTOM_SCOPE'];
+    const saved = keys.map((k) => process.env[k]);
+    Object.assign(process.env, {
+      CUSTOM_CLIENT_ID: 'env-id', CUSTOM_CLIENT_SECRET: 'env-secret', CUSTOM_NAME: 'Env SSO',
+      CUSTOM_AUTHORIZE_URL: 'https://idp.test/authorize', CUSTOM_TOKEN_URL: 'https://idp.test/token',
+      CUSTOM_USERINFO_URL: 'https://idp.test/userinfo', CUSTOM_SCOPE: 'openid email',
+    });
+    try {
+      systemConfigCache.delete('global');
+      const cfg = await SystemConfigRepository.getConfig();
+      expect(cfg!.auth.customOAuth).toMatchObject({
+        enabled: true, clientId: 'env-id', clientSecret: 'env-secret', name: 'Env SSO',
+        authorizeUrl: 'https://idp.test/authorize', tokenUrl: 'https://idp.test/token',
+        userinfoUrl: 'https://idp.test/userinfo', scope: 'openid email',
+      });
+    } finally {
+      keys.forEach((k, i) => (saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i])));
+      systemConfigCache.delete('global');
+    }
   });
 
   it('ensure is idempotent', async () => {

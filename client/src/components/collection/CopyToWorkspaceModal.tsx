@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { useCollectionStore } from '../../store/collectionStore';
+import { useCollectionStore, uniqueName } from '../../store/collectionStore';
 import api from '../../api/axios';
 import { useToastStore } from '../../store/toastStore';
+import { toRequestPayload } from '../../utils/requestPayload';
 
 interface Props {
   type: 'collection' | 'request' | 'environment';
@@ -15,7 +16,12 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
   const { workspaces, activeWorkspace } = useAuthStore();
   const { duplicateCollection } = useCollectionStore();
   
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(activeWorkspace?._id || '');
+  // A viewer cannot write to the active workspace; default to a workspace the user can write to.
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => {
+    const writable = (w?: { myRole?: string } | null) => !!w && ['editor', 'owner'].includes(w.myRole || '');
+    if (writable(activeWorkspace)) return activeWorkspace!._id;
+    return (workspaces.find(w => w.isPersonal && writable(w)) || workspaces.find(w => writable(w)) || activeWorkspace)?._id || '';
+  });
   const [targetCollections, setTargetCollections] = useState<any[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -43,14 +49,18 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
       if (type === 'collection') {
         await duplicateCollection(sourceId, selectedWorkspaceId);
       } else if (type === 'environment') {
-        await api.post(`/environments/${sourceId}/duplicate`, { workspaceId: selectedWorkspaceId });
-        // Optional: you can trigger a refresh if the target is the active workspace, but typically it will just appear when they visit it.
+        const { data: copied } = await api.post(`/environments/${sourceId}/duplicate`, { workspaceId: selectedWorkspaceId });
         if (selectedWorkspaceId === activeWorkspace?._id) {
-          // We would fetch environments here if there was a fetchEnvironments function.
+          const { useEnvironmentStore } = await import('../../store/environmentStore');
+          useEnvironmentStore.getState().applyEnvironmentUpserted(copied);
         }
+        useToastStore.getState().addToast('success', `Copied "${sourceName}"`);
       } else {
-        if (!selectedCollectionId) {
-          throw new Error('Please select a target collection');
+        let targetCollectionId = selectedCollectionId;
+        if (!targetCollectionId) {
+          // The target workspace has no collection yet: create one to hold the copy.
+          const { data: created } = await api.post(`/workspaces/${selectedWorkspaceId}/collections`, { name: 'Copied requests' });
+          targetCollectionId = created._id;
         }
         // Fetch the source, then post only the fields createRequestSchema
         // accepts. Spreading the whole fetched request sent server-owned
@@ -58,17 +68,11 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
         // updatedAt) too, and the strict schema rejected the lot with a 400 —
         // so copying a request never actually worked.
         const { data: sourceReq } = await api.get(`/requests/${sourceId}`);
-        await api.post(`/collections/${selectedCollectionId}/requests`, {
-          name: `${sourceReq.name} (Copy)`,
-          method: sourceReq.method || 'GET',
-          url: sourceReq.url || '',
-          params: sourceReq.params || [],
-          headers: sourceReq.headers || [],
-          auth: sourceReq.auth || { type: 'none' },
-          body: sourceReq.body || { mode: 'none' },
-          preRequestScript: sourceReq.preRequestScript || '',
-          testScript: sourceReq.testScript || '',
-          description: sourceReq.description || '',
+        // Pick a name that is free among the target collection's root requests.
+        const { data: existing } = await api.get(`/collections/${targetCollectionId}/requests`, { params: { folderId: 'null' } });
+        const taken = Array.isArray(existing) ? existing.map((r: any) => r.name) : [];
+        await api.post(`/collections/${targetCollectionId}/requests`, {
+          ...toRequestPayload({ ...sourceReq, name: uniqueName(`${sourceReq.name} (Copy)`, taken) }),
           folderId: null, // Copy to root of target collection
         });
         
@@ -91,7 +95,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
     <div data-testid="copy-to-workspace-modal" className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-surface rounded-lg shadow-xl w-[400px] border border-border flex flex-col overflow-hidden">
         <div className="p-4 border-b border-border bg-gray-50 dark:bg-gray-800">
-          <h2 className="text-lg font-bold text-text">Copy {type === 'collection' ? 'Collection' : 'Request'}</h2>
+          <h2 className="text-lg font-bold text-text">Copy {type === 'collection' ? 'Collection' : type === 'environment' ? 'Environment' : 'Request'}</h2>
           <p className="text-xs text-text-muted mt-1 truncate">Copying: {sourceName}</p>
         </div>
         
@@ -112,6 +116,13 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
             </select>
           </div>
 
+          {type !== 'environment' && (
+            <p data-testid="copy-variables-note" className="text-xs text-text-muted">
+              {type === 'collection' ? 'Collection variables are copied. ' : ''}
+              Environments and global variables are not copied: define them in the target workspace, or requests that use <code>{'{{variables}}'}</code> may fail there.
+            </p>
+          )}
+
           {type === 'request' && (
             <div>
               <label className="block text-sm font-medium mb-1 text-text">Target Collection</label>
@@ -121,8 +132,9 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
                 onChange={(e) => setSelectedCollectionId(e.target.value)}
                 className="w-full p-2 text-sm border border-border rounded bg-surface text-text outline-none focus:border-primary"
                 disabled={targetCollections.length === 0}
+                title={targetCollections.length === 0 ? 'This workspace has no collections; one will be created for the copy' : undefined}
               >
-                {targetCollections.length === 0 && <option value="">No collections found</option>}
+                {targetCollections.length === 0 && <option value="">New collection "Copied requests" will be created</option>}
                 {targetCollections.map(c => (
                   <option key={c._id} value={c._id}>{c.name}</option>
                 ))}
@@ -143,7 +155,7 @@ export function CopyToWorkspaceModal({ type, sourceId, sourceName, onClose }: Pr
             data-testid="copy-submit-btn"
             onClick={handleCopy}
             className="px-4 py-2 text-sm font-medium bg-primary text-white rounded hover:bg-orange-600 disabled:opacity-50"
-            disabled={isLoading || (type === 'request' && !selectedCollectionId)}
+            disabled={isLoading || !selectedWorkspaceId}
           >
             {isLoading ? 'Copying...' : 'Copy'}
           </button>

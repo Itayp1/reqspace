@@ -8,7 +8,7 @@ import { useToastStore } from '../../store/toastStore';
 import { ConfirmModal } from '../common/ConfirmModal';
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
-  const { activeWorkspace, workspaces, setWorkspaces, setActiveWorkspace } = useAuthStore();
+  const { activeWorkspace, workspaces, setWorkspaces, setActiveWorkspace, user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'general' | 'members' | 'activity'>('general');
   const [name, setName] = useState(activeWorkspace?.name || '');
   const [description, setDescription] = useState('');
@@ -94,7 +94,8 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
   const executeRemoveMember = async (userId: string) => {
     try {
       await api.delete(`/workspaces/${activeWorkspace?._id}/members/${userId}`);
-      await refreshMembers();
+      // Leaving: the server pushes workspace:access_revoked, which switches workspace.
+      if (userId !== user?.id) await refreshMembers();
     } catch (e: any) {
       const message = e.response?.data?.message || 'Failed to remove member';
       setError(message);
@@ -201,7 +202,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                   >
                     Save Changes
                   </button>
-                  <button 
+                  {!activeWorkspace?.isPersonal && <button 
                     data-testid="delete-workspace-btn"
                     onClick={() => setConfirmConfig({
                       isOpen: true,
@@ -215,7 +216,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                     className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition ml-auto"
                   >
                     Delete Workspace
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
@@ -305,6 +306,23 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                   </tbody>
                 </table>
               </div>
+              {!isOwner && user && (
+                <button
+                  data-testid="leave-workspace-btn"
+                  onClick={() => setConfirmConfig({
+                    isOpen: true,
+                    title: 'Leave Workspace',
+                    message: 'Are you sure you want to leave this workspace?',
+                    onConfirm: () => {
+                      setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+                      executeRemoveMember(user.id);
+                    }
+                  })}
+                  className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
+                >
+                  Leave Workspace
+                </button>
+              )}
             </div>
           )}
 

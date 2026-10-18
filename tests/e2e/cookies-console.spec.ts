@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 /**
  * Two features that shipped with no e2e coverage: the cookie manager and the
@@ -65,6 +65,7 @@ test.describe('Cookies & Console', () => {
     const log = page.getByTestId('console-log-request').first();
     await expect(log).toContainText(`https://${DOMAIN}/api/thing`);
     await log.click();
+    await page.getByTestId('console-reveal-btn').click(); // cookies are masked in the Console until revealed
     const details = page.getByTestId('console-log-details');
     await expect(details).toContainText('session_id=abc123');
     await expect(details).toContainText('theme=dark');
@@ -140,7 +141,7 @@ test.describe('Cookies & Console', () => {
     // A pre-request script that both writes a header and logs — the log line
     // is a separate Console entry type from the request entry.
     await page.getByTestId('req-tab-pre-request-script').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.insertText(`console.log('from-pre-request');\nreq.headers.set('X-Script-Header', 'set-by-script');`);
 
     await page.getByTestId('request-send-btn').click();
@@ -155,6 +156,7 @@ test.describe('Cookies & Console', () => {
     await expect(reqLog).toContainText('POST');
     await expect(reqLog).toContainText('201');
     await reqLog.click();
+    await page.getByTestId('console-reveal-btn').click();
     const details = page.getByTestId('console-log-details');
     await expect(details).toContainText('Bearer console-token');
     await expect(details).toContainText('set-by-script');

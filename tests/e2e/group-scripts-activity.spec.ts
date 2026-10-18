@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 /**
  * Two leftovers from the audit:
@@ -47,7 +47,7 @@ test.describe('Group test scripts & workspace activity', () => {
     await page.getByTestId('action-menu-edit').click();
     await page.getByTestId('group-edit-test-tab').click();
     const colEditor = page.getByTestId('group-test-editor');
-    await colEditor.getByTestId('monaco-editor-container').click();
+    await colEditor.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     // Pasted rather than typed: Monaco auto-closes brackets and quotes.
     // pm.response is a plain object in the sandbox (code / status / body) —
     // Postman's pm.response.to.have.status(...) chain isn't implemented, so
@@ -69,7 +69,7 @@ test.describe('Group test scripts & workspace activity', () => {
     await expect(page.getByTestId('group-edit-variables-tab')).toBeHidden();
     await page.getByTestId('group-edit-test-tab').click();
     const folderEditor = page.getByTestId('group-test-editor');
-    await folderEditor.getByTestId('monaco-editor-container').click();
+    await folderEditor.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.insertText(`pm.test('folder-level test', function () { pm.expect(1).to.eql(1); });`);
     await expect(folderEditor.locator('.view-lines')).toContainText('folder-level test');
     await page.getByTestId('group-edit-save-btn').click();
@@ -89,7 +89,7 @@ test.describe('Group test scripts & workspace activity', () => {
 
     await page.getByTestId('request-url-input').fill('https://group.example.com/thing');
     await page.getByTestId('req-tab-tests').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.insertText(`pm.test('request-level test', function () { pm.expect(2).to.eql(2); });\npm.test('deliberate failure', function () { pm.expect(1).to.eql(2); });`);
     await page.getByTestId('request-save-btn').click();
     await expect(page.getByTestId('dirty-indicator')).toBeHidden();

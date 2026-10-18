@@ -1,4 +1,5 @@
 import { getSequelize } from '../db/sequelize';
+import { Op } from 'sequelize';
 
 /** Hard cap on how long a search term may be before it reaches the database. */
 export const MAX_SEARCH_LENGTH = 100;
@@ -29,4 +30,20 @@ export function escapeLike(value: string): string {
     return value.replace(/[[\]%_]/g, (c) => `[${c}]`);
   }
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
+ * A `WHERE` fragment matching `term` anywhere in any of `columns`, with `%`/`_` in the term taken
+ * literally. Sequelize's `Op.like` adds no ESCAPE clause and sqlite has no default escape character,
+ * so on sqlite the escaped backslashes would otherwise be matched literally and find nothing; postgres
+ * and mysql default to backslash, so they use the plain operator.
+ */
+export function likeAnyColumn(columns: string[], term: string): Record<symbol, unknown> {
+  const sq = getSequelize();
+  const pattern = `%${escapeLike(term)}%`;
+  if (sq.getDialect() !== 'sqlite') {
+    return { [Op.or]: columns.map((c) => ({ [c]: { [Op.like]: pattern } })) };
+  }
+  const qi = sq.getQueryInterface();
+  return { [Op.or]: columns.map((c) => sq.literal(`${qi.quoteIdentifier(c)} LIKE ${sq.escape(pattern)} ESCAPE '\\'`)) };
 }

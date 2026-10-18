@@ -5,7 +5,7 @@
 // stale one is still listening on the same port (wrong DB, wrong env, wrong
 // code) the tests silently talk to it instead. This script always starts its
 // own server and always tears it down, so a run is self-contained.
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const os = require('os');
 
@@ -29,6 +29,9 @@ const SERVER_ENV = {
   DB_TYPE,
   DB_STORAGE_PATH: sqliteTestDbPath,
   PORT,
+  // Same as the Playwright server: the rate-limit suites send distinct X-Forwarded-For values so that
+  // exhausting one IP's limit doesn't 429 every suite that runs after them.
+  TRUST_PROXY: process.env.TRUST_PROXY ?? '1',
   ALLOW_DEFAULT_ADMIN: 'true',
   ADMIN_PASSWORD: 'admin',
   CERT_ENCRYPTION_KEY:
@@ -39,7 +42,10 @@ const SERVER_ENV = {
 function killTree(child) {
   if (!child || child.killed || child.exitCode !== null) return;
   if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    // Synchronous on purpose: the script exits right after this, and an async
+    // taskkill raced that exit and left ts-node-dev (and the server it
+    // respawns) running on the port, where the next run then found it.
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
   } else {
     try {
       process.kill(-child.pid, 'SIGKILL');

@@ -3,12 +3,13 @@ import * as schemas from '../schemas/localVariables.schemas';
 import express, { Response } from 'express';
 import { SqlLocalVariable } from '../db/sql-models';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireWorkspaceRole } from '../middleware/rbac';
 import { noteRouteError } from '../utils/errorReporter';
 
 const router = express.Router();
 
 // GET /api/local-variables/:workspaceId
-router.get('/:workspaceId', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/:workspaceId', authenticate, requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   try {
     const localVariable = await SqlLocalVariable.findOne({
       where: {
@@ -29,7 +30,7 @@ router.get('/:workspaceId', authenticate, async (req: AuthRequest, res: Response
 });
 
 // PUT /api/local-variables/:workspaceId
-router.put('/:workspaceId', validate(schemas.updateLocalVariablesSchema), authenticate, async (req: AuthRequest, res: Response) => {
+router.put('/:workspaceId', validate(schemas.updateLocalVariablesSchema), authenticate, requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   try {
     const { variables } = req.body;
     let localVariable = await SqlLocalVariable.findOne({

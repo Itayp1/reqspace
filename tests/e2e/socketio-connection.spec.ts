@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 
 /**
  * Socket.IO connection tabs (FEAT-2). The other three protocols live in
@@ -19,6 +19,9 @@ import { test, expect, type Page } from '@playwright/test';
  * intact, so a received row can only have come from a real emit.
  */
 async function installSocketIoMock(page: Page) {
+  // Keep the app's own realtime socket out of the mock's pass-through (see
+  // connections.spec.ts): a handler that never answers.
+  await page.routeWebSocket(/localhost:\d+\/ws\/\?EIO=/, () => {});
   await page.routeWebSocket(/localhost:9876\/socket\.io\//, (ws) => {
     ws.send('0' + JSON.stringify({
       sid: 'mock-engine-sid',
@@ -45,7 +48,9 @@ async function installSocketIoMock(page: Page) {
         const rest = msg.slice(2);
         const nsEnd = rest.startsWith('/') ? rest.indexOf(',') + 1 : 0;
         const ns = rest.slice(0, nsEnd);
-        const [name, ...args] = JSON.parse(rest.slice(nsEnd));
+        // The client now emits with an ack callback, so the packet is `42<ns><ackId>[...]`.
+        const m = /^(\d*)([\s\S]*)$/.exec(rest.slice(nsEnd))!;
+        const [name, ...args] = JSON.parse(m[2]);
         ws.send(`42${ns}` + JSON.stringify([`echo:${name}`, ...args]));
         return;
       }

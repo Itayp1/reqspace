@@ -7,7 +7,9 @@ export function validate(schema: ZodTypeAny): RequestHandler {
     try {
       // only strict() if it's an object schema, else just parse
       const isObject = schema.constructor.name === 'ZodObject';
-      const parsed = isObject ? (schema as any).strict().safeParse(req.body) : schema.safeParse(req.body);
+      // An explicit .passthrough() schema is respected; everything else is forced strict.
+      const passthrough = isObject && (schema as any)._def?.unknownKeys === 'passthrough';
+      const parsed = isObject && !passthrough ? (schema as any).strict().safeParse(req.body) : schema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ 
           message: 'Invalid request body', 

@@ -142,8 +142,8 @@ npm run build --prefix client
 npm run build --prefix server
 pm2 restart reqspace          # or: node server/dist/index.js
 
-# Server units (SSRF parser, repositories, auth e2e)
-npm test --prefix server
+# Server units + server e2e (starts and stops its own server on :3005)
+node scripts/run-server-e2e.js
 
 # Full Playwright suite
 npx playwright test
@@ -158,8 +158,14 @@ npx playwright test tests/e2e/api-authorization.spec.ts  # API-level authz
 npx playwright test --ui
 ```
 
-Which feature each spec covers — and which areas are still thin — is in
-[`TEST_COVERAGE.md`](TEST_COVERAGE.md).
+Every feature, and the tests that cover it, is listed in [`FEATURES.md`](FEATURES.md); the coverage audits
+are in [`TEST_COVERAGE.md`](TEST_COVERAGE.md).
+
+**Every Playwright test also checks the `fperrors` table.** `tests/e2e/fixtures.ts` asks the backend for any
+fault recorded while the test ran (`GET /api/admin/errors?since=…`) and fails the test if there is one; at the
+end of the run `tests/e2e/global-teardown.ts` reads the table directly and fails the run on anything no test
+declared. New specs must import `test` / `expect` from `./fixtures`, not `@playwright/test`, and a test that
+causes a fault on purpose declares it with `test.use({ allowFpErrors: [/pattern/] })`.
 
 Locally, `playwright.config.ts`'s `webServer` starts both the API (`:3005`) and the client (`:5173`)
 itself, with `reuseExistingServer: false` so a stale dev server from an earlier session is never silently
@@ -183,9 +189,12 @@ Set in `server/.env` locally (gitignored) and as a Kubernetes Secret in a cluste
 | `ADMIN_PASSWORD` | Bootstrap superadmin password | Defaults to `admin`; production refuses to bootstrap with that value |
 | `DB_USER` / `DB_PASSWORD` | SQL credentials | `postgres`, `mysql`, `mssql` |
 | `DB_CONNECTION_STRING` | SQL connection string | **Embeds the password** — treat the whole string as a secret |
-| `HEADER_AUTH_TRUSTED_IPS` | Sources allowed to use `X-Auth-User` | Defaults to loopback |
-| `GOOGLE_ALLOWED_REDIRECT_URIS` | OAuth redirect allowlist | Comma-separated |
+| `OAUTH_ALLOWED_REDIRECT_URIS` | OAuth redirect allowlist (all providers) | Comma-separated; `GOOGLE_ALLOWED_REDIRECT_URIS` is still read. Defaults to `http://localhost:<port>/auth/<provider>/callback` |
+| `GOOGLE_` / `GITHUB_` / `MICROSOFT_` / `CUSTOM_` + `CLIENT_ID`, `CLIENT_SECRET`, `OAUTH_ENABLED` | OAuth provider credentials | Override the Admin settings; `MICROSOFT_TENANT_ID` selects the Entra tenant |
+| `CUSTOM_NAME`, `CUSTOM_AUTHORIZE_URL`, `CUSTOM_TOKEN_URL`, `CUSTOM_USERINFO_URL`, `CUSTOM_SCOPE` | Custom OAuth2/OIDC provider endpoints | Used together with the `CUSTOM_*` credentials above |
+| `REQSPACE_OFFLINE` | `true` = single-user mode: no sign-in, listens on `127.0.0.1` only | Set by the desktop app's Offline option |
 | `ALLOW_EPHEMERAL_JWT_SECRET` | Permit a generated per-process secret in production | Single-node deployments only |
+| `TRUST_PROXY` | Trust `X-Forwarded-For` (hop count or CIDR list) | Off by default; set `1` behind one reverse proxy |
 
 > ⚠️ **`JWT_SECRET` — read this before deploying.** `utils/jwtSecret.ts` rejects a list of known placeholder and publicly leaked values, requires at least 32 characters in production, and refuses to boot without a real `JWT_SECRET` there (opt out with `ALLOW_EPHEMERAL_JWT_SECRET=true` for a deliberate single-node deployment). Outside production it falls back to a random secret written to a local, gitignored file (`server/.jwt-secret.local`).
 >
@@ -199,6 +208,9 @@ These are **not** environment variables. They live in the `SystemConfig` documen
 |---|---|
 | `auth.googleOAuth.clientId` | Google OAuth application id |
 | `auth.googleOAuth.clientSecret` | Google OAuth application secret |
+| `auth.githubOAuth.clientId` / `clientSecret` | GitHub OAuth app credentials (redirect `<origin>/auth/github/callback`) |
+| `auth.microsoftOAuth.clientId` / `clientSecret` / `tenantId` | Microsoft Azure / Entra ID app registration (redirect `<origin>/auth/microsoft/callback`; scopes `openid email profile`) |
+| `auth.customOAuth.*` | Any standard OAuth2/OIDC provider (Keycloak, Okta, Authentik, ...): `name` (button label), `clientId`, `clientSecret`, `authorizeUrl`, `tokenUrl`, `userinfoUrl` (must return a verified `email`), `scope`. Redirect `<origin>/auth/custom/callback` |
 | `auth.smtp.user` | SMTP account |
 | `auth.smtp.pass` | SMTP password |
 | `proxy.username` | Upstream proxy credentials |
@@ -263,7 +275,7 @@ app's origin(s) (dev, any tunnel, prod) to Authorized JavaScript origins, and
 `<origin>/auth/google/callback` to Authorized redirect URIs — this app uses
 the authorization-code flow (`POST /auth/google` exchanges a `code` for
 tokens server-side), not just an ID-token button, so both are required and
-`GOOGLE_ALLOWED_REDIRECT_URIS` (see Secrets Inventory above) must list every
+`OAUTH_ALLOWED_REDIRECT_URIS` (see Secrets Inventory above) must list every
 redirect URI you register.
 
 ### Setting it headlessly (no admin login needed)
@@ -393,10 +405,10 @@ is the index; `TODO.md` is the detail.
 | `[ ]` | FEAT-5.6 | Merge and conflict resolution | XL | Needs 5.5 |
 | `[ ]` | FEAT-5.7 | Partner workspaces | L | |
 | `[x]` | FEAT-6 | Scope resolution visualizer | L | |
-| `[x]` | FEAT-7 | Split pane | XL | |
-| `[x]` | FEAT-8 | Restore closed tabs | M | |
+| `[ ]` | FEAT-7 | Split pane | XL | Was ticked, but there is no code for it (checked 2026-10-14): the request/response divider is decorative |
+| `[ ]` | FEAT-8 | Restore closed tabs | M | Was ticked, but there is no code for it (checked 2026-10-14) |
 | `[x]` | FEAT-9 | Response size limits | M | |
-| `[ ]` | FEAT-10 | Server-side collection export/import (v2.1) | L | Reuses FIX-1's id remapping. Fix the fabricated `schema.getreqSpace.com` URL while moving the serialiser |
+| `[x]` | FEAT-10 | Server-side collection export/import (v2.1) | L | `server/src/utils/postmanCollection.ts`; the client's Export and Import > File both use it. Schema URL is the real Postman one |
 
 ### 🧹 Cleanup — CLEAN
 
@@ -433,15 +445,12 @@ messages reference them.
 
 ### 🩺 Known state of the working tree
 
-Written 2026-09-26. Check `git status` before trusting it.
+Written 2026-10-14. Check `git status` before trusting it.
 
-* **The server build is currently broken** on uncommitted work:
-  `src/routes/collections.ts(242,9): error TS2684` — `modelMap[type]` hands `bulkCreate` a union of three
-  model classes, which gives it an unresolvable `this`. Narrowing per branch (`if (type === 'collection')
-  await SqlCollection.bulkCreate(...)`) compiles. Fix this before anything else; nothing deploys until it
-  does.
-* Uncommitted PERF work is in flight across `routes/collections.ts`, `routes/admin.ts` and three
-  repositories. Coordinate before editing those files.
+* Server and client both type-check (`npx tsc --noEmit -p server/tsconfig.json`, `npx tsc -b` in `client/`).
+* Last verified runs (2026-10-14): server suite 226/227 (the one failure was a cache-timing assertion, since
+  relaxed), client unit 21/21, Playwright full run **229/230 passed** (1 known-flaky tab-drag test that passed on retry), server suite 227/227, client unit 29/29, and the `fperrors` table ended the run empty.
+* The manual browser pass (production build) is partly done: see the end of [`FEATURES.md`](FEATURES.md) for what was checked by hand and the bugs it found; the remaining rows are still `pending`.
 
 ## 🏛️ Architecture Decisions
 
@@ -450,8 +459,8 @@ Standing principles. The concrete work they imply is in [`TODO.md`](TODO.md).
 1. **Client-side scripts are sandboxed.** Pre-request and test scripts belong in a Web Worker or a
    sandboxed iframe — never on the main thread with `window`, `localStorage` and the app's authenticated
    HTTP client in scope.
-2. **Header authentication is opt-in and source-restricted.** `X-Auth-User` is honoured only from
-   trusted sources (`HEADER_AUTH_TRUSTED_IPS`), on the assumption of a reverse proxy that strips it.
+2. **Offline mode is loopback-only.** `REQSPACE_OFFLINE=true` signs the local user in automatically, so the
+   server binds to `127.0.0.1` and refuses any non-loopback peer. Header (`X-Auth-User`) authentication no longer exists.
 3. **Strict input validation.** `zod` schemas on every endpoint that accepts a body — no `req.body`
    spread into a model.
 4. **Proxying is not the central server's job.** Long-term, proxy requests are executed by external

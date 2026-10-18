@@ -88,7 +88,21 @@ export function EnvironmentTabEditor() {
 
   const handleExport = () => {
     if (!env) return;
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(env, null, 2));
+    // Postman's environment format, so the file opens there and comes back
+    // through Import > File here.
+    const exportable = {
+      name: env.name || 'Globals',
+      values: (localVars || []).filter(v => v.key).map(v => ({
+        key: v.key,
+        // Same precedence as resolution: an empty current value falls back to the initial one.
+        value: v.currentValue || v.initialValue || v.value || '',
+        type: v.isSecret ? 'secret' : 'default',
+        enabled: v.enabled !== false,
+      })),
+      _postman_variable_scope: 'environment',
+      _reqSpace_variable_scope: 'environment',
+    };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportable, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
     downloadAnchorNode.setAttribute("download", `${env.name}.reqspace_environment.json`);
@@ -141,6 +155,7 @@ export function EnvironmentTabEditor() {
           {!isGlobal && workspaces.length > 1 && (
             <div className="flex items-center gap-2 border-r border-border pr-4">
               <select 
+                data-testid="env-copy-target"
                 value={targetWorkspaceId}
                 onChange={e => setTargetWorkspaceId(e.target.value)}
                 className="p-2 border border-border rounded bg-surface text-sm"
@@ -149,6 +164,7 @@ export function EnvironmentTabEditor() {
                 {workspaces.map(w => <option key={w._id} value={w._id}>{w.name}</option>)}
               </select>
               <button
+                data-testid="env-copy-btn"
                 onClick={handleCopyToWorkspace}
                 disabled={!targetWorkspaceId}
                 className="bg-surface border border-border text-text hover:bg-border px-3 py-2 rounded transition text-sm disabled:opacity-50"
@@ -159,6 +175,7 @@ export function EnvironmentTabEditor() {
           )}
 
           <button
+            data-testid="env-export-btn"
             onClick={handleExport}
             className="border border-border hover:bg-surface text-text-muted hover:text-text px-3 py-2 rounded transition text-sm flex items-center gap-1.5"
             title="Export Environment JSON"

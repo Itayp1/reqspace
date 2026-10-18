@@ -21,7 +21,7 @@ export interface RequestBody {
 
 export interface RequestAuth {
   type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'ntlm' | 'inherit';
-  bearer?: { token: string };
+  bearer?: { token: string; prefix?: string };
   basic?: { username: string; password: string };
   apikey?: { key: string; value: string; in: 'header' | 'query' };
   oauth2?: { token: string; clientId?: string; clientSecret?: string; authUrl?: string; accessTokenUrl?: string; scope?: string };
@@ -48,6 +48,34 @@ export interface ActiveRequest {
   isConflicted?: boolean;
   updatedAt?: number;
   isDirty?: boolean;
+  // Connection tabs only (WS / Socket.IO / SSE): settings that must survive a refresh.
+  connection?: ConnectionSettings;
+  /** Per-request overrides of the global settings (P2.5); unset = use the global value. */
+  settings?: RequestSettings;
+}
+
+export interface RequestSettings {
+  followRedirects?: boolean;
+  verifySsl?: boolean;
+  /** ms, 0 = no timeout */
+  timeout?: number;
+  encodeUrl?: boolean;
+  /** Saved connection tab (WS / Socket.IO / SSE): reopening restores the connection editor. */
+  connection?: ConnectionSettings;
+}
+
+export interface ConnectionSettings {
+  eventName?: string;
+  /** Socket.IO custom engine path, e.g. /my-path/socket.io/ */
+  sioPath?: string;
+  /** Socket.IO handshake query, "a=1&b=2" */
+  sioQuery?: string;
+  /** Socket.IO handshake auth payload (JSON). Never persisted: may hold a token. */
+  sioAuth?: string;
+  /** Socket.IO event names to listen to; empty = all events. */
+  listen?: string[];
+  /** WebSocket sub-protocols, comma separated. */
+  wsProtocols?: string;
 }
 
 export interface ResponseData {
@@ -85,6 +113,8 @@ interface RequestStore {
   closeTab: (tabId: string) => void;
   selectTab: (tabId: string) => void;
   newTab: () => void;
+  /** Opens an unsaved copy of a tab right after it; saving the copy asks where to put it. */
+  duplicateTab: (tabId: string) => void;
   openEnvironmentTab: (envId: string, name: string) => void;
   closeEnvironmentTab: (envId: string) => void;
   closeAllToRight: (tabId: string) => void;
@@ -108,6 +138,7 @@ function stripSecrets(tab: ActiveRequest): ActiveRequest {
   return {
     ...tab,
     auth: tab.auth ? { type: tab.auth.type } : tab.auth,
+    connection: tab.connection ? { ...tab.connection, sioAuth: undefined } : tab.connection,
     headers: (tab.headers ?? []).map(h =>
       SENSITIVE_HEADER_KEYS.test(h.key) ? { ...h, value: '' } : h
     ),
@@ -225,6 +256,12 @@ export const useRequestStore = create<RequestStore>()(
 
         const tabId = activeRequest.tabId || activeRequest._id || Math.random().toString(36).substring(2, 9);
         const reqWithTabId = { ...activeRequest, tabId, isDirty: false };
+        // A saved connection comes back from the server as a plain request that
+        // carries its connection settings; reopen it as a connection tab.
+        if (reqWithTabId.tabType !== 'connection' && reqWithTabId.settings?.connection) {
+          reqWithTabId.tabType = 'connection';
+          reqWithTabId.connection = reqWithTabId.settings.connection;
+        }
 
         if (!historyMap[tabId]) {
           historyMap[tabId] = { undo: [], redo: [], lastPush: Date.now() };
@@ -269,7 +306,9 @@ export const useRequestStore = create<RequestStore>()(
 
         // Sync metadata (conflict flag, server timestamp) is not a user edit —
         // a socket echo of our own save used to re-mark the tab dirty.
-        const isMetaOnly = Object.keys(updates).every(k => k === 'isConflicted' || k === 'updatedAt' || k === 'isDirty');
+        // Comments are saved to the server the moment they are posted, so they
+        // are not unsaved changes either.
+        const isMetaOnly = Object.keys(updates).every(k => k === 'isConflicted' || k === 'updatedAt' || k === 'isDirty' || k === 'comments');
         const isDirtyValue = updates.isDirty !== undefined ? updates.isDirty : (isMetaOnly ? !!state.activeRequest.isDirty : true);
         const updated = { ...state.activeRequest, ...updates, isDirty: isDirtyValue };
 
@@ -346,6 +385,31 @@ export const useRequestStore = create<RequestStore>()(
           isDirty: false,
         };
         get().setActiveRequest(newReq);
+      },
+
+      duplicateTab: (tabId) => {
+        const { tabs, activeTabId, activeRequest } = get();
+        const index = tabs.findIndex(t => t.tabId === tabId);
+        if (index < 0 || tabs[index].tabType === 'environment') return;
+        const source = tabId === activeTabId && activeRequest ? activeRequest : tabs[index];
+        const copyTabId = Math.random().toString(36).substring(2, 9);
+        // No _id / collection / folder: the copy is a new, unsaved request, so Save goes through the
+        // "where to save" dialog instead of overwriting the original.
+        const copy: ActiveRequest = {
+          ...JSON.parse(JSON.stringify(source)),
+          tabId: copyTabId,
+          _id: undefined,
+          collectionId: undefined,
+          folderId: undefined,
+          comments: undefined,
+          isConflicted: undefined,
+          updatedAt: undefined,
+          name: `${source.name} (Copy)`,
+          isDirty: true,
+        };
+        historyMap[copyTabId] = { undo: [], redo: [], lastPush: Date.now() };
+        const nextTabs = [...tabs.slice(0, index + 1), copy, ...tabs.slice(index + 1)];
+        set({ tabs: nextTabs, activeTabId: copyTabId, activeRequest: copy, activeResponse: null });
       },
 
       newConnectionTab: () => {

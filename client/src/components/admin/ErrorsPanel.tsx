@@ -34,9 +34,16 @@ interface Filters {
   source: string;
   kind: string;
   q: string;
+  from: string;
+  to: string;
+  sort: 'lastSeen' | 'firstSeen' | 'count';
 }
 
-const EMPTY_FILTERS: Filters = { source: '', kind: '', q: '' };
+const EMPTY_FILTERS: Filters = { source: '', kind: '', q: '', from: '', to: '', sort: 'lastSeen' };
+
+// <input type=date> yields a local calendar day; the API wants instants.
+const dayStart = (d: string) => (d ? new Date(`${d}T00:00:00`).toISOString() : undefined);
+const dayEnd = (d: string) => (d ? new Date(`${d}T23:59:59.999`).toISOString() : undefined);
 
 export function ErrorsPanel() {
   const addToast = useToastStore((s) => s.addToast);
@@ -56,6 +63,9 @@ export function ErrorsPanel() {
           source: active.source || undefined,
           kind: active.kind || undefined,
           q: active.q || undefined,
+          since: dayStart(active.from),
+          until: dayEnd(active.to),
+          sort: active.sort,
           limit: PAGE_SIZE,
           offset,
         },
@@ -132,13 +142,41 @@ export function ErrorsPanel() {
           ))}
         </select>
         <input
+          type="date"
+          data-testid="errors-from"
+          aria-label="From date"
+          className="rounded border border-border bg-surface px-2 py-1 text-sm"
+          value={filters.from}
+          onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
+        />
+        <input
+          type="date"
+          data-testid="errors-to"
+          aria-label="To date"
+          className="rounded border border-border bg-surface px-2 py-1 text-sm"
+          value={filters.to}
+          onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
+        />
+        <select
+          data-testid="errors-sort"
+          aria-label="Sort by"
+          className="rounded border border-border bg-surface px-2 py-1 text-sm"
+          value={filters.sort}
+          onChange={(e) => setFilters((prev) => ({ ...prev, sort: e.target.value as Filters['sort'] }))}
+        >
+          <option value="lastSeen">Sort: last seen</option>
+          <option value="firstSeen">Sort: first seen</option>
+          <option value="count">Sort: count</option>
+        </select>
+        <input
+          data-testid="errors-search"
           className="min-w-[200px] flex-1 rounded border border-border bg-surface px-2 py-1 text-sm"
           placeholder="Search message..."
           value={draftQuery}
           onChange={(e) => setDraftQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') applySearch(); }}
         />
-        <button className="rounded border border-border px-3 py-1 text-sm hover:bg-surface" onClick={applySearch}>
+        <button data-testid="errors-search-btn" className="rounded border border-border px-3 py-1 text-sm hover:bg-surface" onClick={applySearch}>
           Search
         </button>
       </div>
@@ -164,7 +202,7 @@ export function ErrorsPanel() {
             <tbody>
               {groups.map((g) => (
                 <Fragment key={g.fingerprint}>
-                  <tr className="border-b border-border hover:bg-surface">
+                  <tr data-testid="error-row" data-fingerprint={g.fingerprint} className="border-b border-border hover:bg-surface">
                     <td className="p-4 whitespace-nowrap text-text-muted">{new Date(g.lastSeen).toLocaleString()}</td>
                     <td className="p-4">{g.source}</td>
                     <td className="p-4 font-mono text-xs">{g.kind}</td>
@@ -172,10 +210,10 @@ export function ErrorsPanel() {
                     <td className="p-4 font-mono text-xs">{g.route ?? ''}</td>
                     <td className="p-4 font-bold">{g.count}</td>
                     <td className="p-4 whitespace-nowrap">
-                      <button className="mr-3 text-primary hover:underline" onClick={() => toggleDetails(g.fingerprint)}>
+                      <button data-testid="error-details-btn" className="mr-3 text-primary hover:underline" onClick={() => toggleDetails(g.fingerprint)}>
                         {openFingerprint === g.fingerprint ? 'Hide' : 'Details'}
                       </button>
-                      <button className="text-red-500 hover:underline" onClick={() => markFixed(g)}>
+                      <button data-testid="error-fixed-btn" className="text-red-500 hover:underline" onClick={() => markFixed(g)}>
                         Fixed
                       </button>
                     </td>
@@ -185,7 +223,7 @@ export function ErrorsPanel() {
                       <td colSpan={7} className="p-4">
                         {occurrences.length === 0 && <p className="text-text-muted">Loading...</p>}
                         {occurrences.map((o) => (
-                          <div key={o.id} className="mb-4 space-y-1 text-xs">
+                          <div key={o.id} data-testid="error-occurrence" className="mb-4 space-y-1 text-xs">
                             <div className="text-text-muted">
                               {new Date(o.createdAt).toLocaleString()}
                               {o.method && ` · ${o.method}`}

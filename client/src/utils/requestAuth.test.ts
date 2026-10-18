@@ -12,6 +12,13 @@ describe('applyRequestAuth', () => {
     expect(applied.url).toBe('http://localhost/echo');
   });
 
+  it('uses a custom Bearer prefix and sends no header for an empty token', () => {
+    const custom = applyRequestAuth({ auth: { type: 'bearer', bearer: { token: 't', prefix: 'Token' } }, headers: {}, url: 'http://x' });
+    expect(custom.headers.Authorization).toBe('Token t');
+    const empty = applyRequestAuth({ auth: { type: 'bearer', bearer: { token: '' } }, headers: {}, url: 'http://x' });
+    expect(empty.headers.Authorization).toBeUndefined();
+  });
+
   it('encodes Basic auth the same way the send path always has', () => {
     const applied = applyRequestAuth({ auth: basic, headers: {}, url: 'http://localhost/echo' });
     expect(applied.headers.Authorization).toBe('Basic YWRtaW46cGFzc3dvcmQxMjM=');

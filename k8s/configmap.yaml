@@ -5,3 +5,5 @@ metadata:
 data:
   NODE_ENV: "production"
   PORT: "3005"
+  # Behind the Ingress: trust exactly one proxy hop for req.ip / rate limiting.
+  TRUST_PROXY: "1"
