@@ -73,13 +73,6 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     }
   }
 
-  // Iteration data overrides everything
-  if (iterationData) {
-    for (const [key, value] of Object.entries(iterationData)) {
-      envVars.set(key, String(value));
-    }
-  }
-
   // Profile variables are the user's own cross-workspace values, so they sit
   // above collection/environment but below the workspace-specific locals that
   // follow — a local variable is the narrower scope and should win.
@@ -93,6 +86,13 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
   if (storeLocalVars) {
     for (const v of storeLocalVars) {
       if (v.enabled && v.key) envVars.set(v.key, String(v.value !== undefined ? v.value : (v.currentValue || '')));
+    }
+  }
+
+  // Iteration data overrides every stored scope (collection, environment, profile, local)
+  if (iterationData) {
+    for (const [key, value] of Object.entries(iterationData)) {
+      envVars.set(key, String(value));
     }
   }
 
