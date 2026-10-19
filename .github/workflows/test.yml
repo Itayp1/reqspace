@@ -71,7 +71,11 @@ jobs:
           curl -sf http://localhost:3005/api/health || (echo "server failed to start"; cat /tmp/server.log; exit 1)
 
       - name: Server tests (jest — unit + ssrf + live auth e2e)
-        run: npm test --prefix server
+        # sec10 deliberately exhausts the shared server's rate limit, so it
+        # must run last or it 429s every later suite in the same minute.
+        run: |
+          npm test --prefix server -- --testPathIgnorePatterns=sec10
+          npm test --prefix server -- sec10
         env:
           PORT: 3005
           TEST_PORT: 3005
