@@ -36,6 +36,9 @@ const stopwatch = (page: import('@playwright/test').Page) => page.evaluate(() =>
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Action latency under load', () => {
+  // The bulk seed writes the SQLite file directly (perf-seed.ts), so there is nothing to seed on other backends.
+  test.skip((process.env.DB_TYPE || 'sqlite') !== 'sqlite', 'bulk perf seed is SQLite-only');
+
   const w = Math.floor(PERF.workspaces / 2), c = Math.floor(PERF.collections / 2);
   const src = folderName(w, c, 0), dst = folderName(w, c, 1);
   const req = (f: number, r: number) => `PerfReq-${String(w).padStart(4, '0')}-${String(c).padStart(4, '0')}-${f}-${r}`;
