@@ -2,9 +2,10 @@ import fs from 'fs';
 import { SqlFpError } from '../db/sql-models';
 import { recordError, recordHandledError, noteRouteError } from '../utils/errorReporter';
 
-jest.mock('../db/sql-models', () => ({ SqlFpError: { create: jest.fn() } }));
+jest.mock('../db/sql-models', () => ({ SqlFpError: { create: jest.fn(), increment: jest.fn() } }));
 
 const create = SqlFpError.create as unknown as jest.Mock;
+const increment = SqlFpError.increment as unknown as jest.Mock;
 
 beforeEach(() => {
   create.mockReset();
@@ -28,6 +29,22 @@ describe('recordError', () => {
     expect(row.stack).toHaveLength(10000);
     expect(row.source).toBe('client');
     expect(row.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('counts a repeat that arrives while the first insert is still in flight', async () => {
+    // The first occurrence's response goes out before its insert finishes, so a repeat can
+    // arrive with no row id yet. It must still be counted once the insert resolves.
+    let finishInsert!: (row: { id: string }) => void;
+    create.mockImplementationOnce(() => new Promise((resolve) => { finishInsert = resolve; }));
+    increment.mockResolvedValue([0]);
+    const input = { source: 'client' as const, kind: 'api', message: `in-flight-case ${Date.now()}` };
+
+    const first = recordError(input);
+    const repeat = recordError(input);
+    finishInsert({ id: 'row-in-flight' });
+    await Promise.all([first, repeat]);
+
+    expect(increment).toHaveBeenCalledWith('repeats', { by: 1, where: { id: 'row-in-flight' } });
   });
 
   it('drops a repeat of the same fault inside the dedupe window and records it again after', async () => {
