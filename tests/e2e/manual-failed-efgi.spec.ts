@@ -306,9 +306,9 @@ test.describe('I — response viewer', () => {
     await expect(page.getByTestId('response-body-viewer')).toContainText('Could not reach http://127.0.0.1:1/x');
   });
 
-  test('[I4.3] a CORS-blocked response explains the problem and suggests the extension', async ({ page }) => {
-    // The dev API only allows the default client origin, so a cross-origin GET from this page is CORS-blocked for real.
-    await scene(page, { request: { url: `${API_URL}/api/health` } });
+  test('[I4.3] an unreachable response explains the problem and suggests the extension', async ({ page }) => {
+    // Port 1 has no listener, so the browser's cross-origin fetch fails before any response arrives.
+    await scene(page, { request: { url: 'http://127.0.0.1:1/x' } });
     await send(page);
     await expect(status(page)).toContainText('Network Error');
     await expect(page.getByTestId('response-body-viewer')).toContainText(/extension/i);
