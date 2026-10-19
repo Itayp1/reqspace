@@ -89,6 +89,9 @@ jobs:
       - name: Core smoke (crosses the auth boundary, ${{ matrix.db }})
         run: bash scripts/smoke-core.sh http://localhost:3005
 
+      - name: Install root dependencies (Playwright test runner)
+        run: npm ci
+
       - name: Install Playwright & dependencies
         run: npx playwright install --with-deps chromium
 

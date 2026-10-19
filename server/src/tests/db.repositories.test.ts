@@ -419,6 +419,9 @@ describe('AuditLogRepository (SQL)', () => {
       details: { foo: 'bar' },
     });
 
+    // createdAt has ms precision; without a gap both rows can tie and the
+    // DESC order below becomes nondeterministic (seen on Postgres).
+    await new Promise(r => setTimeout(r, 5));
     await AuditLogRepository.log({
       userId,
       action: 'test.action2',
