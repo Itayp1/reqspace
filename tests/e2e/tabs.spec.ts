@@ -12,13 +12,11 @@ import { test, expect, type Locator, type Page } from './fixtures';
  * auto-retry while React settles.
  */
 async function dragTabOnto(page: Page, source: Locator, target: Locator) {
+  // HTML5 drag-and-drop (draggable="true") needs the browser's drag events; raw mouse moves
+  // don't reliably fire them on every runner (CI's Chromium ignored them). dragTo dispatches them.
+  // Dropping near the target's left edge places the source before it.
   const box = (await target.boundingBox())!;
-  await source.hover();
-  await page.mouse.down();
-  // Two moves: the first starts the drag, the second lands on the left half.
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
-  await page.mouse.move(box.x + 4, box.y + box.height / 2, { steps: 8 });
-  await page.mouse.up();
+  await source.dragTo(target, { targetPosition: { x: 4, y: box.height / 2 } });
 }
 
 test.describe('Tab Operations', () => {

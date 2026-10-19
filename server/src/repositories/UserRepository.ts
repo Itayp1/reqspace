@@ -136,8 +136,11 @@ export const UserRepository = {
     // literal characters and every escaped `_`/`%` stops matching at all
     // (e.g. searching a real email containing '_' returned zero results).
     // A raw, parameterized query lets us say ESCAPE explicitly for all three.
+    // LOWER() on both sides: Postgres LIKE is case-sensitive, and emails are stored lowercased at registration.
+    // MySQL reads a backslash inside a string literal as an escape, so its ESCAPE literal needs two.
+    const escChar = getSequelize().getDialect() === 'mysql' ? '\\\\' : '\\';
     const users = await getSequelize().query(
-      `SELECT id, name, email, avatar FROM users WHERE name LIKE :pattern ESCAPE '\\' OR email LIKE :pattern ESCAPE '\\' LIMIT 10`,
+      `SELECT id, name, email, avatar FROM users WHERE LOWER(name) LIKE LOWER(:pattern) ESCAPE '${escChar}' OR LOWER(email) LIKE LOWER(:pattern) ESCAPE '${escChar}' LIMIT 10`,
       { replacements: { pattern }, type: QueryTypes.SELECT }
     ) as Array<{ id: string; name: string; email: string; avatar: string | null }>;
     return users.map(u => ({

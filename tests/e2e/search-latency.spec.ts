@@ -10,6 +10,9 @@ import { PERF, readPerfState, wsName, colName, folderName } from './perf-seed';
 const BUDGET_MS = 200;
 
 test.describe('Global search latency under load', () => {
+  // The bulk seed writes the SQLite file directly (perf-seed.ts), so there is nothing to seed on other backends.
+  test.skip((process.env.DB_TYPE || 'sqlite') !== 'sqlite', 'bulk perf seed is SQLite-only');
+
   test('a folder is found within 200ms of the last keystroke, in a workspace among 5', async ({ page }) => {
     test.setTimeout(120_000);
     const { email } = readPerfState();

@@ -44,7 +44,7 @@ COPY --from=builder /app/client/dist ./client/dist
 COPY --from=builder /app/reqspace-transport.zip ./reqspace-transport.zip
 
 # Run as the non-root user that ships with the base image.
-RUN chown -R node:node /app
+RUN chown -R node:node /app && mkdir -p /data && chown node:node /data
 USER node
 
 WORKDIR /app/server

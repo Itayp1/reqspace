@@ -16,14 +16,20 @@ jqid() { python3 -c 'import sys,json;print(json.load(sys.stdin)["_id"])'; }
 
 # 1. login with the seeded default admin (fresh server) — must force a change
 r=$(curl -s -c "$J" -X POST "$B/api/auth/login" -H 'Content-Type: application/json' -d '{"email":"admin","password":"admin"}')
-echo "$r" | grep -q '"mustChangePassword":true' && pass "login (forced change)" || fail "login: $r"
+MUST=false
+echo "$r" | grep -q '"mustChangePassword":true' && MUST=true
+# In CI the jest suites run first and already cleared the forced change, so
+# accept both states.
+echo "$r" | grep -q '"isSuperAdmin":true' && pass "login (mustChangePassword=$MUST)" || fail "login: $r"
 
 # 2. FIRST AUTHENTICATED CALL — the one that 500'd on SQL before CR#1
 r=$(curl -s -b "$J" "$B/api/auth/me"); echo "$r" | grep -q '"isSuperAdmin":true' && pass "GET /me (authenticated)" || fail "me: $r"
 
 # 3. forced password change
-curl -s -b "$J" -c "$J" -X POST "$B/api/auth/change-password" -H 'Content-Type: application/json' \
-  -d '{"newPassword":"CiSmoke!2026"}' | grep -q "successfully" && pass "change-password" || fail "change-password"
+if [ "$MUST" = true ]; then
+  curl -s -b "$J" -c "$J" -X POST "$B/api/auth/change-password" -H 'Content-Type: application/json' \
+    -d '{"newPassword":"CiSmoke!2026"}' | grep -q "successfully" && pass "change-password" || fail "change-password"
+fi
 
 # 4. workspace -> collection -> folder -> request (ids round-trip: ObjectId or UUID)
 WS=$(curl -s -b "$J" -X POST "$B/api/workspaces" -H 'Content-Type: application/json' -d '{"name":"SmokeWS"}' | jqid); [ -n "$WS" ] && pass "create workspace" || fail "workspace"

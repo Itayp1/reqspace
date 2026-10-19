@@ -25,7 +25,7 @@ const DEDUPE_WINDOW_MS = (() => {
 const DEDUPE_SWEEP_THRESHOLD = 5_000;
 // fingerprint -> when it was last stored and the id of that row, so repeats
 // swallowed inside the window can still be counted on it.
-const recentFingerprints = new Map<string, { at: number; id?: string }>();
+const recentFingerprints = new Map<string, { at: number; id?: string; pending?: Promise<string | undefined> }>();
 
 const FALLBACK_PATH = path.join(process.cwd(), 'fperrors-fallback.jsonl');
 
@@ -70,7 +70,7 @@ function buildRow(input: FpErrorInput) {
 }
 
 /** Returns the already-stored entry when this fingerprint was seen inside the window; otherwise registers it. */
-function checkDuplicate(fingerprint: string, now: number): { at: number; id?: string } | null {
+function checkDuplicate(fingerprint: string, now: number): { at: number; id?: string; pending?: Promise<string | undefined> } | null {
   const last = recentFingerprints.get(fingerprint);
   if (last !== undefined && now - last.at < DEDUPE_WINDOW_MS) return last;
   recentFingerprints.set(fingerprint, { at: now });
@@ -97,15 +97,23 @@ export async function recordError(input: FpErrorInput): Promise<void> {
   if (seen) {
     // Suppressed, but still counted: the stored row keeps a tally so the
     // group's count reflects every occurrence, not just the first in a window.
-    if (seen.id) {
-      try { await SqlFpError.increment('repeats', { by: 1, where: { id: seen.id } }); } catch { /* best effort */ }
+    // The first occurrence's insert may still be in flight (its response went out
+    // before the write finished), so wait for its id rather than dropping the count.
+    let id = seen.id;
+    if (!id && seen.pending) {
+      try { id = await seen.pending; } catch { /* insert failed; the fallback file holds it */ }
+    }
+    if (id) {
+      try { await SqlFpError.increment('repeats', { by: 1, where: { id } }); } catch { /* best effort */ }
     }
     return;
   }
+  const pending = SqlFpError.create(row).then((created) => (created as any)?.id as string | undefined);
+  const entry = recentFingerprints.get(row.fingerprint);
+  if (entry) entry.pending = pending;
   try {
-    const created = await SqlFpError.create(row);
-    const entry = recentFingerprints.get(row.fingerprint);
-    if (entry && (created as any)?.id) entry.id = (created as any).id;
+    const id = await pending;
+    if (entry && id) entry.id = id;
   } catch (err) {
     console.error('[fperrors] insert failed, writing fallback file:', (err as Error).message);
     appendFallback(row);

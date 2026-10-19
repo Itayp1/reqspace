@@ -10,6 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         db: [sqlite, postgres, mysql]
     services:
@@ -58,7 +59,7 @@ jobs:
 
       - name: Start server (${{ matrix.db }} backend)
         run: |
-          DB_TYPE=${{ matrix.db }} DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=development PORT=3005 \
+          DB_TYPE=${{ matrix.db }} DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=test PORT=3005 \
             MUTATION_RATE_LIMIT_MAX=300 READ_RATE_LIMIT_MAX=2000 \
             DB_HOST=127.0.0.1 DB_USER=root DB_PASSWORD="" DB_NAME=reqspace_test \
             CERT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
@@ -71,7 +72,11 @@ jobs:
           curl -sf http://localhost:3005/api/health || (echo "server failed to start"; cat /tmp/server.log; exit 1)
 
       - name: Server tests (jest — unit + ssrf + live auth e2e)
-        run: npm test --prefix server
+        # sec10 deliberately exhausts the shared server's rate limit, so it
+        # must run last or it 429s every later suite in the same minute.
+        run: |
+          npm test --prefix server -- --testPathIgnorePatterns=sec10
+          npm test --prefix server -- sec10
         env:
           PORT: 3005
           TEST_PORT: 3005
@@ -84,6 +89,9 @@ jobs:
       - name: Core smoke (crosses the auth boundary, ${{ matrix.db }})
         run: bash scripts/smoke-core.sh http://localhost:3005
 
+      - name: Install root dependencies (Playwright test runner)
+        run: npm ci
+
       - name: Install Playwright & dependencies
         run: npx playwright install --with-deps chromium
 
@@ -92,11 +100,22 @@ jobs:
           npx playwright test --project=${{ matrix.db }}
           if [ "${{ matrix.db }}" = "sqlite" ]; then npx playwright test --project=extension; fi
         env:
+          # The sqlite webServer is the one CI started, on /tmp/ci.sqlite; the perf seed must write that file.
+          REQSPACE_E2E_DB_PATH: ${{ matrix.db == 'sqlite' && '/tmp/ci.sqlite' || '' }}
           DB_TYPE: ${{ matrix.db }}
           DB_HOST: 127.0.0.1
           DB_USER: root
           DB_PASSWORD: ""
           DB_NAME: reqspace_test
+
+      - name: Upload Playwright traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.db }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Stop server
         if: always()
