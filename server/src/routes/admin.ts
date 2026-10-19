@@ -257,11 +257,11 @@ router.get('/errors/:fingerprint', async (req: AuthRequest, res: Response) => {
 // "Fixed": the fault is resolved, so every stored occurrence of it is removed.
 router.delete('/errors/:fingerprint', async (req: AuthRequest, res: Response) => {
   const deleted = await FpErrorRepository.deleteFingerprint(req.params.fingerprint);
+  // The fingerprint is a 64-char hash, too long for audit_logs.targetId (VARCHAR(36)).
   await logAudit(req.user!.id, 'fperror.resolve', {
     targetType: 'fperror',
-    targetId: req.params.fingerprint,
     ip: req.ip,
-    details: { deleted },
+    details: { deleted, fingerprint: req.params.fingerprint },
   });
   return res.json({ deleted });
 });
