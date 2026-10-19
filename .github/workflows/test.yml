@@ -100,6 +100,8 @@ jobs:
           npx playwright test --project=${{ matrix.db }}
           if [ "${{ matrix.db }}" = "sqlite" ]; then npx playwright test --project=extension; fi
         env:
+          # The sqlite webServer is the one CI started, on /tmp/ci.sqlite; the perf seed must write that file.
+          REQSPACE_E2E_DB_PATH: ${{ matrix.db == 'sqlite' && '/tmp/ci.sqlite' || '' }}
           DB_TYPE: ${{ matrix.db }}
           DB_HOST: 127.0.0.1
           DB_USER: root
