@@ -108,6 +108,15 @@ jobs:
           DB_PASSWORD: ""
           DB_NAME: reqspace_test
 
+      - name: Upload Playwright traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.db }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Stop server
         if: always()
         run: kill "$(cat /tmp/server.pid)" 2>/dev/null || true
