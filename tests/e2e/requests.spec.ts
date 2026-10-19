@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Request Operations', () => {
   test.describe.configure({ mode: 'serial' });
@@ -86,7 +86,7 @@ test.describe('Request Operations', () => {
     await page.getByTestId('body-mode-raw').click();
 
     // Click inside Monaco editor and type
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.type('{"test": "data"}');
 
     // Send
@@ -220,7 +220,7 @@ test.describe('Request Operations', () => {
     await page.getByTestId('req-tab-body').click();
     await page.getByTestId('body-mode-raw').click();
     await page.getByTestId('body-raw-language-select').selectOption('json');
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.type('{"mykey":"myval"}');
 
     await page.getByTestId('request-save-btn').click();

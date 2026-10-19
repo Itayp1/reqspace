@@ -55,12 +55,19 @@ export const EnvironmentRepository = {
   },
 
   async upsertGlobal(workspaceId: string, variables: IEnvVariable[]): Promise<IGlobalEnvRecord> {
-    // findOrCreate + update for cross-DB compat (upsert with new id fails on SQLite unique constraint)
-    const [existing] = await SqlGlobalEnvironment.findOrCreate({
-      where: { workspaceId },
-      defaults: { id: uuidv4(), workspaceId, variables: JSON.stringify(variables), updatedAt: new Date() } as any,
-    });
-    await existing.update({ variables: JSON.stringify(variables), updatedAt: new Date() });
+    // Race-safe: concurrent callers may both miss on find and one create hits the
+    // unique(workspaceId) constraint - catch that and re-read.
+    let existing = await SqlGlobalEnvironment.findOne({ where: { workspaceId } });
+    if (!existing) {
+      try {
+        existing = await SqlGlobalEnvironment.create({ id: uuidv4(), workspaceId, variables: JSON.stringify(variables) } as any);
+      } catch (e: any) {
+        if (e?.name !== 'SequelizeUniqueConstraintError') throw e;
+        existing = await SqlGlobalEnvironment.findOne({ where: { workspaceId } });
+        if (!existing) throw e;
+      }
+    }
+    await existing.update({ variables: JSON.stringify(variables) });
     return globalSql(existing);
   },
 };

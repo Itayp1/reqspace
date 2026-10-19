@@ -11,7 +11,7 @@ describe('SEC-11: OAuth state / CSRF', () => {
     expect(data.state).toHaveLength(64);
 
     const cookies = res.headers.get('set-cookie') || '';
-    expect(cookies).toContain('oauth_state=');
+    expect(cookies).toContain('oauth_state_');
     expect(cookies).toContain('HttpOnly');
     expect(cookies).toContain('SameSite=Lax');
   });

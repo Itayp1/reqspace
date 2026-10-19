@@ -13,18 +13,34 @@ const AUTH_TYPES: Array<{ value: RequestAuth['type']; label: string }> = [
   { value: 'ntlm', label: 'NTLM Authentication' },
 ];
 
-export function AuthEditor() {
+/**
+ * Drives the active request's auth by default. Pass `value`/`onChange` to
+ * reuse the same editor for a collection's or folder's own auth — that's what
+ * gives a request set to `inherit` something to inherit from.
+ */
+export function AuthEditor({ value, onChange, hideInherit }: {
+  value?: RequestAuth | null;
+  onChange?: (auth: RequestAuth) => void;
+  hideInherit?: boolean;
+} = {}) {
   const { activeRequest, updateActiveRequest } = useRequestStore();
   const [showToken, setShowToken] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  if (!activeRequest) return null;
+  const controlled = onChange !== undefined;
+  if (!controlled && !activeRequest) return null;
 
-  const auth = activeRequest.auth || { type: 'none' };
+  const auth = (controlled ? value : activeRequest?.auth) || { type: 'none' };
 
   const update = (partial: Partial<RequestAuth>) => {
-    updateActiveRequest({ auth: { ...auth, ...partial } });
+    const next = { ...auth, ...partial } as RequestAuth;
+    if (controlled) onChange!(next);
+    else updateActiveRequest({ auth: next });
   };
+
+  // A collection has no parent to inherit from, so offering it there would be
+  // a dead option.
+  const authTypes = hideInherit ? AUTH_TYPES.filter(t => t.value !== 'inherit') : AUTH_TYPES;
 
   return (
     <div className="flex flex-col gap-4 p-1">
@@ -37,7 +53,7 @@ export function AuthEditor() {
           value={auth.type}
           onChange={e => update({ type: e.target.value as RequestAuth['type'] })}
         >
-          {AUTH_TYPES.map(t => (
+          {authTypes.map(t => (
             <option key={t.value} value={t.value}>{t.label}</option>
           ))}
         </select>
@@ -52,6 +68,17 @@ export function AuthEditor() {
 
       {/* Bearer Token */}
       {auth.type === 'bearer' && (
+        <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Prefix</label>
+          <input
+            data-testid="auth-bearer-prefix"
+            className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono"
+            placeholder="Bearer"
+            value={auth.bearer?.prefix || ''}
+            onChange={e => update({ bearer: { token: auth.bearer?.token || '', prefix: e.target.value } })}
+          />
+        </div>
         <div className="flex items-center gap-3">
           <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Token</label>
           <div className="flex-1 relative">
@@ -61,7 +88,7 @@ export function AuthEditor() {
               className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono pr-9"
               placeholder="Enter token..."
               value={auth.bearer?.token || ''}
-              onChange={e => update({ bearer: { token: e.target.value } })}
+              onChange={e => update({ bearer: { ...auth.bearer, token: e.target.value } })}
             />
             <button
               type="button"
@@ -71,6 +98,7 @@ export function AuthEditor() {
               {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           </div>
+        </div>
         </div>
       )}
 
@@ -120,6 +148,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Key</label>
             <input
+              data-testid="auth-apikey-key"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
               placeholder="e.g. X-API-Key"
@@ -130,6 +159,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-20 shrink-0">Value</label>
             <input
+              data-testid="auth-apikey-value"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono"
               placeholder="Enter API key value..."
@@ -144,6 +174,7 @@ export function AuthEditor() {
                 <label key={opt} className="flex items-center gap-1.5 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
                   <input
                     type="radio"
+                    data-testid={`auth-apikey-in-${opt}`}
                     name="apikey-in"
                     value={opt}
                     checked={(auth.apikey?.in || 'header') === opt}
@@ -170,6 +201,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32 shrink-0">Access Token</label>
             <input
+              data-testid="auth-oauth2-token"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400 font-mono"
               placeholder="Token"
@@ -189,6 +221,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Username</label>
             <input
+              data-testid="auth-ntlm-username"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
               value={auth.ntlm?.username || ''}
@@ -198,6 +231,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Password</label>
             <input
+              data-testid="auth-ntlm-password"
               type="password"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
               value={auth.ntlm?.password || ''}
@@ -207,6 +241,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Domain</label>
             <input
+              data-testid="auth-ntlm-domain"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
               value={auth.ntlm?.domain || ''}
@@ -216,6 +251,7 @@ export function AuthEditor() {
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 shrink-0">Workstation</label>
             <input
+              data-testid="auth-ntlm-workstation"
               type="text"
               className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 outline-none focus:border-orange-400"
               value={auth.ntlm?.workstation || ''}

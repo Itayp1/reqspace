@@ -1,7 +1,7 @@
 import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
 import { SqlUser } from '../db/sql-models';
 import { getSequelize } from '../db/sequelize';
-import { QueryTypes } from 'sequelize';
+import { QueryTypes, Op } from 'sequelize';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
@@ -21,6 +21,7 @@ export interface IUserRecord {
   historyUsedBytes: number;
   mustChangePassword?: boolean;
   lastLoginAt?: Date | null;
+  tokenVersion: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +42,7 @@ function sqlToRecord(u: SqlUser): IUserRecord {
     historyUsedBytes: Number(u.historyUsedBytes),
     mustChangePassword: u.mustChangePassword,
     lastLoginAt: u.lastLoginAt,
+    tokenVersion: u.tokenVersion ?? 0,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
   };
@@ -95,7 +97,7 @@ export const UserRepository = {
     const cursorWhere = getCursorWhere(cursorObj, 'createdAt', true); // DESC
     
     const users = await SqlUser.findAll({ 
-      where: { ...filter, ...cursorWhere } as any,
+      where: (Object.keys(cursorWhere).length || Object.getOwnPropertySymbols(cursorWhere).length ? { [Op.and]: [filter, cursorWhere] } : filter) as any,
       order: [['createdAt', 'DESC'], ['id', 'DESC']],
       limit: limit + 1
     });
@@ -112,6 +114,10 @@ export const UserRepository = {
 
   async count(): Promise<number> {
     return SqlUser.count();
+  },
+
+  async countSuperAdmins(): Promise<number> {
+    return SqlUser.count({ where: { isSuperAdmin: true } });
   },
 
   async existsByEmail(email: string): Promise<boolean> {

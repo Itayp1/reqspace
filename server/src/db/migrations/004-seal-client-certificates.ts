@@ -1,16 +1,17 @@
 import { QueryInterface, DataTypes } from 'sequelize';
-import { getSequelize } from '../sequelize';
 import { seal, isEncrypted } from '../../utils/cryptoBox';
 
 export async function up({ context: qi }: { context: QueryInterface }) {
-  const sequelize = getSequelize();
+  const sequelize = qi.sequelize;
+  // Quote identifiers per dialect: Postgres/SQLite take "x", MySQL needs `x`.
+  const col = qi.quoteIdentifier('clientCertificates');
   
   if (!process.env.CERT_ENCRYPTION_KEY) {
     throw new Error('CERT_ENCRYPTION_KEY must be set in the environment to migrate client certificates (SEC-8). This is an irreversible, required security migration. Do not proceed until the key is configured.');
   }
 
   // We read from users table directly
-  const [users] = await sequelize.query('SELECT id, "clientCertificates" FROM users WHERE "clientCertificates" IS NOT NULL');
+  const [users] = await sequelize.query(`SELECT id, ${col} FROM users WHERE ${col} IS NOT NULL`);
   
   for (const user of users as any[]) {
     if (!user.clientCertificates) continue;
@@ -36,7 +37,7 @@ export async function up({ context: qi }: { context: QueryInterface }) {
     
     if (changed) {
       await sequelize.query(
-        'UPDATE users SET "clientCertificates" = :certs WHERE id = :id',
+        `UPDATE users SET ${col} = :certs WHERE id = :id`,
         {
           replacements: {
             certs: JSON.stringify(certs),

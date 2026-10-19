@@ -1,4 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
+
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
 
 test.describe('Workspace Management', () => {
   const timestamp = Date.now();

@@ -4,6 +4,7 @@ import { SqlUserProfileVariable } from '../db/sql-models';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { v4 as uuidv4 } from 'uuid';
+import { noteRouteError } from '../utils/errorReporter';
 
 const router = express.Router();
 router.use(authenticate);
@@ -26,7 +27,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const data = row.toJSON() as any;
     data.variables = JSON.parse(data.variables || '[]');
     return res.json(data);
-  } catch {
+  } catch (err) {
+    noteRouteError(res, err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -52,7 +54,8 @@ router.put('/', validate(updateSchema), async (req: AuthRequest, res: Response) 
     const data = row.toJSON() as any;
     data.variables = JSON.parse(data.variables || '[]');
     return res.json(data);
-  } catch {
+  } catch (err) {
+    noteRouteError(res, err);
     return res.status(500).json({ error: 'Server error' });
   }
 });

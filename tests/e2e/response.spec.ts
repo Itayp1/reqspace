@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Response & Code Gen', () => {
   const timestamp = Date.now();
@@ -20,7 +20,7 @@ test.describe('Response & Code Gen', () => {
 
     // Write a script pm.test(...)
     // The Monaco editor is tricky to type into directly, usually we use evaluate or click and type
-    await page.click('[data-testid="monaco-editor-container"]');
+    await page.locator('[data-testid="monaco-editor-container"] .monaco-editor').first().click();
     await page.keyboard.type('pm.test("Status 200", () => { pm.expect(pm.response.code).to.equal(200); });');
 
     // Send request

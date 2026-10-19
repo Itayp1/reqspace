@@ -24,6 +24,9 @@ interface ConsoleStore {
   clearLogs: () => void;
 }
 
+// Oldest entries are dropped beyond this, so long sessions and runner loops cannot grow memory without bound.
+export const MAX_CONSOLE_LOGS = 1000;
+
 export const useConsoleStore = create<ConsoleStore>((set) => ({
   isOpen: false,
   logs: [],
@@ -37,7 +40,7 @@ export const useConsoleStore = create<ConsoleStore>((set) => ({
         id: Math.random().toString(36).substring(2, 9),
         timestamp: new Date().toLocaleTimeString(),
       }
-    ]
+    ].slice(-MAX_CONSOLE_LOGS)
   })),
   clearLogs: () => set({ logs: [] }),
 }));

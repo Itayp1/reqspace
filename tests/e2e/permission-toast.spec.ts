@@ -1,4 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
+
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
 
 // UI-3: a 403 (forbidden — logged in, but not allowed) must be handled
 // distinctly from a 401 (not logged in at all). Previously a 403 fell
@@ -60,6 +63,14 @@ test('a viewer attempting an editor-only action sees an explicit permission mess
   await expect(pageOwner.getByTestId('member-email').filter({ hasText: viewerEmail })).toBeVisible();
   await pageOwner.getByTestId('close-workspace-modal').click();
 
+  // The UI now hides editor-only actions from viewers, so to still exercise the
+  // server's 403 handling, make the client believe the viewer is an editor.
+  await pageViewer.route('**/api/workspaces', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const resp = await route.fetch();
+    const list = await resp.json();
+    await route.fulfill({ response: resp, json: Array.isArray(list) ? list.map((w: any) => ({ ...w, myRole: 'editor' })) : list });
+  });
   // Viewer switches into the workspace.
   await pageViewer.reload();
   await expect(pageViewer.getByTestId('workspace-select')).toContainText(wsName);

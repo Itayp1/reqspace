@@ -16,6 +16,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
   const [varFilter, setVarFilter] = useState('');
   const [cursorPos, setCursorPos] = useState<number>(0);
   const [focused, setFocused] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(0);
   const inputRef = useRef<any>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
@@ -62,6 +63,19 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<any>) => {
+    if (showSuggestions && filteredVars.length > 0) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const n = filteredVars.length;
+        setSelectedIdx((i) => (e.key === 'ArrowDown' ? (i + 1) % n : (i - 1 + n) % n));
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertVariable(filteredVars[Math.min(selectedIdx, filteredVars.length - 1)]);
+        return;
+      }
+    }
     if (e.key === 'Escape') {
       setShowSuggestions(false);
       return;
@@ -89,6 +103,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     if (match) {
       setShowSuggestions(true);
       setVarFilter(match[1]);
+      setSelectedIdx(0);
     } else {
       setShowSuggestions(false);
     }
@@ -185,11 +200,11 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
           <div className="px-2.5 py-1 text-[10px] uppercase font-semibold text-gray-400 bg-gray-800/80">
             Environment Variables
           </div>
-          {filteredVars.map(v => (
+          {filteredVars.map((v, idx) => (
             <div
               key={v}
               onMouseDown={(e) => { e.preventDefault(); insertVariable(v); }}
-              className="px-3 py-1.5 hover:bg-gray-800 cursor-pointer flex items-center justify-between text-orange-400 hover:text-orange-300 font-mono"
+              className={`${idx === selectedIdx ? 'bg-gray-800 ' : ''}px-3 py-1.5 hover:bg-gray-800 cursor-pointer flex items-center justify-between text-orange-400 hover:text-orange-300 font-mono`}
             >
               <span>{`{{${v}}}`}</span>
             </div>

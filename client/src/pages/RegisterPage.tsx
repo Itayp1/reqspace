@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuthStore } from '../store/authStore';
+import OAuthButtons from '../components/common/OAuthButtons';
 
 export default function RegisterPage() {
   const [name, setName] = useState('');
@@ -26,20 +27,6 @@ export default function RegisterPage() {
       window.location.reload();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Registration failed');
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    if (!config?.googleOAuth?.clientId) return;
-    try {
-      const res = await fetch('/api/auth/state');
-      if (!res.ok) throw new Error('Failed to fetch state');
-      const { state } = await res.json();
-      const redirectUri = window.location.origin + '/auth/google/callback';
-      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${config.googleOAuth.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile&access_type=offline&prompt=consent&state=${state}`;
-      window.location.href = googleAuthUrl;
-    } catch (err) {
-      setError('Failed to initiate Google login');
     }
   };
 
@@ -109,16 +96,7 @@ export default function RegisterPage() {
           Create Account
         </button>
 
-        {config?.googleOAuth?.enabled && (
-          <button 
-            type="button" 
-            onClick={handleGoogleLogin}
-            className="w-full bg-white border border-border text-black p-2 rounded hover:bg-gray-50 transition flex items-center justify-center gap-2"
-          >
-            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4" />
-            Continue with Google
-          </button>
-        )}
+        <OAuthButtons config={config} onError={setError} />
 
         <div className="mt-4 text-center text-sm text-text-muted">
           Already have an account? <Link to="/login" className="text-primary hover:underline">Log in</Link>

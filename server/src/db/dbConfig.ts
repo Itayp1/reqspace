@@ -33,7 +33,10 @@ export function writeConfigFile(config: DbConfig) {
 export function getDbConfig(): DbConfig {
   const fileConfig = readConfigFile();
 
-  const type = (process.env.DB_TYPE || fileConfig.type || 'mongodb') as DbType;
+  // SQLite is the zero-configuration default the README promises. The old
+  // default, 'mongodb', is not implemented, so an install without DB_TYPE
+  // (docker run, PM2) booted straight into the database-error screen.
+  const type = (process.env.DB_TYPE || fileConfig.type || 'sqlite') as DbType;
 
   if (type === 'sqlite') {
     let defaultSqlitePath = path.join(process.cwd(), 'data.sqlite');

@@ -13,6 +13,8 @@ dist-electron/
 client/test-results/
 server/data.sqlite
 server/reqspace-local.sqlite
+# Written by the error reporter when the database is unreachable.
+fperrors-fallback.jsonl
 
 # Compiled TypeScript output — rebuilt from source, never committed.
 server/dist/
@@ -32,3 +34,31 @@ release/
 /fix_*.py
 /fix.ps1
 patch_*.js
+
+reqspace-transport.zip
+
+# QA dummy servers: generated certs / proxy log
+qa/dummy/proxy.log
+
+# Per-target runs of scripts/run-e2e-targets.js
+/test-results-*/
+/playwright-report-*/
+
+# Local test/QA scratch — never part of the product
+/qa/
+/test_plan_fix/
+/test-results/
+/playwright-report/
+*.db
+*.jar
+*.pem
+.jwt-secret.local
+
+# Claude Code local state and git worktrees
+.claude/settings.local.json
+.claude/worktrees/
+
+# Generated video renders (rebuilt from video/src)
+video/build/
+video/out-*.png
+video/*.mp4

@@ -166,7 +166,7 @@ describe('TEST-6 Perf Budgets', () => {
 
   it('lists history within budget', async () => {
     const res = await request(app)
-      .get(`/api/history?workspaceId=${workspaceId}`)
+      .get(`/api/workspaces/${workspaceId}/history`)
       .set('Cookie', `token=${token}`);
     
     expect(res.status).toBe(200);

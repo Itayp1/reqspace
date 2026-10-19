@@ -1,4 +1,25 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from './fixtures';
+
+/**
+ * Drag `source` onto the left half of `target`, so the drop resolves to
+ * "before" it.
+ *
+ * This spec used to flake, and the cause was in the app, not here: handleDrop
+ * bailed out whenever dragOverTabId was null, and dragleave nulls it the
+ * moment the pointer crosses into any child of the tab. Both are fixed — the
+ * drop side now comes from the drop event itself — so a plain
+ * down / move / move / up is enough, and the order assertions that follow
+ * auto-retry while React settles.
+ */
+async function dragTabOnto(page: Page, source: Locator, target: Locator) {
+  const box = (await target.boundingBox())!;
+  await source.hover();
+  await page.mouse.down();
+  // Two moves: the first starts the drag, the second lands on the left half.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.move(box.x + 4, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
 
 test.describe('Tab Operations', () => {
   test('Drag and drop to reorder tabs', async ({ page }) => {
@@ -61,16 +82,7 @@ test.describe('Tab Operations', () => {
     await expect(tabs.nth(1)).toContainText('Request 2');
 
     // Drag second tab before first tab
-    const tab1 = tabs.nth(0);
-    const tab2 = tabs.nth(1);
-    await tab2.hover();
-    await page.mouse.down();
-    await tab1.hover({ position: { x: 5, y: 10 } });
-    await tab1.hover({ position: { x: 5, y: 10 } });
-    await page.mouse.up();
-
-    // Wait a bit for React to process the drop
-    await page.waitForTimeout(500);
+    await dragTabOnto(page, tabs.nth(1), tabs.nth(0));
 
     // Verify order changed
     await expect(tabs.nth(0)).toContainText('Request 2');
@@ -118,16 +130,7 @@ test.describe('Tab Operations', () => {
     await expect(tabs.nth(1).locator('[title="Unsaved changes"]')).toBeVisible();
 
     // Drag second tab before first tab
-    const tab1 = tabs.nth(0);
-    const tab2 = tabs.nth(1);
-    await tab2.hover();
-    await page.mouse.down();
-    await tab1.hover({ position: { x: 5, y: 10 } });
-    await tab1.hover({ position: { x: 5, y: 10 } });
-    await page.mouse.up();
-
-    // Wait a bit for React to process the drop
-    await page.waitForTimeout(500);
+    await dragTabOnto(page, tabs.nth(1), tabs.nth(0));
 
     // Verify order changed
     // Click tab at index 0 which should now be the "second" tab (https://example.com/2)

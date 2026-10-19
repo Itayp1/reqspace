@@ -1,3 +1,5 @@
+import type React from 'react';
+import { matchesShortcut } from '../../utils/shortcuts';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
@@ -13,13 +15,16 @@ import { LoadTestModal } from './LoadTestModal';
 import { CodeGenModal } from './CodeGenModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { CookieManagerModal } from '../common/CookieManagerModal';
-import type { KeyValueItem } from '../../store/requestStore';
+import type { KeyValueItem, ActiveRequest } from '../../store/requestStore';
 
 import { fileToBase64 } from '../../utils/fileToBase64';
 import { resolveAllVariables } from '../../utils/variables';
 import { applyRequestAuth, resolveInheritedAuth } from '../../utils/requestAuth';
-import { runPreRequestScript, runTestScript } from '../../utils/scripts';
+import { runPreRequestScript, runTestScript, diffRequestMods } from '../../utils/scripts';
 import { stripJsonComments } from '../../utils/jsonComments';
+import { toRequestPayload } from '../../utils/requestPayload';
+import { useToastStore } from '../../store/toastStore';
+import { notifyHistoryUpdated } from '../../utils/historySync';
 
 function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () => void }) {
   return (
@@ -46,9 +51,10 @@ const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
 
 function parseUrlParams(url: string): KeyValueItem[] {
   try {
-    const questionIdx = url.indexOf('?');
+    const withoutHash = url.split('#')[0];
+    const questionIdx = withoutHash.indexOf('?');
     if (questionIdx === -1) return [];
-    const queryString = url.slice(questionIdx + 1);
+    const queryString = withoutHash.slice(questionIdx + 1);
     if (!queryString) return [];
     return queryString.split('&').map((pair) => {
       const [key, ...rest] = pair.split('=');
@@ -65,17 +71,46 @@ function parseUrlParams(url: string): KeyValueItem[] {
 }
 
 function buildUrlWithParams(baseUrl: string, params: KeyValueItem[]): string {
+  const hashIdx = baseUrl.indexOf('#');
+  const hash = hashIdx === -1 ? '' : baseUrl.slice(hashIdx);
+  baseUrl = hashIdx === -1 ? baseUrl : baseUrl.slice(0, hashIdx);
   const enabledParams = params.filter(p => p.enabled && p.key.trim());
   if (enabledParams.length === 0) {
-    return baseUrl.split('?')[0];
+    return baseUrl.split('?')[0] + hash;
   }
   const queryString = enabledParams
     .map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
     .join('&');
-  return `${baseUrl.split('?')[0]}?${queryString}`;
+  return `${baseUrl.split('?')[0]}?${queryString}${hash}`;
+}
+
+// Headers the network layer adds itself; surfaced in the Console for debugging.
+function withAutoHeaders(headers: Record<string, string>, body: unknown): Record<string, string> {
+  if (body == null || body === '' || typeof body === 'object') return headers;
+  if (Object.keys(headers).some((k) => k.toLowerCase() === 'content-length')) return headers;
+  return { ...headers, 'Content-Length': String(new TextEncoder().encode(String(body)).length) };
 }
 
 // ── UrlBar ────────────────────────────────────────────────────────────────────
+
+// A browser reports CORS, mixed-content, certificate and DNS failures all as the same
+// opaque TypeError, so the message lists the likely causes and names the ones we can detect.
+function describeNetworkError(url: string): string {
+  const mixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(url);
+  const isHttps = /^https:\/\//i.test(url);
+  const out = [`Could not reach ${url}`, '', 'The request never left the browser.'];
+  if (mixedContent) {
+    out.push('', 'Mixed content: this app is served over HTTPS and the browser blocks requests to plain HTTP URLs. Use an HTTPS URL, or send the request with the Desktop App or Browser Extension.');
+  }
+  else if (/^http:\/\//i.test(url)) {
+    out.push('', 'Mixed content: if this app is opened over HTTPS, the browser blocks requests to plain HTTP URLs like this one (it reports this as a generic network failure). Use an HTTPS URL, or send the request with the Desktop App or Browser Extension.');
+  }
+  if (isHttps) {
+    out.push('', 'SSL/certificate error: for a self-signed or expired certificate the browser blocks the request and cannot say why. Hint: turn off "Verify SSL" in the request Settings (or Global Settings) to skip certificate validation - the web browser itself cannot honor it, so send the request with the Desktop App or Browser Extension.');
+  }
+  out.push('', 'Other likely causes: the server blocks cross-origin (CORS) requests, a wrong URL or DNS failure, no network, or an ad blocker. Install the browser extension to send requests to servers that block CORS.');
+  return out.join('\n');
+}
 
 export function UrlBar() {
   const { activeWorkspace } = useAuthStore();
@@ -115,6 +150,25 @@ export function UrlBar() {
     updateActiveRequest({ url: newUrl, params: parsedParams.length > 0 ? parsedParams : activeRequest.params });
   }, [activeRequest, updateActiveRequest]);
 
+  // Pasting a whole cURL command fills in method, URL, headers, body and auth.
+  const handleUrlPaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData?.getData('text') ?? '';
+    if (!activeRequest || !activeWorkspace || !/^\s*curl\s/i.test(text)) return;
+    e.preventDefault();
+    api.post('/requests/import/curl', { workspaceId: activeWorkspace._id, curl: text }).then(res => {
+      const d = res.data;
+      const toItems = (list: any[]) => (list || []).map((h: any) => ({ key: h.key, value: h.value, enabled: h.enabled !== false }));
+      updateActiveRequest({
+        method: d.method,
+        url: d.url,
+        params: parseUrlParams(d.url),
+        headers: toItems(d.headers),
+        body: d.body,
+        ...(d.auth ? { auth: d.auth } : {}),
+      });
+    }).catch(() => useToastStore.getState().addToast('error', 'Could not parse the pasted cURL command'));
+  }, [activeRequest, activeWorkspace, updateActiveRequest]);
+
   const handleParamsChange = useCallback((params: KeyValueItem[]) => {
     if (!activeRequest) return;
     const newUrl = buildUrlWithParams(activeRequest.url, params);
@@ -131,6 +185,18 @@ export function UrlBar() {
     // land on the tab that actually sent it.
     const tabId = activeRequest.tabId!;
     const startTime = Date.now();
+    // Set once the request is fully built, so a failed send can still be logged.
+    let sentSnapshot: Record<string, unknown> | null = null;
+    let historyRecorded = false;
+    const recordHistory = (payload: Record<string, unknown>) => {
+      if (historyRecorded) return;
+      historyRecorded = true;
+      const workspaceId = useAuthStore.getState().activeWorkspace?._id;
+      if (useSettingsStore.getState().settings.saveHistory === false || !workspaceId || !sentSnapshot) return;
+      api.post(`/workspaces/${workspaceId}/history`, { requestSnapshot: sentSnapshot, testResults: [], ...payload })
+        .then(() => notifyHistoryUpdated())
+        .catch(err => console.error('Failed to save history', err));
+    };
     try {
       setIsLoading(true);
 
@@ -173,23 +239,47 @@ export function UrlBar() {
       const localVariables = new Map<string, string>();
 
       // 1. Run combined Pre-request script
-      const preResult = await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables);
+      const rawBodyMode = activeRequest.body?.mode;
+      const origRequest = {
+        url: activeRequest.url,
+        method: activeRequest.method,
+        headers: (activeRequest.headers || []).reduce((acc: Record<string, string>, h: any) => {
+          if (h.key && h.enabled) acc[h.key] = h.value;
+          return acc;
+        }, {}),
+        body: rawBodyMode === 'raw' ? ((activeRequest.body as any)?.raw ?? '') : undefined,
+      };
+      const preResult = await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables, origRequest);
 
       // 2. Resolve all variables in URL, headers, and body
-      const resolvedUrl = resolveAllVariables(activeRequest.url, colId, undefined, localVariables);
+      // pm.request changes made by the pre-request script (F1.2)
+      const mods = diffRequestMods(origRequest, preResult?.requestMods);
+      const resolvedUrl = resolveAllVariables(mods.url ?? activeRequest.url, colId, undefined, localVariables);
       let finalUrl = resolvedUrl;
+      const reqMethod = mods?.method || activeRequest.method;
       const bodyMode = activeRequest.body?.mode;
       let requestBody: any = (activeRequest.body as any)?.[bodyMode as any] || '';
-      if (bodyMode === 'raw' && activeRequest.body?.rawLanguage === 'json' && typeof requestBody === 'string') {
+      if (bodyMode === 'raw' && (activeRequest.body?.rawLanguage ?? 'json') === 'json' && typeof requestBody === 'string') {
         requestBody = stripJsonComments(requestBody);
       }
+      // Raw bodies carry {{vars}} too; urlencoded/form-data/graphql resolve per field below.
+      if (bodyMode === 'raw' && typeof requestBody === 'string') {
+        requestBody = resolveAllVariables(requestBody, colId, undefined, localVariables);
+      }
 
-      let reqHeaders: Record<string, string> = activeRequest.headers?.reduce((acc: Record<string, string>, h: any) => {
-        if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId, undefined, localVariables);
+      // Rows with the same header name (any case) are folded into one
+      // comma-separated value (RFC 7230 s3.2.2) instead of the last one winning.
+      let reqHeaders: Record<string, string> = (activeRequest.headers || []).reduce((acc: Record<string, string>, h: any) => {
+        if (!h.key || !h.enabled) return acc;
+        const value = resolveAllVariables(h.value, colId, undefined, localVariables);
+        const existing = Object.keys(acc).find((k) => k.toLowerCase() === h.key.toLowerCase());
+        if (existing) acc[existing] = `${acc[existing]}, ${value}`;
+        else acc[h.key] = value;
         return acc;
-      }, {}) || {};
+      }, {});
 
-      const cookieVal = useCookieStore.getState().getCookiesHeaderForUrl(resolvedUrl);
+      const sendCookies = useSettingsStore.getState().settings.sendCookies !== false;
+      const cookieVal = sendCookies ? useCookieStore.getState().getCookiesHeaderForUrl(resolvedUrl) : '';
       if (cookieVal && !reqHeaders['Cookie'] && !reqHeaders['cookie']) {
         reqHeaders['Cookie'] = cookieVal;
       }
@@ -228,6 +318,11 @@ export function UrlBar() {
         const formDataPayload = [];
         for (const item of (activeRequest.body?.formData || [])) {
           if (!item.enabled || !item.key) continue;
+          if (item.type === 'file' && !item.file) {
+            // Only the file name survives a save/reload; never send it as if it were the content.
+            useConsoleStore.getState().addLog({ type: 'warn', message: `form-data field "${item.key}": file "${item.value || ''}" is not attached (files are not saved with the request) - skipped` });
+            continue;
+          }
           if (item.type === 'file' && item.file) {
             const base64 = await fileToBase64(item.file);
             formDataPayload.push({ type: 'file', key: item.key, filename: item.file.name, content: base64.split(',')[1] });
@@ -238,6 +333,14 @@ export function UrlBar() {
         requestBody = { _isFormData: true, items: formDataPayload };
       }
 
+      if (mods?.headers) {
+        Object.entries(mods.headers).forEach(([k, v]) => {
+          const ex = Object.keys(reqHeaders).find((hk) => hk.toLowerCase() === k.toLowerCase());
+          if (ex) delete reqHeaders[ex];
+          reqHeaders[k] = resolveAllVariables(String(v), colId, undefined, localVariables);
+        });
+      }
+      if (mods?.body !== undefined && typeof requestBody === 'string' && bodyMode === 'raw') requestBody = mods.body;
       if (preResult?.headerWrites) {
         Object.entries(preResult.headerWrites).forEach(([k, v]) => {
           reqHeaders[k] = v;
@@ -253,19 +356,37 @@ export function UrlBar() {
       const abortController = new AbortController();
       (window as any).__abortController = abortController;
 
-      const { sendRequest } = await import('../../transport');
+      if (activeRequest.settings?.encodeUrl === true) {
+        try { finalUrl = new URL(finalUrl).href; } catch { /* not an absolute URL: send as typed */ }
+      }
+
+      sentSnapshot = { method: reqMethod, url: finalUrl, headers: reqHeaders, body: requestBody };
+      const { sendRequest, getTransport, BrowserTransport, getBrowserTransportWarnings } = await import('../../transport');
       const reqPayload = {
-        method: activeRequest.method,
+        method: reqMethod,
         url: finalUrl,
         headers: reqHeaders,
         body: requestBody,
-        followRedirects: useSettingsStore.getState().settings.followRedirects,
-        verifySsl: useSettingsStore.getState().settings.verifySsl,
-        timeout: useSettingsStore.getState().settings.timeout ?? 0,
+        // Per-request settings (Settings tab) override the global ones.
+        followRedirects: activeRequest.settings?.followRedirects ?? useSettingsStore.getState().settings.followRedirects,
+        verifySsl: activeRequest.settings?.verifySsl ?? useSettingsStore.getState().settings.verifySsl,
+        timeout: activeRequest.settings?.timeout ?? useSettingsStore.getState().settings.timeout ?? 0,
         localProxy: getLocalProxyConfig(),
+        signal: abortController.signal,
       };
       
+      // A plain browser fetch() silently ignores forbidden headers, SSL
+      // verification being off and proxy settings - say so instead.
+      if (getTransport() instanceof BrowserTransport) {
+        const warnings = getBrowserTransportWarnings(reqPayload);
+        warnings.forEach((message) => useConsoleStore.getState().addLog({ type: 'warn', message }));
+        if (warnings.length) useToastStore.getState().addToast('info', warnings[0]);
+      }
+
       const res = await sendRequest(reqPayload);
+      // Capture Set-Cookie into the jar when the transport exposes it
+      // (extension/desktop; a plain browser fetch() hides this header).
+      useCookieStore.getState().storeSetCookies(finalUrl, (res.headers as any)?.['set-cookie'] ?? (res.headers as any)?.['Set-Cookie']);
       const endTime = Date.now();
       const responseTime = res.responseTime || (endTime - startTime);
       const responseBody = typeof res.body === 'string'
@@ -274,27 +395,14 @@ export function UrlBar() {
       const isBase64 = !!res.isBase64;
 
       // Manually save history if enabled
-      const saveHistory = useSettingsStore.getState().settings.saveHistory !== false;
-      const workspaceId = useAuthStore.getState().activeWorkspace?._id;
-      if (saveHistory && workspaceId) {
-        // Send asynchronously
-        api.post(`/workspaces/${workspaceId}/history`, {
-          requestSnapshot: {
-            method: activeRequest.method,
-            url: finalUrl,
-            headers: reqHeaders,
-            body: requestBody,
-          },
-          responseBody,
-          responseStatus: res.status,
-          responseStatusText: res.statusText,
-          responseHeaders: res.headers,
-          responseTime,
-          responseSize: res.size || 0,
-          testResults: [], // populated later? No, history on server didn't have test results from test script because it ran on server before test script.
-        }).then(() => window.dispatchEvent(new Event('history-updated')))
-          .catch(err => console.error('Failed to save history', err));
-      }
+      recordHistory({
+        responseBody,
+        responseStatus: res.status,
+        responseStatusText: res.statusText,
+        responseHeaders: res.headers,
+        responseTime,
+        responseSize: res.size || 0,
+      });
 
 
       // 3. Run combined Test script
@@ -324,18 +432,24 @@ export function UrlBar() {
         visualizerData,
       } as any);
 
-      // Log to Console Drawer
+      // Log to Console Drawer. Log the headers and URL that were actually
+      // sent (`reqHeaders` / `finalUrl`), not a fresh re-derivation from
+      // activeRequest.headers — that one dropped the Cookie header, the
+      // resolved auth header, Content-Type, anything a pre-request script
+      // wrote or removed, and any apikey-in-query auth appended to the URL,
+      // and it resolved variables without the local-variable scope. The
+      // Console is meant to show the request as it left the app.
       useConsoleStore.getState().addLog({
         type: 'request',
         method: activeRequest.method,
-        url: resolvedUrl,
+        url: finalUrl,
         status: res.status,
         time: responseTime,
-        requestHeaders: activeRequest.headers?.reduce((acc: any, h: any) => {
-          if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, colId);
-          return acc;
-        }, {}) || {},
-        requestBody: requestBody,
+        requestHeaders: withAutoHeaders(reqHeaders, requestBody),
+        // form-data mode makes requestBody a {_isFormData, items} object.
+        // The drawer renders this straight into a <pre>, and React throws on
+        // an object child — so it has to be a string by the time it lands.
+        requestBody: typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody, null, 2),
         responseHeaders: res.headers || {},
         responseBody,
       });
@@ -353,30 +467,82 @@ export function UrlBar() {
       }
       const isNetworkError = !err.response && err instanceof TypeError
         && /failed to fetch|networkerror|load failed/i.test(err.message);
+      // Input the user must fix (e.g. empty URL) is not a server failure.
+      const isClientError = err?.code === 'EMPTY_URL';
       const errorBody = err.response?.data
         ? JSON.stringify(err.response.data, null, 2)
         : isNetworkError
-          ? `Could not reach ${activeRequest.url}\n\nThe request never left the browser. Likely causes: the server blocks cross-origin (CORS) requests, a wrong URL or DNS failure, no network, or an ad blocker. Install the browser extension to send requests to servers that block CORS.`
+          ? describeNetworkError(activeRequest.url)
           : err.message;
       setResponseForTab(tabId, {
-        status: err.response?.status || (isNetworkError ? 0 : 500),
-        statusText: err.response?.statusText || (isNetworkError ? 'Network Error' : 'Error'),
+        status: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
+        statusText: err.response?.statusText || (isNetworkError ? 'Network Error' : isClientError ? 'Invalid request' : 'Error'),
         headers: err.response?.headers || {},
         body: errorBody,
         responseTime: 0,
         size: 0,
       });
 
+      // A request that never got a response is still part of the history,
+      // recorded with status 0 so it reads as a network failure.
+      recordHistory({
+        responseBody: errorBody,
+        responseStatus: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
+        responseStatusText: err.response?.statusText || (isNetworkError ? 'Network Error' : isClientError ? 'Invalid request' : 'Error'),
+        responseHeaders: {},
+        responseTime: Date.now() - startTime,
+        responseSize: 0,
+      });
+
       useConsoleStore.getState().addLog({
         type: 'request',
         method: activeRequest.method,
         url: activeRequest.url,
-        status: err.response?.status || (isNetworkError ? 0 : 500),
+        status: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
         time: 0,
         responseBody: errorBody,
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // The tab is marked saved optimistically; a failed PUT has to undo that and
+  // say so, or the user walks away believing the change is stored.
+  // Applies to the tab that was saved, which is not necessarily the active one
+  // by the time the server answers.
+  const applyToTab = (tabId: string | undefined, updates: Partial<ActiveRequest>) => {
+    if (!tabId) return;
+    const st = useRequestStore.getState();
+    st.updateTab(tabId, updates);
+    if (st.activeTabId === tabId) st.updateActiveRequest(updates);
+  };
+  const markTabDirty = (tabId?: string) => {
+    if (!tabId) return;
+    const st = useRequestStore.getState();
+    st.updateTab(tabId, { isDirty: true });
+    if (st.activeTabId === tabId) st.updateActiveRequest({ isDirty: true });
+  };
+  const reportSaveFailure = (err: any, tabId?: string) => {
+    console.error('Failed to update request', err);
+    markTabDirty(tabId);
+    const status = err?.response?.status;
+    if (status === 403) {
+      // Permission was downgraded: the axios interceptor already toasted the
+      // reason; offer to keep the work as a copy in a workspace the user can edit.
+      setIsViewerForkModalOpen(true);
+    } else if (status === 404) {
+      useToastStore.getState().addToast('error', 'This request no longer exists - it was deleted by someone else.');
+      setConfirmConfig({
+        isOpen: true,
+        title: 'Request was deleted',
+        message: 'This request was deleted on the server. Save your version as a new request?',
+        confirmLabel: 'Save as new',
+        onConfirm: () => { setConfirmConfig((c: any) => ({ ...c, isOpen: false })); setIsSaveModalOpen(true); },
+        onCancel: () => setConfirmConfig((c: any) => ({ ...c, isOpen: false })),
+      });
+    } else {
+      useToastStore.getState().addToast('error', `Save failed: ${err?.response?.data?.message || err?.message || 'unknown error'}`);
     }
   };
 
@@ -389,6 +555,7 @@ export function UrlBar() {
     }
 
     if (activeRequest.collectionId && activeRequest._id) {
+      const savingTabId = activeRequest.tabId;
       try {
         // 1. Instant local DB save
         import('../../db').then(({ db }) => {
@@ -400,19 +567,11 @@ export function UrlBar() {
 
         // The server's update schema is `.strict()` and only accepts these
         // request fields — sending the whole tab object (tabId, isDirty,
-        // isConflicted, collectionId, _id, ...) gets the PUT rejected 400
-        // "Unrecognized key(s)" every time, silently failing every save.
+        // isConflicted, collectionId, _id, a form-data row's File, ...) gets
+        // the PUT rejected with a 400.
         const updatePayload = {
-          name: activeRequest.name,
-          method: activeRequest.method,
-          url: activeRequest.url,
-          params: activeRequest.params,
-          headers: activeRequest.headers,
-          auth: activeRequest.auth,
-          body: activeRequest.body,
-          preRequestScript: activeRequest.preRequestScript,
-          testScript: activeRequest.testScript,
-          folderId: activeRequest.folderId,
+          ...toRequestPayload(activeRequest),
+          folderId: activeRequest.folderId ?? null,
         };
 
         // 2. Background server sync
@@ -429,12 +588,12 @@ export function UrlBar() {
               setConfirmConfig((c: any) => ({ ...c, isOpen: false }));
               try {
                 const res = await api.put(`/requests/${activeRequest._id}`, updatePayload);
-                updateActiveRequest({ updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
+                applyToTab(savingTabId, { updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
                 import('../../db').then(({ db }) => {
                   if (activeRequest._id) db.requests.update(activeRequest._id, { updatedAt: res.data.updatedAt });
                 });
               } catch (err) {
-                console.error('Failed to update request', err);
+                reportSaveFailure(err, savingTabId);
               }
             },
             onCancel: () => {
@@ -446,12 +605,13 @@ export function UrlBar() {
         }
         
         const res = await api.put(`/requests/${activeRequest._id}`, updatePayload);
-        updateActiveRequest({ updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
+        applyToTab(savingTabId, { updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
         import('../../db').then(({ db }) => {
           if (activeRequest._id) db.requests.update(activeRequest._id, { updatedAt: res.data.updatedAt });
         });
       } catch (err) {
-        console.error('Failed to update request', err);
+        if (!isAutoSave) reportSaveFailure(err, savingTabId);
+        else markTabDirty(savingTabId);
       }
     } else if (!isAutoSave) {
       setIsSaveModalOpen(true);
@@ -460,16 +620,12 @@ export function UrlBar() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
       const settings = useSettingsStore.getState().settings;
-      
+
       const saveShortcut = settings.shortcuts?.save || 'ctrl+s';
       const sendShortcut = settings.shortcuts?.send || 'ctrl+enter';
 
-      const matchShortcut = (shortcut: string) => {
-        return shortcut.includes('ctrl') ? (isCtrlOrCmd && key === shortcut.split('+')[1]) : (key === shortcut);
-      };
+      const matchShortcut = (shortcut: string) => matchesShortcut(e, shortcut);
 
       if (matchShortcut(saveShortcut)) {
         e.preventDefault();
@@ -551,6 +707,7 @@ export function UrlBar() {
               multilineOnFocus
               value={activeRequest.url}
               onChange={(val) => handleUrlChange(val)}
+              onPaste={handleUrlPaste}
               onEnter={handleSend}
               placeholder="Enter request URL"
             />
@@ -651,6 +808,7 @@ export function UrlBar() {
           ) : (
             <>
               <button
+                data-testid="load-test-open-btn"
                 onClick={() => setIsLoadTestModalOpen(true)}
                 className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded-md hover:bg-orange-200 dark:hover:bg-orange-900/50 text-sm font-medium transition-colors"
                 title="Load Test"

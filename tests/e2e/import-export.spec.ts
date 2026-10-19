@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Import / Export', () => {
   test('should export workspace data and import it successfully', async ({ page }) => {
@@ -79,9 +79,13 @@ test.describe('Import / Export', () => {
     await page.getByTestId('import-data-input').setInputFiles(importPath);
     await expect(page.locator('#confirm-modal-description')).toContainText('This will insert all dumped');
 
+    // The workspace already has data, so the server asks for an explicit
+    // choice: add alongside (append) or replace (overwrite).
     const importResponse = page.waitForResponse(resp =>
-      resp.url().includes('/api/admin/import/') && resp.request().method() === 'POST'
+      resp.url().includes('/api/admin/import/') && resp.url().includes('mode=append') && resp.request().method() === 'POST'
     );
+    await page.getByTestId('confirm-btn').click();
+    await expect(page.locator('#confirm-modal-description')).toContainText('already has');
     await page.getByTestId('confirm-btn').click();
     const response = await importResponse;
     expect(response.status()).toBe(200);

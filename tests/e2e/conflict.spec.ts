@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Conflict Resolution', () => {
   test('User B gets overwrite prompt when saving an outdated request', async ({ browser }) => {
@@ -86,6 +86,9 @@ test.describe('Conflict Resolution', () => {
     // Sidebar panel switches (tab-environments, tab-history) also match this
     // prefix but carry role="tab" — the request tabs don't.
     await expect(pageB.locator('[data-testid^="tab-"]:not([role="tab"])')).toContainText('Conflict Request');
+
+    // 7b. User B has unsaved local edits - only then is a newer server version a conflict (otherwise it is applied silently).
+    await pageB.getByTestId('request-url-input').fill('https://httpbin.org/local-edit');
 
     // 8. User A edits the request and saves
     await pageA.getByTestId('request-url-input').fill('https://httpbin.org/post');

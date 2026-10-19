@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('RBAC Roles', () => {
   test('Viewer cannot edit, Editor can edit', async ({ browser }) => {

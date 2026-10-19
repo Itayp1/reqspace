@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Share Links', () => {
   test('should generate a link, strip sensitive data for anonymous view, and handle revocation', async ({ page, context, request }) => {
@@ -41,7 +41,7 @@ test.describe('Share Links', () => {
     
     // Add Test Script
     await page.getByTestId('req-tab-tests').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("leak", function() { pm.expect(1).to.eql(1); });');
     await page.keyboard.press('Control+V');
@@ -91,9 +91,15 @@ test.describe('Share Links', () => {
     expect(reqData.testScript).toBeUndefined(); // Scripts should be stripped
     expect(reqData.preRequestScript).toBeUndefined();
 
-    // Revoke the link
+    // Revoke the link. The click fires DELETE /share/:shortId without the
+    // test being able to see it finish, so wait on the response — asserting
+    // the 404 straight after the click raced the delete and got a 200.
+    const revokePromise = page.waitForResponse(
+      (res) => res.url().includes(`/share/${shortId}`) && res.request().method() === 'DELETE'
+    );
     await page.getByTestId('share-link-revoke-btn').click();
-    
+    expect((await revokePromise).status()).toBe(200);
+
     // Assert revocation returns 404
     const revokedResponse = await anonymousRequest.get(`/api/share/${shortId}`);
     expect(revokedResponse.status()).toBe(404);

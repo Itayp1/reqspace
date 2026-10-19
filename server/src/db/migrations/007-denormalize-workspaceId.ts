@@ -13,12 +13,13 @@ export async function up({ context: queryInterface }: { context: QueryInterface 
   await addColumnIfMissing(queryInterface, 'requests', 'workspaceId');
 
   // Populate existing workspaceIds
-  await queryInterface.sequelize.query(`
-    UPDATE folders SET "workspaceId" = (SELECT "workspaceId" FROM collections WHERE collections.id = folders."collectionId")
-  `);
-  await queryInterface.sequelize.query(`
-    UPDATE requests SET "workspaceId" = (SELECT "workspaceId" FROM collections WHERE collections.id = requests."collectionId")
-  `);
+  // Quote identifiers per dialect: Postgres/SQLite take "x", MySQL needs `x`.
+  const q = (name: string) => queryInterface.quoteIdentifier(name);
+  for (const table of ['folders', 'requests']) {
+    await queryInterface.sequelize.query(
+      `UPDATE ${table} SET ${q('workspaceId')} = (SELECT c.${q('workspaceId')} FROM collections c WHERE c.id = ${table}.${q('collectionId')})`
+    );
+  }
 
   // Deliberately left nullable. SqlFolder/SqlRequest don't declare a
   // workspaceId attribute and no write path populates it, so NOT NULL would

@@ -10,6 +10,10 @@ export const updateEnvironmentSchema = z.object({
   variables: z.any().optional()
 }).strict();
 
+export const duplicateEnvironmentSchema = z.object({
+  workspaceId: z.string().optional()
+}).strict();
+
 export const updateGlobalEnvironmentSchema = z.object({
   variables: z.any()
 }).strict();

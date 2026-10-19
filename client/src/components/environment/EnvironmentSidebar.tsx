@@ -90,6 +90,7 @@ export default function EnvironmentSidebar() {
         )}
         
         <div
+          data-testid="env-local-variables-btn"
           className="p-2 text-sm rounded cursor-pointer hover:bg-border transition flex items-center"
           onClick={() => openEnvironmentTab('local-variables', 'Local Variables')}
         >

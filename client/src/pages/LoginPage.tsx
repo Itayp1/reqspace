@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axios';
 import { useAuthStore } from '../store/authStore';
+import OAuthButtons from '../components/common/OAuthButtons';
+import { sessionCookieStored, SESSION_COOKIE_BLOCKED_MESSAGE } from '../utils/sessionCookie';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [config, setConfig] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const setUser = useAuthStore((state) => state.setUser);
 
@@ -17,28 +20,22 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return; // ignore double-clicks while a login is in flight (A1.10)
     setError('');
+    setSubmitting(true);
     try {
       const res = await api.post('/auth/login', { email, password });
+      if (!(await sessionCookieStored())) {
+        setError(SESSION_COOKIE_BLOCKED_MESSAGE);
+        setSubmitting(false);
+        return;
+      }
       setUser(res.data.user);
       navigate('/');
       window.location.reload(); // To fetch workspaces
     } catch (err: any) {
       setError(err.response?.data?.message || 'Login failed');
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    if (!config?.googleOAuth?.clientId) return;
-    try {
-      const res = await fetch('/api/auth/state');
-      if (!res.ok) throw new Error('Failed to fetch state');
-      const { state } = await res.json();
-      const redirectUri = window.location.origin + '/auth/google/callback';
-      const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${config.googleOAuth.clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile&access_type=offline&prompt=consent&state=${state}`;
-      window.location.href = googleAuthUrl;
-    } catch (err) {
-      setError('Failed to initiate Google login');
+      setSubmitting(false);
     }
   };
 
@@ -77,20 +74,11 @@ export default function LoginPage() {
           />
         </div>
 
-        <button data-testid="login-submit" type="submit" className="w-full bg-primary text-white p-2 rounded hover:bg-orange-600 transition mb-4">
+        <button data-testid="login-submit" type="submit" disabled={submitting} className="w-full bg-primary text-white p-2 rounded hover:bg-orange-600 transition mb-4 disabled:opacity-60">
           Sign In
         </button>
 
-        {config?.googleOAuth?.enabled && (
-          <button 
-            type="button" 
-            onClick={handleGoogleLogin}
-            className="w-full bg-white border border-border text-black p-2 rounded hover:bg-gray-50 transition flex items-center justify-center gap-2"
-          >
-            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4" />
-            Continue with Google
-          </button>
-        )}
+        <OAuthButtons config={config} onError={setError} />
 
         {config?.allowSelfRegistration !== false && (
           <div className="mt-4 text-center text-sm text-text-muted">

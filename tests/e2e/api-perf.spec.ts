@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 const uuidv4 = () => require('crypto').randomUUID();
 
 test.describe('Performance Tests', () => {

@@ -40,11 +40,17 @@ function freshConfig() {
 }
 
 describe('dbConfig — defaults', () => {
-  it('defaults to mongodb when no config exists', () => {
-    const { getDbConfig } = freshConfig();
-    const cfg = getDbConfig();
-    expect(cfg.type).toBe('mongodb');
-    expect(cfg.connectionString).toContain('mongodb://');
+  it('defaults to sqlite when no config exists', () => {
+    const savedPath = process.env.DB_STORAGE_PATH;
+    delete process.env.DB_STORAGE_PATH;
+    try {
+      const { getDbConfig } = freshConfig();
+      const cfg = getDbConfig();
+      expect(cfg.type).toBe('sqlite');
+      expect(cfg.storagePath).toMatch(/data.sqlite$/);
+    } finally {
+      if (savedPath !== undefined) process.env.DB_STORAGE_PATH = savedPath;
+    }
   });
 
   it('uses DB_TYPE env var', () => {
@@ -144,6 +150,7 @@ describe('dbConfig — file read/write', () => {
 
 describe('dbConfig — connection string mode', () => {
   it('supports mongodb connection string via env', () => {
+    process.env.DB_TYPE = 'mongodb';
     process.env.MONGO_URI = 'mongodb://user:pass@host:27017/mydb';
     const { getDbConfig } = freshConfig();
     const cfg = getDbConfig();

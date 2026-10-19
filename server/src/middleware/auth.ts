@@ -17,8 +17,8 @@ export interface AuthRequest extends Request {
   params: Record<string, string>;
 }
 
-export function signToken(userId: string, ttlDays: number): string {
-  return jwt.sign({ sub: userId }, JWT_SECRET, {
+export function signToken(userId: string, ttlDays: number, tokenVersion = 0): string {
+  return jwt.sign({ sub: userId, tokenVersion }, JWT_SECRET, {
     expiresIn: `${ttlDays}d`,
   });
 }
@@ -58,20 +58,34 @@ export function clearAuthCookie(res: Response) {
 }
 
 /**
- * Whether an identity header (`X-Auth-User`) may be trusted from this request's
- * source. Auto-provisioning a session from a client-supplied header is safe
- * only behind a trusted reverse proxy that sets it; from anywhere else it is
- * pure impersonation (CR#2). Defaults to loopback only; extend via
- * HEADER_AUTH_TRUSTED_IPS (comma-separated) for a real proxy deployment.
+ * Offline / single-user mode (REQSPACE_OFFLINE=true, set by the desktop app's
+ * "skip sign-in" option): no login and no internet needed. Only honoured for
+ * connections from this machine — the real socket peer, not X-Forwarded-For.
  */
-function isTrustedHeaderAuthSource(req: Request): boolean {
-  const trusted = (process.env.HEADER_AUTH_TRUSTED_IPS || '127.0.0.1,::1')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const rawIp = req.ip || '';
-  const normalized = rawIp.replace(/^::ffff:/, '');
-  return trusted.includes(rawIp) || trusted.includes(normalized);
+export function isOfflineMode(): boolean {
+  return process.env.REQSPACE_OFFLINE === 'true';
+}
+
+function isLoopbackPeer(req: Request): boolean {
+  const ip = (req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+  return ip === '127.0.0.1' || ip === '::1';
+}
+
+const OFFLINE_EMAIL = 'local@reqspace.local';
+
+async function getOrCreateOfflineUser() {
+  let user = await UserRepository.findByEmail(OFFLINE_EMAIL);
+  if (!user) {
+    user = await UserRepository.create({
+      name: 'Local User',
+      email: OFFLINE_EMAIL,
+      passwordHash: null,
+      authType: 'local',
+      isSuperAdmin: true,
+    });
+    await createPersonalWorkspace(user);
+  }
+  return user;
 }
 
 /** Creates personal workspace for a new user */
@@ -86,54 +100,36 @@ export async function createPersonalWorkspace(user: any) {
   await EnvironmentRepository.upsertGlobal(workspace.id || (workspace as any)._id, []);
 }
 
-/** Main auth middleware – validates JWT from cookie and optionally handles header auth */
+// While a forced password change is pending, only the endpoints the change
+// flow itself needs are usable; everything else is blocked server-side so the
+// client modal cannot be bypassed with direct API calls (A5.6).
+const MUST_CHANGE_PASSWORD_ALLOWED = ['/api/auth/me', '/api/auth/change-password', '/api/auth/logout', '/api/auth/config'];
+function isAllowedWhileMustChangePassword(req: Request): boolean {
+  const path = (req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '');
+  return MUST_CHANGE_PASSWORD_ALLOWED.includes(path);
+}
+
+/** Main auth middleware – validates the JWT session cookie (or auto-signs-in the local user in offline mode) */
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
   try {
+    // Several routers mounted under /api each start with `router.use(authenticate)`, so one request can
+    // pass through this middleware repeatedly. Once it has been authenticated, don't hit the DB again.
+    if (req.user) return next();
+
     const config = await SystemConfigRepository.getConfig();
-    const mode = config?.auth.mode ?? 'login';
     const ttlDays = config?.auth.jwtTtlDays ?? 7;
     const refreshHours = config?.auth.jwtRefreshHoursBeforeExpiry ?? 24;
 
-    // ── Header-based auto-provisioning ──────────────────────────────────────
-    if (mode === 'header' || mode === 'both') {
-      const headerName = config?.auth.headerName ?? 'X-Auth-User';
-      const headerValue = req.headers[headerName.toLowerCase()] as string | undefined;
-
-      if (headerValue && isTrustedHeaderAuthSource(req)) {
-        const email = headerValue.toLowerCase();
-        let user = await UserRepository.findByEmail(email);
-
-        if (!user) {
-          // Auto-provision (only reached from a trusted proxy source)
-          user = await UserRepository.create({
-            name: headerValue,
-            email,
-            passwordHash: null,
-            authType: 'header',
-          });
-          await createPersonalWorkspace(user);
-        }
-
-        if (user.status !== 'active') {
-          return res.status(403).json({ message: 'Account suspended' });
-        }
-
-        await UserRepository.update(String(user._id), { lastLoginAt: new Date() } as any);
-        const token = signToken(String(user._id), ttlDays);
-        setCookieToken(res, token, ttlDays);
-        req.user = user;
-        return next();
+    // ── Offline mode: sign in the local user automatically ─────────────────
+    if (isOfflineMode()) {
+      if (!isLoopbackPeer(req)) {
+        return res.status(403).json({ message: 'Offline mode is only available from this machine' });
       }
-
-      // Header present but the source isn't trusted, or no header at all.
-      if (mode === 'header') {
-        return res.status(401).json({
-          message: headerValue
-            ? 'Header authentication not permitted from this address'
-            : 'Missing auth header',
-        });
-      }
-      // 'both' mode: fall through to cookie auth below.
+      const user = await getOrCreateOfflineUser();
+      if (user.status !== 'active') return res.status(403).json({ message: 'Account suspended' });
+      setCookieToken(res, signToken(String(user._id), ttlDays, user.tokenVersion ?? 0), ttlDays);
+      req.user = user;
+      return next();
     }
 
     // ── JWT Cookie validation ───────────────────────────────────────────────
@@ -156,13 +152,24 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return res.status(401).json({ message: 'User not found or suspended' });
     }
 
+    // Token-version check: logout and password-change bump the DB counter,
+    // so tokens minted before that event are immediately rejected (A4.2/A5.8).
+    if ((payload.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+      clearAuthCookie(res);
+      return res.status(401).json({ message: 'Session invalidated' });
+    }
+
     // Auto-refresh: if token expires within refreshHours, issue new token
     const exp = payload.exp!;
     const now = Math.floor(Date.now() / 1000);
     const refreshThreshold = refreshHours * 3600;
     if (exp - now < refreshThreshold) {
-      const newToken = signToken(String(user._id), ttlDays);
+      const newToken = signToken(String(user._id), ttlDays, user.tokenVersion);
       setCookieToken(res, newToken, ttlDays);
+    }
+
+    if (user.mustChangePassword && !isAllowedWhileMustChangePassword(req)) {
+      return res.status(403).json({ message: 'Password change required', code: 'PASSWORD_CHANGE_REQUIRED' });
     }
 
     req.user = user;

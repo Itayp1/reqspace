@@ -1,13 +1,17 @@
+import { queryJsonPath, isMultiPath } from '../../utils/jsonPath';
+import { useMonacoTheme } from '../../utils/useMonacoTheme';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useRequestStore } from '../../store/requestStore';
 import { useCookieStore } from '../../store/cookieStore';
 import type { CookieItem } from '../../store/cookieStore';
-import Editor from '@monaco-editor/react';
+import Editor from '../common/LazyEditor';
 import { Download, Loader2, Search, Cookie, Copy, Check, WrapText, ChevronDown } from 'lucide-react';
 import { CookieManagerModal } from '../common/CookieManagerModal';
 
 type TabType = 'body' | 'cookies' | 'headers' | 'test_results' | 'visualizer';
-type BodyMode = 'pretty' | 'raw' | 'preview' | 'visualize';
+// No 'visualize' mode: it only ever printed "not implemented". The real
+// visualizer (pm.visualizer.set) has its own response tab.
+type BodyMode = 'pretty' | 'raw' | 'preview';
 type FormatType = 'JSON' | 'XML' | 'HTML' | 'Text' | 'Auto';
 
 const formatXml = (xml: string) => {
@@ -36,6 +40,7 @@ const formatXml = (xml: string) => {
 export const ResponseViewer: React.FC = () => {
   const { activeResponse, activeRequest, isLoading } = useRequestStore();
   const { cookies } = useCookieStore();
+  const monacoTheme = useMonacoTheme();
   
   const [activeTab, setActiveTab] = useState<TabType>('body');
   const [bodyMode, setBodyMode] = useState<BodyMode>('pretty');
@@ -80,18 +85,26 @@ export const ResponseViewer: React.FC = () => {
         let expires = '';
         let httpOnly = false;
         let secure = false;
+        let removed = false;
 
         parts.slice(1).forEach((part: string) => {
           const lower = part.toLowerCase();
-          if (lower.startsWith('domain=')) domain = part.substring(7);
+          if (lower.startsWith('domain=')) domain = part.substring(7).replace(/^\./, '').toLowerCase();
           else if (lower.startsWith('path=')) path = part.substring(5);
           else if (lower.startsWith('expires=')) expires = part.substring(8);
-          else if (lower.startsWith('max-age=')) expires = `Max-Age: ${part.substring(8)}`;
+          else if (lower.startsWith('max-age=')) { expires = `Max-Age: ${part.substring(8)}`; if (parseInt(part.substring(8), 10) <= 0) removed = true; }
           else if (lower === 'httponly') httpOnly = true;
           else if (lower === 'secure') secure = true;
         });
 
-        const exists = cookiesToDisplay.findIndex(c => c.name === name && c.domain === domain);
+        // Same identity as the jar (name+domain+path) so the tab stays in sync with it.
+        if (!removed && expires && !expires.startsWith('Max-Age') && new Date(expires).getTime() <= Date.now()) removed = true;
+        const exists = cookiesToDisplay.findIndex(c => c.name === name && c.domain === domain && (c.path || '/') === path);
+        if (removed) {
+          // Deleted by this response (Max-Age<=0 / past Expires): the jar drops it, so the tab must too.
+          if (exists >= 0) cookiesToDisplay.splice(exists, 1);
+          return;
+        }
         const newC: CookieItem = { id: `res-${name}`, name, value, domain, path, expires, httpOnly, secure };
         if (exists >= 0) {
           cookiesToDisplay[exists] = newC;
@@ -166,22 +179,19 @@ export const ResponseViewer: React.FC = () => {
   const displayBody = useMemo(() => {
     if (!body) return '';
     if (bodyMode === 'raw') return body;
-    if (bodyMode === 'visualize') return '// Visualize mode not implemented.\n' + body;
 
     if (isJson && (format === 'Auto' || format === 'JSON')) {
       try {
         let parsed = JSON.parse(body);
         if (jsonFilter.trim()) {
-          const pathParts = jsonFilter.trim().replace(/^(\$\.|\/)/, '').split(/\.|\[|\]/).filter(Boolean);
-          let curr = parsed;
-          for (const part of pathParts) {
-            if (curr && typeof curr === 'object' && part in curr) {
-              curr = curr[part];
-            } else {
-              return `// No match for path "${jsonFilter}"`;
-            }
+          let matches: unknown[];
+          try {
+            matches = queryJsonPath(parsed, jsonFilter);
+          } catch (e: any) {
+            return `// Invalid JSON path "${jsonFilter}": ${e.message}`;
           }
-          return JSON.stringify(curr, null, 2);
+          if (matches.length === 0) return `// No match for path "${jsonFilter}"`;
+          return JSON.stringify(isMultiPath(jsonFilter) ? matches : matches[0], null, 2);
         }
         return JSON.stringify(parsed, null, 2);
       } catch {
@@ -237,7 +247,7 @@ export const ResponseViewer: React.FC = () => {
               }`}
             >
               {tab.replace('_', ' ')}
-              {tab === 'headers' && headers && ` (${Object.keys(headers).length})`}
+              {tab === 'headers' && headers && ` (${Object.values(headers).reduce((n: number, v: any) => n + (Array.isArray(v) ? v.length : 1), 0)})`}
               {tab === 'test_results' && testResults && ` (${testResults.length})`}
             </button>
             );
@@ -273,7 +283,7 @@ export const ResponseViewer: React.FC = () => {
       {activeTab === 'body' && (
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-800 p-1.5 text-xs">
           <div className="flex space-x-1">
-            {(['pretty', 'raw', 'preview', 'visualize'] as BodyMode[]).map((mode) => (
+            {(['pretty', 'raw', 'preview'] as BodyMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setBodyMode(mode)}
@@ -385,7 +395,7 @@ export const ResponseViewer: React.FC = () => {
                 height="100%"
                 language={bodyMode === 'raw' ? 'text' : language}
                 value={displayBody}
-                theme="vs-dark"
+                theme={monacoTheme}
                 options={{
                   readOnly: true,
                   minimap: { enabled: false },
@@ -423,10 +433,12 @@ export const ResponseViewer: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Repeated headers (e.g. several Set-Cookie) arrive as arrays: one row per value. */}
                   {Object.entries(headers || {})
+                    .flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map((val, i) => [k, String(val), `${k}#${i}`] as [string, string, string]))
                     .filter(([k, v]) => k.toLowerCase().includes(headerFilter.toLowerCase()) || v.toLowerCase().includes(headerFilter.toLowerCase()))
-                    .map(([key, value]) => (
-                    <tr key={key} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    .map(([key, value, rowKey]) => (
+                    <tr key={rowKey} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="px-4 py-1.5 font-mono text-xs text-gray-800 dark:text-gray-200 border-r border-gray-100 dark:border-gray-800 align-top">{key}</td>
                       <td className="px-4 py-1.5 font-mono text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-all">{value}</td>
                     </tr>

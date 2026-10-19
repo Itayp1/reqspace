@@ -3,11 +3,14 @@ import * as schemas from '../schemas/auth.schemas';
 
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository } from '../repositories/SystemConfigRepository';
-import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace } from '../middleware/auth';
+import { authenticate, AuthRequest, signToken, setCookieToken, clearAuthCookie, createPersonalWorkspace, isOfflineMode } from '../middleware/auth';
 import { logAudit } from '../repositories/AuditLogRepository';
 import { rateLimit } from '../middleware/rateLimit';
+import { noteRouteError } from '../utils/errorReporter';
+import { fetchIdentity, isOAuthProvider, configKey, OAuthProviderId, OAUTH_PROVIDERS, missingOAuthFields, allowedRedirectUris } from '../utils/oauthProviders';
 
 const router = Router();
 
@@ -49,12 +52,22 @@ router.post('/register', validate(schemas.registerSchema), registerLimiter, asyn
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  const user = await UserRepository.create({
-    name,
-    email: email.toLowerCase(),
-    passwordHash,
-    authType: 'password', isSuperAdmin: false,
-  });
+  let user;
+  try {
+    user = await UserRepository.create({
+      name,
+      email: email.toLowerCase(),
+      passwordHash,
+      authType: 'password', isSuperAdmin: false,
+    });
+  } catch (err: any) {
+    // Concurrent registration with the same email loses the check-then-insert
+    // race on the unique index — report it as a duplicate, not a 500 (A2.7).
+    if (err?.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'Email already registered' });
+    }
+    throw err;
+  }
 
   // Auto-create personal workspace
   await createPersonalWorkspace(user);
@@ -64,7 +77,7 @@ router.post('/register', validate(schemas.registerSchema), registerLimiter, asyn
     details: { email },
   });
 
-  const token = signToken(String(user._id), config.auth.jwtTtlDays);
+  const token = signToken(String(user._id), config.auth.jwtTtlDays, 0);
   setCookieToken(res, token, config.auth.jwtTtlDays);
 
   return res.status(201).json({
@@ -75,39 +88,63 @@ router.post('/register', validate(schemas.registerSchema), registerLimiter, asyn
   });
 });
 
+// R5.5: per-account throttle on FAILED logins, independent of the client IP, so
+// rotating source addresses (spoofed X-Forwarded-For, botnets) can't brute-force one account.
+const FAILED_LOGIN_MAX = 20;
+const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const failedLogins = new Map<string, { count: number; resetAt: number }>();
+function loginKey(email: unknown) { return String(email ?? '').trim().toLowerCase(); }
+function loginBlocked(key: string) {
+  const f = failedLogins.get(key);
+  if (f && f.resetAt <= Date.now()) { failedLogins.delete(key); return false; }
+  return !!f && f.count >= FAILED_LOGIN_MAX;
+}
+function noteLoginFailure(key: string) {
+  const now = Date.now();
+  const f = failedLogins.get(key);
+  if (!f || f.resetAt <= now) failedLogins.set(key, { count: 1, resetAt: now + FAILED_LOGIN_WINDOW_MS });
+  else f.count++;
+  if (failedLogins.size > 10000) for (const [k, v] of failedLogins) if (v.resetAt <= now) failedLogins.delete(k);
+}
+
 // ── POST /api/auth/login ────────────────────────────────────────────────────
 router.post('/login', validate(schemas.loginSchema), loginLimiter, async (req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
-  const mode = config?.auth.mode ?? 'login';
-
-  if (mode === 'header') {
-    return res.status(403).json({ message: 'Login form disabled. Use header authentication.' });
-  }
 
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: 'email and password are required' });
   }
 
+  const lk = loginKey(email);
+  if (loginBlocked(lk)) {
+    return res.status(429).json({ message: 'Too many login attempts — please try again later.' });
+  }
+
   const user = await UserRepository.findByEmail(email);
   if (!user || !user.passwordHash) {
+    noteLoginFailure(lk);
     return res.status(401).json({ message: 'Invalid credentials' });
   }
 
   if (user.status !== 'active') {
+    await logAudit(user._id as any, 'auth.login_failed', { ip: req.ip, details: { reason: 'suspended' } });
     return res.status(403).json({ message: 'Account suspended' });
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
+    noteLoginFailure(lk);
+    await logAudit(user._id as any, 'auth.login_failed', { ip: req.ip, details: { reason: 'bad_password' } });
     return res.status(401).json({ message: 'Invalid credentials' });
   }
+  failedLogins.delete(lk);
 
   await UserRepository.update(user._id as any, { lastLoginAt: new Date() } as any);
   await logAudit(user._id as any, 'auth.login', { ip: req.ip });
 
   const ttlDays = config?.auth.jwtTtlDays ?? 7;
-  const token = signToken(String(user._id), ttlDays);
+  const token = signToken(String(user._id), ttlDays, user.tokenVersion ?? 0);
   setCookieToken(res, token, ttlDays);
 
   return res.json({
@@ -123,7 +160,11 @@ router.post('/login', validate(schemas.loginSchema), loginLimiter, async (req: R
 });
 
 // ── POST /api/auth/logout ───────────────────────────────────────────────────
-router.post('/logout', validate(require('zod').z.any()), (_req: Request, res: Response) => {
+router.post('/logout', validate(require('zod').z.any()), authenticate, async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  // Bump tokenVersion so any previously issued JWT is rejected on next use
+  // (A4.2 — stolen tokens stop working immediately after logout).
+  await UserRepository.update(String(user._id), { tokenVersion: (user.tokenVersion ?? 0) + 1 } as any);
   clearAuthCookie(res);
   return res.json({ message: 'Logged out' });
 });
@@ -155,14 +196,21 @@ router.get('/me', authenticate, (req: AuthRequest, res: Response) => {
 // Public endpoint – client needs to know what auth mode to show
 router.get('/config', async (_req: Request, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
-  return res.json({
-    mode: config?.auth.mode ?? 'login',
+  const out: Record<string, unknown> = {
+    mode: isOfflineMode() ? 'offline' : 'login',
     allowSelfRegistration: config?.auth?.allowSelfRegistration ?? false,
-    googleOAuth: {
-      enabled: config?.auth.googleOAuth?.enabled ?? false,
-      clientId: config?.auth.googleOAuth?.clientId ?? '',
-    }
-  });
+  };
+  // Public: only what the browser needs to start the redirect — never the secret.
+  for (const id of OAUTH_PROVIDERS) {
+    const c = config?.auth[configKey(id)];
+    out[configKey(id)] = {
+      enabled: c?.enabled ?? false,
+      clientId: c?.clientId ?? '',
+      ...(id === 'microsoft' ? { tenantId: c?.tenantId || 'common' } : {}),
+      ...(id === 'custom' ? { name: c?.name || 'SSO', authorizeUrl: c?.authorizeUrl || '', scope: c?.scope || 'openid email profile' } : {}),
+    };
+  }
+  return res.json(out);
 });
 
 // ── POST /api/auth/change-password ──────────────────────────────────────────
@@ -182,17 +230,35 @@ router.post('/change-password', validate(schemas.changePasswordSchema), authenti
     }
   }
 
+  // The new password must differ from the current one (A5.2).
+  if (user.passwordHash && (await bcrypt.compare(newPassword, user.passwordHash))) {
+    return res.status(400).json({ message: 'New password must be different from the current password' });
+  }
+
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await UserRepository.update(user._id as any, { passwordHash, mustChangePassword: false } as any);
+  const newTokenVersion = (user.tokenVersion ?? 0) + 1;
+  await UserRepository.update(user._id as any, {
+    passwordHash,
+    mustChangePassword: false,
+    // Bump tokenVersion to invalidate all sessions issued before this change
+    // (A5.8 — password change revokes other active sessions).
+    tokenVersion: newTokenVersion,
+  } as any);
+  // Keep the session that made the change alive with a token for the new version.
+  const cfg = await SystemConfigRepository.getConfig();
+  const ttlDays = cfg?.auth.jwtTtlDays ?? 7;
+  setCookieToken(res, signToken(String(user._id), ttlDays, newTokenVersion), ttlDays);
   await logAudit(user._id as any, 'auth.change_password', { details: { forced: !!user.mustChangePassword } });
   return res.json({ message: 'Password changed successfully' });
 });
 
 // ── GET /api/auth/state ────────────────────────────────────────────────────────
-router.get('/state', async (req: Request, res: Response) => { console.log('HIT STATE ROUTE!!!');
+router.get('/state', async (req: Request, res: Response) => {
   const crypto = await import('crypto');
   const state = crypto.randomBytes(32).toString('hex');
-  res.cookie('oauth_state', state, {
+  // One cookie per attempt (named by the state's prefix) so a second click or tab can't invalidate the first.
+  res.set('Cache-Control', 'no-store');
+  res.cookie(`oauth_state_${state.slice(0, 16)}`, state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -202,14 +268,16 @@ router.get('/state', async (req: Request, res: Response) => { console.log('HIT S
   return res.json({ state });
 });
 
-// ── POST /api/auth/google ───────────────────────────────────────────────────
-router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (req: Request, res: Response) => {
+// ── POST /api/auth/:provider (google | github | microsoft) ──────────────────
+const oauthLogin = (provider: OAuthProviderId) => async (req: Request, res: Response) => {
+  const label = provider === 'custom' ? 'SSO' : provider[0].toUpperCase() + provider.slice(1);
   const { code, redirectUri, state } = req.body;
   if (!code) return res.status(400).json({ message: 'Code is required' });
 
   const crypto = await import('crypto');
-  const cookieState = req.cookies?.oauth_state;
-  res.clearCookie('oauth_state', { path: '/' }); // clear immediately
+  const cookieName = typeof state === 'string' && /^[0-9a-f]{64}$/.test(state) ? `oauth_state_${state.slice(0, 16)}` : '';
+  const cookieState = cookieName ? req.cookies?.[cookieName] : undefined;
+  if (cookieName) res.clearCookie(cookieName, { path: '/' }); // clear immediately
 
   const ok = typeof state === 'string' && typeof cookieState === 'string' &&
     state.length === 64 && cookieState.length === 64 &&
@@ -220,41 +288,35 @@ router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (
   }
 
   const config = await SystemConfigRepository.getConfig();
-  const oauthConfig = config?.auth.googleOAuth;
-  if (!oauthConfig?.enabled) return res.status(403).json({ message: 'Google OAuth is disabled' });
+  const oauthConfig = config?.auth[configKey(provider)];
+  if (!oauthConfig?.enabled) return res.status(403).json({ message: `${label} sign-in is disabled` });
+  const missing = missingOAuthFields(provider, oauthConfig);
+  if (missing.length) {
+    console.error(`${label} OAuth: not configured, missing ${missing.join(', ')}`);
+    return res.status(400).json({ message: `${label} sign-in is not configured correctly (an administrator must set: ${missing.join(', ')} in Admin > Settings).` });
+  }
 
   // Hard-allowlist redirect URIs server-side — a client-supplied redirect_uri
-  // is a code-interception vector (CR#4). Configure via GOOGLE_ALLOWED_REDIRECT_URIS.
-  const allowedRedirects = (process.env.GOOGLE_ALLOWED_REDIRECT_URIS || 'http://localhost:5173/auth/google/callback')
-    .split(',').map((s) => s.trim()).filter(Boolean);
+  // is a code-interception vector (CR#4). Configure via OAUTH_ALLOWED_REDIRECT_URIS
+  // (GOOGLE_ALLOWED_REDIRECT_URIS is still read); the defaults cover local dev and
+  // the desktop app's embedded server.
+  const allowedRedirects = allowedRedirectUris(provider);
   const chosenRedirect = redirectUri || allowedRedirects[0];
   if (!allowedRedirects.includes(chosenRedirect)) {
-    return res.status(400).json({ message: 'redirect_uri not allowed' });
+    console.error(`${label} OAuth: redirect_uri ${chosenRedirect} is not in OAUTH_ALLOWED_REDIRECT_URIS`);
+    return res.status(400).json({ message: `redirect_uri not allowed. An administrator must add ${chosenRedirect} to OAUTH_ALLOWED_REDIRECT_URIS on the server.` });
   }
 
   try {
-    // 1. Exchange code for token
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: oauthConfig.clientId,
-        client_secret: oauthConfig.clientSecret,
-        redirect_uri: chosenRedirect,
-        grant_type: 'authorization_code',
-      }),
-    });
-    const tokenData = await tokenResponse.json() as any;
-    // Never echo the token endpoint's raw response back to the client (CR#4).
-    if (tokenData.error) return res.status(400).json({ message: 'Failed to exchange token' });
-
-    // 2. Fetch user info
-    const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-    const userData = await userResponse.json() as any;
-    if (!userData.email) return res.status(400).json({ message: 'No email found from Google' });
+    let identity;
+    try {
+      identity = await fetchIdentity(provider, oauthConfig, code, chosenRedirect);
+    } catch (e: any) {
+      // Never echo provider responses back to the client (CR#4).
+      console.error(`${label} OAuth:`, e?.message);
+      return res.status(400).json({ message: `Failed to sign in with ${label}` });
+    }
+    const userData = { email: identity.email, name: identity.name, picture: identity.avatar };
 
     // 3. Find or create user
     let user = await UserRepository.findByEmail(userData.email);
@@ -262,17 +324,27 @@ router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (
       if (!config?.auth?.allowSelfRegistration) {
         return res.status(403).json({ message: 'Self registration is disabled' });
       }
-      user = await UserRepository.create({
-        name: userData.name || userData.email.split('@')[0],
-        email: userData.email,
-        passwordHash: '',
-        authType: 'sso',
-        avatar: userData.picture,
-        status: 'active',
-      } as any);
-      
-      await createPersonalWorkspace(user);
-      await logAudit(user._id as any, 'auth.register', { ip: req.ip, details: { method: 'google' } });
+      let created = false;
+      try {
+        user = await UserRepository.create({
+          name: userData.name || userData.email.split('@')[0],
+          email: userData.email.toLowerCase(),
+          passwordHash: '',
+          authType: 'sso',
+          avatar: userData.picture,
+          status: 'active',
+        } as any);
+        created = true;
+      } catch (err: any) {
+        // Two sign-ins for a brand-new email can race; the loser just uses the account the winner created.
+        if (err?.name !== 'SequelizeUniqueConstraintError') throw err;
+        user = await UserRepository.findByEmail(userData.email);
+        if (!user) throw err;
+      }
+      if (created) {
+        await createPersonalWorkspace(user);
+        await logAudit(user._id as any, 'auth.register', { ip: req.ip, details: { method: provider } });
+      }
     }
 
     if (user.status !== 'active') {
@@ -280,10 +352,10 @@ router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (
     }
 
     await UserRepository.update(user._id as any, { lastLoginAt: new Date() } as any);
-    await logAudit(user._id as any, 'auth.login', { ip: req.ip, details: { method: 'google' } });
+    await logAudit(user._id as any, 'auth.login', { ip: req.ip, details: { method: provider } });
 
     const ttlDays = config?.auth.jwtTtlDays ?? 7;
-    const token = signToken(String(user._id), ttlDays);
+    const token = signToken(String(user._id), ttlDays, user.tokenVersion ?? 0);
     setCookieToken(res, token, ttlDays);
 
     return res.json({
@@ -297,16 +369,21 @@ router.post('/google', validate(schemas.googleAuthSchema), loginLimiter, async (
       },
     });
   } catch (error: any) {
-    console.error('Google OAuth Error:', error);
-    return res.status(500).json({ message: 'Internal server error during Google login' });
+    console.error(`${label} OAuth Error:`, error);
+    noteRouteError(res, error);
+    return res.status(500).json({ message: `Internal server error during ${label} login` });
   }
-});
+};
+
+for (const provider of OAUTH_PROVIDERS) {
+  router.post(`/${provider}`, validate(schemas.oauthCodeSchema), loginLimiter, oauthLogin(provider));
+}
 
 // ── PUT /api/auth/settings ───────────────────────────────────────────
 const ALLOWED_SETTINGS_KEYS = [
   'followRedirects', 'verifySsl', 'sendNoCacheHeader', 'encodeUrl', 'timeout',
-  'proxyEnabled', 'proxyUrl', 'proxyAuthEnabled', 'proxyUsername', 'proxyPassword',
-  'saveHistory', 'shortcuts',
+  'proxyEnabled', 'proxyUrl', 'noProxy', 'proxyAuthEnabled', 'proxyUsername', 'proxyPassword',
+  'saveHistory', 'sendCookies', 'shortcuts',
 ];
 
 router.put('/settings', validate(schemas.updateSettingsSchema), authenticate, async (req: AuthRequest, res: Response) => {
@@ -321,6 +398,7 @@ router.put('/settings', validate(schemas.updateSettingsSchema), authenticate, as
     return res.json(updatedUser!.settings);
   } catch (err: any) {
     // Don't echo internal error details back to the client.
+    noteRouteError(res, err);
     return res.status(500).json({ message: 'Failed to update settings' });
   }
 });
@@ -331,6 +409,23 @@ router.post('/certificates', validate(schemas.addCertificateSchema), authenticat
   const { hostname, cert, key, passphrase } = req.body;
   if (!hostname || !cert || !key) return res.status(400).json({ message: 'hostname, cert, and key are required' });
   
+  // P4.4: reject anything that is not a parseable certificate / private key pair.
+  try {
+    const x509 = new crypto.X509Certificate(cert);
+    let keyObj: crypto.KeyObject;
+    try {
+      keyObj = crypto.createPrivateKey({ key, passphrase: passphrase || undefined });
+    } catch (e: any) {
+      const encrypted = /ENCRYPTED/.test(key);
+      if (encrypted && !passphrase) return res.status(400).json({ message: 'The private key is encrypted - a passphrase is required' });
+      if (encrypted) return res.status(400).json({ message: 'Wrong passphrase for the private key' });
+      return res.status(400).json({ message: 'Invalid private key (expected a PEM private key)' });
+    }
+    if (!x509.checkPrivateKey(keyObj)) return res.status(400).json({ message: 'The private key does not match the certificate' });
+  } catch {
+    return res.status(400).json({ message: 'Invalid certificate (expected a PEM-encoded X.509 certificate)' });
+  }
+
   try {
     const cryptoBox = await import('../utils/cryptoBox');
     const newCert = {
@@ -341,7 +436,9 @@ router.post('/certificates', validate(schemas.addCertificateSchema), authenticat
       passphrase: passphrase ? cryptoBox.seal(passphrase) : undefined,
       createdAt: new Date()
     };
-    const updatedCerts = [...(user.clientCertificates || []), newCert];
+    // P4.8: one certificate per hostname - a new one replaces the existing entry.
+    const sameHost = (c: any) => String(c.hostname).toLowerCase() === String(hostname).toLowerCase();
+    const updatedCerts = [...(user.clientCertificates || []).filter((c: any) => !sameHost(c)), newCert];
     const updatedUser = await UserRepository.update(user._id || (user as any).id, { clientCertificates: updatedCerts } as any);
     
     // Return metadata only
@@ -352,6 +449,7 @@ router.post('/certificates', validate(schemas.addCertificateSchema), authenticat
     }));
     return res.status(201).json(safeCerts);
   } catch (err: any) {
+    noteRouteError(res, err);
     return res.status(500).json({ message: err.message });
   }
 });
@@ -371,6 +469,7 @@ router.delete('/certificates/:id', authenticate, async (req: AuthRequest, res: R
     }));
     return res.json(safeCerts);
   } catch (err: any) {
+    noteRouteError(res, err);
     return res.status(500).json({ message: err.message });
   }
 });

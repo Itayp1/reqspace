@@ -10,6 +10,8 @@ interface ScriptResult {
   visualizerData?: { template: string; data?: any };
   headerWrites?: Record<string, string>;
   removedHeaders?: string[];
+  /** Final state of pm.request after the script ran (pre-request only). */
+  requestMods?: { url?: string; method?: string; headers?: Record<string, string>; body?: any };
 }
 
 function serializeVariables(collectionId?: string, iterationData?: Record<string, any>, localVariables?: Map<string, string>) {
@@ -34,6 +36,7 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
   iterationData?: Record<string, any>;
   localVariables?: Map<string, string>;
   response?: any;
+  request?: { url: string; method: string; headers: Record<string, string>; body?: any };
 }): Promise<ScriptResult> {
   if (!script || !script.trim()) return { testResults: [] };
   
@@ -63,6 +66,19 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
                }
                setEnvironments(environments.map((e: any) => e._id === activeEnv._id ? { ...e, variables: newVars } : e));
              }
+           } else if (w.scope === 'environment' && (w.action === 'unset' || w.action === 'clear')) {
+             const { environments, activeEnvironmentId, setEnvironments } = useEnvironmentStore.getState();
+             const activeEnv = environments.find((e: any) => e._id === activeEnvironmentId);
+             if (activeEnv) {
+               const newVars = activeEnv.variables.filter((v: any) => w.action === 'clear' ? false : v.key !== w.key);
+               setEnvironments(environments.map((e: any) => e._id === activeEnv._id ? { ...e, variables: newVars } : e));
+             }
+           } else if (w.scope === 'globals' && (w.action === 'unset' || w.action === 'clear')) {
+             const { globalEnvironment, setGlobalEnvironment } = useEnvironmentStore.getState();
+             if (globalEnvironment) {
+               const newVars = globalEnvironment.variables.filter((v: any) => w.action === 'clear' ? false : v.key !== w.key);
+               setGlobalEnvironment({ ...globalEnvironment, variables: newVars });
+             }
            } else if (w.scope === 'globals' && w.action === 'set') {
              const { globalEnvironment, setGlobalEnvironment } = useEnvironmentStore.getState();
              if (globalEnvironment) {
@@ -83,13 +99,17 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
              } else if (w.action === 'remove') {
                removedHeaders.push(w.key);
              }
-           } else if (w.scope === 'local' && w.action === 'set') {
+           } else if ((w.scope === 'local' || w.scope === 'collection') && w.action === 'set') {
              options.localVariables?.set(w.key, String(w.value));
+           } else if ((w.scope === 'local' || w.scope === 'collection') && w.action === 'unset') {
+             options.localVariables?.delete(w.key);
+           } else if ((w.scope === 'local' || w.scope === 'collection') && w.action === 'clear') {
+             options.localVariables?.clear();
            }
         });
         
         msg.consoleLines?.forEach((c: any) => {
-           useConsoleStore.getState().addLog({ type: c.level as any, message: c.args.map((a: any) => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') });
+           useConsoleStore.getState().addLog({ type: c.level as any, message: c.args.map((a: any) => String(a)).join(' ') });
         });
         
         resolve({
@@ -97,7 +117,8 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
            testResults: msg.testResults || [],
            visualizerData: msg.visualizer,
            headerWrites,
-           removedHeaders
+           removedHeaders,
+           requestMods: msg.requestMods
         });
       } else if (msg.type === 'error') {
         worker.terminate();
@@ -140,16 +161,35 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
       };
     }
     
-    worker.postMessage({ type: 'run', phase, script, response: serializedResponse, variables });
+    worker.postMessage({ type: 'run', phase, script, request: options.request, response: serializedResponse, variables });
   });
 }
 
-export async function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
+export async function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>(), request?: { url: string; method: string; headers: Record<string, string>; body?: any }) {
   if (!script || !script.trim()) return undefined;
-  return executeInSandbox('pre-request', script, { collectionId, iterationData, localVariables });
+  return executeInSandbox('pre-request', script, { collectionId, iterationData, localVariables, request });
 }
 
 export async function runTestScript(script?: string, response?: any, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
   if (!script || !script.trim()) return undefined;
   return executeInSandbox('test', script, { collectionId, iterationData, localVariables, response });
+}
+
+type ReqShape = { url: string; method: string; headers: Record<string, string>; body?: any };
+
+/** Returns only the parts of pm.request a pre-request script actually changed. */
+export function diffRequestMods(original: ReqShape, mods?: Partial<ReqShape>): { url?: string; method?: string; headers?: Record<string, string>; body?: any } {
+  const out: { url?: string; method?: string; headers?: Record<string, string>; body?: any } = {};
+  if (!mods) return out;
+  if (typeof mods.url === 'string' && mods.url !== original.url) out.url = mods.url;
+  if (typeof mods.method === 'string' && mods.method !== original.method) out.method = mods.method;
+  if (mods.headers) {
+    const changed: Record<string, string> = {};
+    for (const [k, v] of Object.entries(mods.headers)) {
+      if (original.headers[k] !== v) changed[k] = String(v);
+    }
+    if (Object.keys(changed).length) out.headers = changed;
+  }
+  if (mods.body !== undefined && mods.body !== original.body) out.body = mods.body;
+  return out;
 }

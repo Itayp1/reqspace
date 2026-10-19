@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useCollectionStore, type Folder } from '../../store/collectionStore';
 import api from '../../api/axios';
 import { ScriptEditor } from '../request/ScriptEditor';
+import { AuthEditor } from '../request/AuthEditor';
+import type { RequestAuth } from '../../store/requestStore';
 
 interface GroupEditModalProps {
   type: 'collection' | 'folder';
@@ -22,11 +24,23 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
     ? collections.find(c => c._id === id)
     : allFolders.find(f => f._id === id);
 
-  const [activeTab, setActiveTab] = useState<'variables' | 'prerequest' | 'test'>(type === 'collection' ? 'variables' : 'prerequest');
+  const [activeTab, setActiveTab] = useState<'variables' | 'auth' | 'prerequest' | 'test'>(type === 'collection' ? 'variables' : 'auth');
   const [variables, setVariables] = useState<any[]>(type === 'collection' && item ? (item as any).variables || [] : []);
   const [preRequestScript, setPreRequestScript] = useState<string>(item?.preRequestScript || '');
   const [testScript, setTestScript] = useState<string>(item?.testScript || '');
+  // Ancestor auth — this is what a request set to `inherit` resolves against.
+  // A folder defaults to `inherit` (pass its collection's auth through); a
+  // collection is the top of the chain, so it defaults to `none`.
+  const [auth, setAuth] = useState<RequestAuth>(
+    ((item as any)?.auth as RequestAuth) || { type: type === 'folder' ? 'inherit' : 'none' }
+  );
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   if (!item) return null;
 
@@ -43,6 +57,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
     setLoading(true);
     try {
       const payload: any = {
+        auth,
         preRequestScript,
         testScript
       };
@@ -50,7 +65,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
       if (type === 'collection') {
         payload.variables = variables.filter(v => v.key.trim() !== '');
         const res = await api.put(`/collections/${id}`, payload);
-        setCollections(collections.map(c => c._id === id ? { ...c, variables: res.data.variables, preRequestScript: res.data.preRequestScript, testScript: res.data.testScript } : c));
+        setCollections(collections.map(c => c._id === id ? { ...c, variables: res.data.variables, auth: res.data.auth, preRequestScript: res.data.preRequestScript, testScript: res.data.testScript } : c));
       } else {
         const res = await api.put(`/folders/${id}`, payload);
         applyFolderUpserted(res.data);
@@ -83,6 +98,13 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
               Variables
             </button>
           )}
+          <button
+            data-testid="group-edit-auth-tab"
+            className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === 'auth' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
+            onClick={() => setActiveTab('auth')}
+          >
+            Authorization
+          </button>
           <button
             data-testid="group-edit-prerequest-tab"
             className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === 'prerequest' ? 'border-orange-500 text-orange-400' : 'border-transparent text-gray-400 hover:text-gray-200'}`}
@@ -134,6 +156,20 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
                   </tr>
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {activeTab === 'auth' && (
+            <div className="flex flex-col gap-3" data-testid="group-auth-editor">
+              <p className="text-xs text-gray-400">
+                Requests in this {type} whose Authorization type is
+                <span className="text-gray-200"> Inherit auth from parent </span>
+                use this. The nearest ancestor that sets something other than
+                Inherit wins, so a folder overrides its collection.
+              </p>
+              {/* A collection is the top of the chain — it has no parent to
+                  inherit from, so that option is hidden there. */}
+              <AuthEditor value={auth} onChange={setAuth} hideInherit={type === 'collection'} />
             </div>
           )}
 

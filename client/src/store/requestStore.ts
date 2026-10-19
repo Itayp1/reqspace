@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { onUserScopeChange, scopedKey, userScopedStorage } from './userScope';
 export interface KeyValueItem {
   key: string;
   value: string;
@@ -20,7 +21,7 @@ export interface RequestBody {
 
 export interface RequestAuth {
   type: 'none' | 'bearer' | 'basic' | 'apikey' | 'oauth2' | 'ntlm' | 'inherit';
-  bearer?: { token: string };
+  bearer?: { token: string; prefix?: string };
   basic?: { username: string; password: string };
   apikey?: { key: string; value: string; in: 'header' | 'query' };
   oauth2?: { token: string; clientId?: string; clientSecret?: string; authUrl?: string; accessTokenUrl?: string; scope?: string };
@@ -47,6 +48,34 @@ export interface ActiveRequest {
   isConflicted?: boolean;
   updatedAt?: number;
   isDirty?: boolean;
+  // Connection tabs only (WS / Socket.IO / SSE): settings that must survive a refresh.
+  connection?: ConnectionSettings;
+  /** Per-request overrides of the global settings (P2.5); unset = use the global value. */
+  settings?: RequestSettings;
+}
+
+export interface RequestSettings {
+  followRedirects?: boolean;
+  verifySsl?: boolean;
+  /** ms, 0 = no timeout */
+  timeout?: number;
+  encodeUrl?: boolean;
+  /** Saved connection tab (WS / Socket.IO / SSE): reopening restores the connection editor. */
+  connection?: ConnectionSettings;
+}
+
+export interface ConnectionSettings {
+  eventName?: string;
+  /** Socket.IO custom engine path, e.g. /my-path/socket.io/ */
+  sioPath?: string;
+  /** Socket.IO handshake query, "a=1&b=2" */
+  sioQuery?: string;
+  /** Socket.IO handshake auth payload (JSON). Never persisted: may hold a token. */
+  sioAuth?: string;
+  /** Socket.IO event names to listen to; empty = all events. */
+  listen?: string[];
+  /** WebSocket sub-protocols, comma separated. */
+  wsProtocols?: string;
 }
 
 export interface ResponseData {
@@ -84,6 +113,8 @@ interface RequestStore {
   closeTab: (tabId: string) => void;
   selectTab: (tabId: string) => void;
   newTab: () => void;
+  /** Opens an unsaved copy of a tab right after it; saving the copy asks where to put it. */
+  duplicateTab: (tabId: string) => void;
   openEnvironmentTab: (envId: string, name: string) => void;
   closeEnvironmentTab: (envId: string) => void;
   closeAllToRight: (tabId: string) => void;
@@ -107,6 +138,7 @@ function stripSecrets(tab: ActiveRequest): ActiveRequest {
   return {
     ...tab,
     auth: tab.auth ? { type: tab.auth.type } : tab.auth,
+    connection: tab.connection ? { ...tab.connection, sioAuth: undefined } : tab.connection,
     headers: (tab.headers ?? []).map(h =>
       SENSITIVE_HEADER_KEYS.test(h.key) ? { ...h, value: '' } : h
     ),
@@ -118,13 +150,14 @@ function stripSecrets(tab: ActiveRequest): ActiveRequest {
 // localStorage: they survive a refresh, but vanish when the browser tab/window
 // is closed, and entries for tabs that are no longer open are pruned on every
 // write — so nothing outlives the open tabs.
-const OPEN_TABS_SECRETS_KEY = 'open-tabs-secrets';
+const OPEN_TABS_SECRETS_BASE = 'open-tabs-secrets';
 
 interface TabSecrets { auth?: RequestAuth; headers?: { key: string; value: string }[] }
 
 function readOpenTabsSecrets(): Record<string, TabSecrets> {
   try {
-    return JSON.parse(sessionStorage.getItem(OPEN_TABS_SECRETS_KEY) || '{}') || {};
+    const key = scopedKey(OPEN_TABS_SECRETS_BASE);
+    return key ? JSON.parse(sessionStorage.getItem(key) || '{}') || {} : {};
   } catch {
     return {};
   }
@@ -132,6 +165,8 @@ function readOpenTabsSecrets(): Record<string, TabSecrets> {
 
 function writeOpenTabsSecrets(tabs: ActiveRequest[]) {
   try {
+    const key = scopedKey(OPEN_TABS_SECRETS_BASE);
+    if (!key) return;
     const out: Record<string, TabSecrets> = {};
     for (const t of tabs) {
       if (!t.tabId) continue;
@@ -143,8 +178,8 @@ function writeOpenTabsSecrets(tabs: ActiveRequest[]) {
         headers: (t.headers ?? []).map(h => ({ key: h.key, value: SENSITIVE_HEADER_KEYS.test(h.key) ? h.value : '' })),
       };
     }
-    if (Object.keys(out).length === 0) sessionStorage.removeItem(OPEN_TABS_SECRETS_KEY);
-    else sessionStorage.setItem(OPEN_TABS_SECRETS_KEY, JSON.stringify(out));
+    if (Object.keys(out).length === 0) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(out));
   } catch {
     // sessionStorage unavailable (private mode / quota) — secrets just won't survive a refresh
   }
@@ -221,6 +256,12 @@ export const useRequestStore = create<RequestStore>()(
 
         const tabId = activeRequest.tabId || activeRequest._id || Math.random().toString(36).substring(2, 9);
         const reqWithTabId = { ...activeRequest, tabId, isDirty: false };
+        // A saved connection comes back from the server as a plain request that
+        // carries its connection settings; reopen it as a connection tab.
+        if (reqWithTabId.tabType !== 'connection' && reqWithTabId.settings?.connection) {
+          reqWithTabId.tabType = 'connection';
+          reqWithTabId.connection = reqWithTabId.settings.connection;
+        }
 
         if (!historyMap[tabId]) {
           historyMap[tabId] = { undo: [], redo: [], lastPush: Date.now() };
@@ -265,7 +306,9 @@ export const useRequestStore = create<RequestStore>()(
 
         // Sync metadata (conflict flag, server timestamp) is not a user edit —
         // a socket echo of our own save used to re-mark the tab dirty.
-        const isMetaOnly = Object.keys(updates).every(k => k === 'isConflicted' || k === 'updatedAt' || k === 'isDirty');
+        // Comments are saved to the server the moment they are posted, so they
+        // are not unsaved changes either.
+        const isMetaOnly = Object.keys(updates).every(k => k === 'isConflicted' || k === 'updatedAt' || k === 'isDirty' || k === 'comments');
         const isDirtyValue = updates.isDirty !== undefined ? updates.isDirty : (isMetaOnly ? !!state.activeRequest.isDirty : true);
         const updated = { ...state.activeRequest, ...updates, isDirty: isDirtyValue };
 
@@ -344,6 +387,31 @@ export const useRequestStore = create<RequestStore>()(
         get().setActiveRequest(newReq);
       },
 
+      duplicateTab: (tabId) => {
+        const { tabs, activeTabId, activeRequest } = get();
+        const index = tabs.findIndex(t => t.tabId === tabId);
+        if (index < 0 || tabs[index].tabType === 'environment') return;
+        const source = tabId === activeTabId && activeRequest ? activeRequest : tabs[index];
+        const copyTabId = Math.random().toString(36).substring(2, 9);
+        // No _id / collection / folder: the copy is a new, unsaved request, so Save goes through the
+        // "where to save" dialog instead of overwriting the original.
+        const copy: ActiveRequest = {
+          ...JSON.parse(JSON.stringify(source)),
+          tabId: copyTabId,
+          _id: undefined,
+          collectionId: undefined,
+          folderId: undefined,
+          comments: undefined,
+          isConflicted: undefined,
+          updatedAt: undefined,
+          name: `${source.name} (Copy)`,
+          isDirty: true,
+        };
+        historyMap[copyTabId] = { undo: [], redo: [], lastPush: Date.now() };
+        const nextTabs = [...tabs.slice(0, index + 1), copy, ...tabs.slice(index + 1)];
+        set({ tabs: nextTabs, activeTabId: copyTabId, activeRequest: copy, activeResponse: null });
+      },
+
       newConnectionTab: () => {
         const newReq: ActiveRequest = {
           tabId: Math.random().toString(36).substring(2, 9),
@@ -416,6 +484,7 @@ export const useRequestStore = create<RequestStore>()(
     }),
     {
       name: 'request-storage',
+      storage: createJSONStorage(() => userScopedStorage),
       version: 1,
       // Wipes secrets already sitting in existing users' browsers from before
       // this fix, not just new writes going forward.
@@ -443,4 +512,12 @@ useRequestStore.subscribe((state) => {
   if (state.tabs === lastSecretTabs) return;
   lastSecretTabs = state.tabs;
   writeOpenTabsSecrets(state.tabs);
+});
+
+onUserScopeChange((prev) => {
+  if (prev) {
+    useRequestStore.setState({ tabs: [], activeTabId: null, activeRequest: null });
+    for (const k of Object.keys(historyMap)) delete historyMap[k];
+  }
+  void useRequestStore.persist.rehydrate();
 });

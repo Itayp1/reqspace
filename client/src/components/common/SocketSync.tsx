@@ -4,6 +4,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useCollectionStore } from '../../store/collectionStore';
 import { useRequestStore } from '../../store/requestStore';
 import { useEnvironmentStore } from '../../store/environmentStore';
+import { useToastStore } from '../../store/toastStore';
+import api from '../../api/axios';
 
 export function SocketSync() {
   const activeWorkspace = useAuthStore(state => state.activeWorkspace);
@@ -40,6 +42,39 @@ export function SocketSync() {
     socket.on('folder:deleted', (id) => useCollectionStore.getState().applyFolderDeleted(id));
     socket.on('request:created', (data) => useCollectionStore.getState().applyRequestUpserted(data));
     socket.on('request:deleted', (id) => useCollectionStore.getState().applyRequestDeleted(id));
+    // The active workspace stopped existing / stopped being ours: refresh the
+    // list, move to another workspace and tell the user why.
+    const leaveWorkspace = async (workspaceId: string, message: string) => {
+      const auth = useAuthStore.getState();
+      if (workspaceId !== auth.activeWorkspace?._id) {
+        auth.setWorkspaces(auth.workspaces.filter((w) => w._id !== workspaceId));
+        return;
+      }
+      useToastStore.getState().addToast('info', message);
+      let list = auth.workspaces.filter((w) => w._id !== workspaceId);
+      try { list = (await api.get('/workspaces')).data.filter((w: any) => w._id !== workspaceId); } catch { /* keep local list */ }
+      auth.setWorkspaces(list);
+      auth.setActiveWorkspace(list.find((w) => w.isPersonal) || list[0] || null);
+    };
+    socket.on('workspace:deleted', (p: { workspaceId: string; name?: string }) =>
+      leaveWorkspace(p.workspaceId, `Workspace "${p.name ?? ''}" was deleted by its owner`));
+    socket.on('workspace:access_revoked', (p: { workspaceId: string }) =>
+      leaveWorkspace(p.workspaceId, 'You no longer have access to this workspace'));
+    socket.on('workspace:role_changed', (p: { workspaceId: string; role: string }) => {
+      const auth = useAuthStore.getState();
+      const patch = (w: any) => (w._id === p.workspaceId ? { ...w, myRole: p.role } : w);
+      auth.setWorkspaces(auth.workspaces.map(patch));
+      if (auth.activeWorkspace?._id === p.workspaceId) {
+        auth.setActiveWorkspace(patch(auth.activeWorkspace));
+        useToastStore.getState().addToast('info', `Your role in this workspace is now ${p.role}`);
+      }
+    });
+    socket.on('workspace:updated', (p: { _id: string; name: string; description?: string; isPublic?: boolean }) => {
+      const auth = useAuthStore.getState();
+      const patch = (w: any) => (w._id === p._id ? { ...w, name: p.name, description: p.description, isPublic: p.isPublic } : w);
+      auth.setWorkspaces(auth.workspaces.map(patch));
+      if (auth.activeWorkspace?._id === p._id) auth.setActiveWorkspace(patch(auth.activeWorkspace));
+    });
     socket.on('workspace:reordered', (payload) => useCollectionStore.getState().applyWorkspaceReordered(payload));
 
     socket.on('environment:created', (env) => useEnvironmentStore.getState().applyEnvironmentUpserted(env));
@@ -79,8 +114,30 @@ export function SocketSync() {
          if (tab && updatedRequest.updatedAt && tab.updatedAt) {
            const remoteTime = new Date(updatedRequest.updatedAt).getTime();
            const localTime = new Date(tab.updatedAt).getTime();
-           if (remoteTime > localTime) {
-              // It's a newer version! Mark it conflicted.
+           if (remoteTime > localTime && !tab.isDirty) {
+              // No local edits: take the remote version silently (no conflict, no dialog).
+              const fresh = {
+                name: updatedRequest.name,
+                method: updatedRequest.method,
+                url: updatedRequest.url,
+                params: updatedRequest.params ?? [],
+                headers: updatedRequest.headers ?? [],
+                auth: updatedRequest.auth,
+                body: updatedRequest.body,
+                settings: updatedRequest.settings ?? {},
+                preRequestScript: updatedRequest.preRequestScript ?? '',
+                testScript: updatedRequest.testScript ?? '',
+                description: updatedRequest.description,
+                updatedAt: updatedRequest.updatedAt,
+                isConflicted: false,
+                isDirty: false,
+              };
+              requestStore.updateTab(updatedRequest._id, fresh);
+              if (requestStore.activeRequest && requestStore.activeRequest._id === updatedRequest._id) {
+                 requestStore.updateActiveRequest(fresh);
+              }
+           } else if (remoteTime > localTime) {
+              // Local edits exist and the server has a newer version: a real conflict.
               // We need to update the tab's state
               requestStore.updateTab(updatedRequest._id, { isConflicted: true });
               

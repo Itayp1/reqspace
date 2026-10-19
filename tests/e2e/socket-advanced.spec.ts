@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('WebSocket Advanced Sync', () => {
   test('Folder rename and Global variables sync between users', async ({ browser }) => {

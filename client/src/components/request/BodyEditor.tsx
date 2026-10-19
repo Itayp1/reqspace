@@ -1,8 +1,11 @@
 import { useRequestStore } from '../../store/requestStore';
 import type { RequestBody } from '../../store/requestStore';
 import { KeyValueEditor } from './KeyValueEditor';
-import Editor from '@monaco-editor/react';
+import Editor from '../common/LazyEditor';
 import { Wand2 } from 'lucide-react';
+import { useMonacoTheme } from '../../utils/useMonacoTheme';
+import { stripJsonComments } from '../../utils/jsonComments';
+import { useToastStore } from '../../store/toastStore';
 
 const CONTENT_TYPE_MAP: Record<string, string> = {
   json: 'application/json',
@@ -14,6 +17,7 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
 
 export function BodyEditor() {
   const { activeRequest, updateActiveRequest } = useRequestStore();
+  const monacoTheme = useMonacoTheme();
 
   if (!activeRequest) return null;
 
@@ -39,10 +43,11 @@ export function BodyEditor() {
   const handleBeautifyJson = () => {
     if (!body.raw) return;
     try {
-      const parsed = JSON.parse(body.raw);
+      // // and /* */ comments are removed on send, so they are dropped here too.
+      const parsed = JSON.parse(stripJsonComments(body.raw));
       updateActiveRequest({ body: { ...body, raw: JSON.stringify(parsed, null, 2) } });
-    } catch {
-      // not valid JSON — do nothing
+    } catch (e: any) {
+      useToastStore.getState().addToast('error', `Cannot beautify - invalid JSON: ${e?.message || 'parse error'}`);
     }
   };
 
@@ -130,7 +135,7 @@ export function BodyEditor() {
           <div data-testid="monaco-editor-container" className="h-full pt-2">
             <Editor
               height="100%"
-              theme="vs-dark"
+              theme={monacoTheme}
               language={body.rawLanguage || 'json'}
               value={body.raw || ''}
               onChange={(value) => updateActiveRequest({ body: { ...body, raw: value || '' } })}
@@ -150,7 +155,7 @@ export function BodyEditor() {
               <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-gray-800/50">Query</div>
               <Editor
                 height="100%"
-                theme="vs-dark"
+                theme={monacoTheme}
                 language="graphql"
                 value={body.graphql?.query || ''}
                 onChange={(value) => updateActiveRequest({ body: { ...body, graphql: { ...body.graphql, query: value || '', variables: body.graphql?.variables || '' } } })}
@@ -161,7 +166,7 @@ export function BodyEditor() {
               <div className="px-2 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-gray-800/50">GraphQL Variables</div>
               <Editor
                 height="100%"
-                theme="vs-dark"
+                theme={monacoTheme}
                 language="json"
                 value={body.graphql?.variables || ''}
                 onChange={(value) => updateActiveRequest({ body: { ...body, graphql: { ...body.graphql, query: body.graphql?.query || '', variables: value || '' } } })}

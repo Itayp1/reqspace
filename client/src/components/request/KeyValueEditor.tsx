@@ -151,18 +151,26 @@ export function KeyValueEditor({ items = [], onChange, allowFiles = false }: Key
                   </div>
                   <div className="border-r border-gray-200 dark:border-gray-700 flex items-center">
                     {item.type === 'file' ? (
-                      <input
-                        type="file"
-                        className="w-full p-1 text-xs outline-none bg-transparent"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const newItems = [...items];
-                            newItems[i] = { ...newItems[i], file };
-                            onChange(newItems);
-                          }
-                        }}
-                      />
+                      <div className="w-full flex flex-col">
+                        <input
+                          type="file"
+                          className="w-full p-1 text-xs outline-none bg-transparent"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const newItems = [...items];
+                              // The File object itself is not persisted; keep its name in `value`.
+                              newItems[i] = { ...newItems[i], file, value: file.name };
+                              onChange(newItems);
+                            }
+                          }}
+                        />
+                        {!item.file && item.value && (
+                          <span data-testid={`kv-file-missing-${i}`} className="px-1 pb-1 text-[10px] text-amber-600" title="File contents are not saved with the request">
+                            {item.value} - not saved, re-select the file before sending
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <VariableInput
                         data-testid={`kv-val-${i}`}

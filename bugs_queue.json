@@ -1,0 +1,12 @@
+[
+  {
+    "id": "BUG-001",
+    "title": "Login button remains disabled on valid inputs",
+    "description": "On the /login page, entering valid credentials leaves the submit button in a disabled state until clicking outside the input fields."
+  },
+  {
+    "id": "BUG-002",
+    "title": "Cart item count badge does not update on removal",
+    "description": "When deleting an item from the drawer, the badge count in the header does not decrement until manual page refresh."
+  }
+]

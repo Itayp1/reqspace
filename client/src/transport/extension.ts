@@ -35,9 +35,9 @@ window.addEventListener('message', (event) => {
           statusText: res.statusText,
           headers: res.headers,
           body: res.body,
-          isBase64: false,
+          isBase64: !!res.isBase64,
           responseTime: res.time ?? 0,
-          size: res.body ? res.body.length : 0,
+          size: res.size ?? (res.body ? res.body.length : 0),
         });
       }
     }
@@ -59,9 +59,21 @@ export class ExtensionTransport implements Transport {
       throw err;
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const id = Math.random().toString(36).substring(2);
       pendingRequests.set(id, resolve);
+      if (req.signal) {
+        const onAbort = () => {
+          // Tell the extension to abort the in-flight fetch, and settle now.
+          window.postMessage({ source: 'reqspace-client', type: 'REQSPACE_CANCEL', id }, '*');
+          pendingRequests.delete(id);
+          const err = new Error('canceled');
+          err.name = 'CanceledError';
+          reject(err);
+        };
+        if (req.signal.aborted) { onAbort(); return; }
+        req.signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       window.postMessage({
         source: 'reqspace-client',
@@ -71,7 +83,9 @@ export class ExtensionTransport implements Transport {
           method: req.method,
           url: req.url,
           headers: req.headers,
-          body: req.body
+          body: req.body,
+          // Per-user client-side proxy setting; the extension applies it via chrome.proxy.
+          localProxy: req.localProxy
         }
       }, '*');
     });

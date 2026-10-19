@@ -15,13 +15,28 @@ async function load() {
   });
 }
 
+function validateOrigin(origin) {
+  if (/\s/.test(origin)) return 'Origin must not contain spaces';
+  if (origin.includes('*')) return 'Wildcards are not allowed';
+  let u;
+  try { u = new URL(origin); } catch (e) { return 'Invalid origin - use e.g. https://example.com'; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'Origin must start with http:// or https://';
+  if (u.origin !== origin) return 'Use only scheme, host and port (no path, query or trailing slash)';
+  return '';
+}
+
 async function addOrigin() {
   const input = document.getElementById('newOrigin');
   let origin = input.value.trim();
-  if (!origin) return;
+  const error = document.getElementById('error');
+  const setError = (msg) => { if (error) error.textContent = msg; };
+  if (!origin) { setError('Enter an origin'); return; }
   // Ensure no trailing slash
   if (origin.endsWith('/')) origin = origin.slice(0, -1);
-  
+  const invalid = validateOrigin(origin);
+  if (invalid) { setError(invalid); return; }
+  setError('');
+
   const result = await chrome.storage.local.get({ originAllowlist: DEFAULT_ALLOWLIST });
   if (!result.originAllowlist.includes(origin)) {
     const newList = [...result.originAllowlist, origin];

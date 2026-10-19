@@ -20,7 +20,8 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     const handleResize = () => onClose();
     const handleClick = () => onClose();
     const handleScroll = () => onClose();
-    
+    const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('resize', handleResize);
     window.addEventListener('click', handleClick);
     window.addEventListener('scroll', handleScroll, true);
@@ -42,6 +43,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     setPosition({ x: newX, y: newY });
 
     return () => {
+      document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('click', handleClick);
       window.removeEventListener('scroll', handleScroll, true);

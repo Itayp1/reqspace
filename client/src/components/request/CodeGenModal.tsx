@@ -6,11 +6,10 @@ interface CodeGenModalProps {
   onClose: () => void;
 }
 
-type Language = 'curl' | 'fetch' | 'axios' | 'python-requests' | 'python-httpx' | 'go' | 'csharp';
-
 import { resolveAllVariables } from '../../utils/variables';
 import { applyRequestAuth, folderChainClosestFirst, resolveInheritedAuth } from '../../utils/requestAuth';
 import { useCollectionStore, type Folder } from '../../store/collectionStore';
+import { bodyForCode, generateSnippet, type Language } from '../../utils/codegen';
 
 const LANGUAGES: { id: Language; label: string }[] = [
   { id: 'curl', label: 'cURL' },
@@ -22,17 +21,17 @@ const LANGUAGES: { id: Language; label: string }[] = [
   { id: 'csharp', label: 'C# (HttpClient)' },
 ];
 
+// Resolves the tab the same way Send does (variables, inherited auth, the
+// body as it would be sent), then renders it for the chosen language.
 function generateCode(language: Language, req: ReturnType<typeof useRequestStore.getState>['activeRequest']): string {
   if (!req) return '';
 
-  const { method, collectionId } = req;
+  const { collectionId } = req;
   const { collections, foldersByCollection } = useCollectionStore.getState();
   const allFolders = Object.values(foldersByCollection).filter((v): v is Folder[] => Array.isArray(v)).flat();
   const collection = collections.find(c => c._id === collectionId);
   const resolve = (value: string) => resolveAllVariables(value, collectionId);
 
-  // Same auth pipeline as Send: resolves inherited auth and turns Basic /
-  // Bearer / API key / OAuth into an Authorization header (or query param).
   const baseHeaders: Record<string, string> = {};
   for (const h of req.headers || []) {
     if (h.enabled && h.key.trim()) baseHeaders[h.key] = resolve(h.value);
@@ -43,105 +42,13 @@ function generateCode(language: Language, req: ReturnType<typeof useRequestStore
     url: resolve(req.url || ''),
     resolve,
   });
-  const url = applied.url;
-  const enabledHeaders = Object.entries(applied.headers).map(([key, value]) => ({ key, value, enabled: true }));
-  const hasBody = req.body?.mode === 'raw' && req.body.raw;
-  const bodyStr = hasBody ? resolveAllVariables(req.body!.raw!, collectionId) : '';
 
-  switch (language) {
-    case 'curl': {
-      const parts = [`curl -X ${method} '${url}'`];
-      for (const h of enabledHeaders) parts.push(`  -H '${h.key}: ${h.value}'`);
-      if (hasBody) parts.push(`  -d '${bodyStr.replace(/'/g, "\\'")}'`);
-      return parts.join(' \\\n');
-    }
-
-    case 'fetch': {
-      const headersObj = Object.fromEntries(enabledHeaders.map(h => [h.key, h.value]));
-      const code = `const response = await fetch('${url}', {
-  method: '${method}',
-  headers: ${JSON.stringify(headersObj, null, 4).replace(/\n/g, '\n  ')},${hasBody ? `\n  body: JSON.stringify(${bodyStr}),` : ''}
-});
-const data = await response.json();
-console.log(data);`;
-      return code;
-    }
-
-    case 'axios': {
-      const headersObj = Object.fromEntries(enabledHeaders.map(h => [h.key, h.value]));
-      return `import axios from 'axios';
-
-const response = await axios({
-  method: '${method.toLowerCase()}',
-  url: '${url}',
-  headers: ${JSON.stringify(headersObj, null, 2).replace(/\n/g, '\n  ')},${hasBody ? `\n  data: ${bodyStr},` : ''}
-});
-console.log(response.data);`;
-    }
-
-    case 'python-requests': {
-      const headersObj = Object.fromEntries(enabledHeaders.map(h => [h.key, h.value]));
-      return `import requests
-
-headers = ${JSON.stringify(headersObj, null, 4)}
-${hasBody ? `payload = ${bodyStr}\n` : ''}
-response = requests.${method.toLowerCase()}(
-    '${url}',
-    headers=headers,${hasBody ? '\n    json=payload,' : ''}
-)
-print(response.json())`;
-    }
-
-    case 'python-httpx': {
-      const headersObj = Object.fromEntries(enabledHeaders.map(h => [h.key, h.value]));
-      return `import httpx
-
-with httpx.Client() as client:
-    response = client.${method.toLowerCase()}(
-        '${url}',
-        headers=${JSON.stringify(headersObj, null, 8)},${hasBody ? `\n        json=${bodyStr},` : ''}
-    )
-    print(response.json())`;
-    }
-
-    case 'go': {
-      return `package main
-
-import (
-    "fmt"
-    "io"
-    "net/http"
-    "strings"
-)
-
-func main() {
-    ${hasBody ? `body := strings.NewReader(\`${bodyStr}\`)
-    req, _ := http.NewRequest("${method}", "${url}", body)` : `req, _ := http.NewRequest("${method}", "${url}", nil)`}
-${enabledHeaders.map(h => `    req.Header.Set("${h.key}", "${h.value}")`).join('\n')}
-    client := &http.Client{}
-    resp, _ := client.Do(req)
-    defer resp.Body.Close()
-    data, _ := io.ReadAll(resp.Body)
-    fmt.Println(string(data))
-}`;
-    }
-
-    case 'csharp': {
-      return `using System.Net.Http;
-using System.Text;
-
-var client = new HttpClient();
-var request = new HttpRequestMessage(HttpMethod.${method[0] + method.slice(1).toLowerCase()}, "${url}");
-${enabledHeaders.map(h => `request.Headers.Add("${h.key}", "${h.value}");`).join('\n')}
-${hasBody ? `request.Content = new StringContent(@"${bodyStr}", Encoding.UTF8, "application/json");` : ''}
-var response = await client.SendAsync(request);
-var body = await response.Content.ReadAsStringAsync();
-Console.WriteLine(body);`;
-    }
-
-    default:
-      return '';
-  }
+  return generateSnippet(language, {
+    method: (req.method || 'GET').toUpperCase(),
+    url: applied.url,
+    headers: Object.entries(applied.headers),
+    body: bodyForCode(req.body as any, resolve),
+  });
 }
 
 export const CodeGenModal: React.FC<CodeGenModalProps> = ({ onClose }) => {

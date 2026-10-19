@@ -52,3 +52,15 @@ describe('scripts', () => {
     expect(result?.testResults).toHaveLength(1);
   });
 });
+
+import { diffRequestMods } from './scripts';
+describe('diffRequestMods', () => {
+  const orig = { url: 'http://h/x', method: 'GET', headers: { A: '1' }, body: 'b' };
+  it('returns nothing when unchanged', () => {
+    expect(diffRequestMods(orig, { ...orig, headers: { ...orig.headers } })).toEqual({});
+  });
+  it('returns only changed url/headers/body', () => {
+    expect(diffRequestMods(orig, { url: 'http://h/x?s=1', method: 'GET', headers: { A: '1', B: '2' }, body: 'c' }))
+      .toEqual({ url: 'http://h/x?s=1', headers: { B: '2' }, body: 'c' });
+  });
+});

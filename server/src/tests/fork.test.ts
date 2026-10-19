@@ -206,6 +206,19 @@ describe('Smart Fork (collection fork + auto-sync)', () => {
     expect(targetEnvs.find(e => e.name.startsWith('Secret Env'))).toBeUndefined();
   });
 
+  it('copies a source-workspace environment into the target workspace under a "(Fork)" name', async () => {
+    const { col } = await makeSourceCollection();
+    const env = await SqlEnvironment.create({
+      workspaceId: wsA.id, name: 'Fork Env',
+      variables: JSON.stringify([{ key: 'k', value: 'v' }]), createdBy: user.id,
+    });
+
+    await doFork(col._id, { copyEnvironmentId: env.id });
+
+    const copies = await SqlEnvironment.findAll({ where: { workspaceId: wsB.id } });
+    expect(copies.map(e => e.name)).toEqual(['Fork Env (Fork)']);
+  });
+
   it('honors copyVariables: false, and upstream variable changes still sync in afterward', async () => {
     const { col } = await makeSourceCollection();
     const forkedColId = await doFork(col._id, { copyVariables: false });

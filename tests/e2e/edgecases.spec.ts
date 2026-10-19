@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Edge Cases', () => {
   test('Strip JSON comments from request body', async ({ page }) => {
@@ -47,7 +47,7 @@ test.describe('Edge Cases', () => {
       /* Block comment */
       "number": 42
     }`;
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), jsonWithComments);
     await page.keyboard.press('Control+V');

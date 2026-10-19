@@ -1,5 +1,6 @@
 import { SqlAuditLog } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
+import { recordHandledError } from '../utils/errorReporter';
 
 export interface IAuditLogRecord {
   _id: string;
@@ -70,5 +71,6 @@ export async function logAudit(
     });
   } catch (err) {
     console.error('AuditLog Error:', err);
+    recordHandledError('audit-log', err);
   }
 }

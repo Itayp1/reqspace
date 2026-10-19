@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Smart Fork (collection fork + auto-sync)', () => {
   test('fork from a shared workspace into the personal workspace, switch workspaces, and see an unmodified item update live via socket', async ({ browser }) => {

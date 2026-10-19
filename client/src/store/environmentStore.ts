@@ -1,4 +1,5 @@
 ﻿import { create } from 'zustand';
+import { scopedKey } from './userScope';
 
 export interface EnvironmentVariable {
   key: string;
@@ -29,12 +30,21 @@ interface EnvironmentStore {
   setLocalVariables: (vars: EnvironmentVariable[]) => void;
   setUserProfileVariables: (vars: EnvironmentVariable[]) => void;
   fetchUserProfileVariables: () => Promise<void>;
+  /** Re-selects the environment remembered for this workspace (per user), if it still exists. */
+  restoreActiveEnvironment: (workspaceId: string, envs: Environment[]) => void;
   fetchEnvironments: (workspaceId: string) => Promise<void>;
   fetchLocalVariables: (workspaceId: string) => Promise<void>;
   
   // Socket reducers
   applyEnvironmentUpserted: (env: Environment) => void;
   applyEnvironmentDeleted: (id: string) => void;
+}
+
+// The selected environment is remembered per user and per workspace.
+let selectionWorkspaceId: string | null = null;
+function selectionKey(workspaceId: string | null): string | null {
+  const base = scopedKey('reqspace-active-env');
+  return base && workspaceId ? `${base}:${workspaceId}` : null;
 }
 
 export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
@@ -44,7 +54,28 @@ export const useEnvironmentStore = create<EnvironmentStore>((set) => ({
   localVariables: [],
   userProfileVariables: [],
   setEnvironments: (environments) => set({ environments }),
-  setActiveEnvironmentId: (activeEnvironmentId) => set({ activeEnvironmentId }),
+  setActiveEnvironmentId: (activeEnvironmentId) => {
+    set({ activeEnvironmentId });
+    const key = selectionKey(selectionWorkspaceId);
+    if (!key) return;
+    try {
+      if (activeEnvironmentId) localStorage.setItem(key, activeEnvironmentId);
+      else localStorage.removeItem(key);
+    } catch {
+      // storage unavailable — selection just won't survive a reload
+    }
+  },
+  restoreActiveEnvironment: (workspaceId, envs) => {
+    selectionWorkspaceId = workspaceId;
+    let saved: string | null = null;
+    try {
+      const key = selectionKey(workspaceId);
+      saved = key ? localStorage.getItem(key) : null;
+    } catch {
+      // ignore
+    }
+    set({ activeEnvironmentId: saved && envs.some((e) => e._id === saved) ? saved : null });
+  },
   setGlobalEnvironment: (globalEnvironment) => set({ globalEnvironment }),
   setLocalVariables: (localVariables) => set({ localVariables }),
   setUserProfileVariables: (userProfileVariables) => set({ userProfileVariables }),

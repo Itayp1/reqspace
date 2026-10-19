@@ -20,7 +20,7 @@ export default function AppScreen() {
       // Wait, if it bubbles from an input, we shouldn't prevent default if it's text.
       // Let's just allow it, but we can also trigger our undo. It's safer to only trigger if the target is NOT an input/textarea.
       // Actually, since all our params are inputs, we DO want Ctrl+Z to undo adding rows, changing auth types, etc.
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      if ((e.ctrlKey || e.metaKey) && (e.key ?? "").toLowerCase() === 'z') {
         if (e.shiftKey) {
           e.preventDefault();
           redo();
@@ -29,7 +29,7 @@ export default function AppScreen() {
           undo();
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      if ((e.ctrlKey || e.metaKey) && (e.key ?? "").toLowerCase() === 'y') {
         e.preventDefault();
         redo();
       }
@@ -46,7 +46,7 @@ export default function AppScreen() {
           {isEnvTab ? (
             activeRequest?.environmentId === 'local-variables' ? <LocalVariablesEditor /> : <EnvironmentTabEditor />
           ) : isConnTab ? (
-            <ConnectionEditor />
+            <ConnectionEditor key={activeRequest?.tabId} />
           ) : <RequestEditor />}
         </div>
       </div>

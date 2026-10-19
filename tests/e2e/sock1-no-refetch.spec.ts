@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 // SOCK-1: a socket event must mutate the observer's store in place — no
 // HTTP. Before this task, SocketSync.tsx's handleUpdate refetched the whole

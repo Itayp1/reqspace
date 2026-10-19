@@ -13,6 +13,7 @@ export interface IRequestRecord {
   headers: any[];
   auth: any;
   body: any;
+  settings: any;
   preRequestScript: string;
   testScript: string;
   description: string;
@@ -33,6 +34,7 @@ function sqlToRecord(r: SqlRequest): IRequestRecord {
     headers: typeof r.headers === 'string' ? JSON.parse(r.headers) : (r.headers || []),
     auth: typeof r.auth === 'string' ? JSON.parse(r.auth) : (r.auth || { type: 'none' }),
     body: typeof r.body === 'string' ? JSON.parse(r.body) : (r.body || { mode: 'none' }),
+    settings: typeof r.settings === 'string' ? (JSON.parse(r.settings || '{}') || {}) : (r.settings || {}),
     preRequestScript: r.preRequestScript,
     testScript: r.testScript,
     description: r.description,
@@ -79,7 +81,7 @@ export const RequestRepository = {
       order: r.order,
       updatedAt: r.updatedAt,
       // Stub out fields not fetched
-      params: [], headers: [], auth: { type: 'none' }, body: { mode: 'none' },
+      params: [], headers: [], auth: { type: 'none' }, body: { mode: 'none' }, settings: {},
       preRequestScript: '', testScript: '', description: '', comments: [],
       createdBy: '', createdAt: new Date(),
     }) as IRequestRecord : sqlToRecord(r));
@@ -93,6 +95,7 @@ export const RequestRepository = {
       headers: JSON.stringify(data.headers || []),
       auth: JSON.stringify(data.auth || { type: 'none' }),
       body: JSON.stringify(data.body || { mode: 'none' }),
+      settings: JSON.stringify(data.settings || {}),
       comments: JSON.stringify(data.comments || []),
       preRequestScript: data.preRequestScript || '',
       testScript: data.testScript || '',
@@ -101,14 +104,17 @@ export const RequestRepository = {
     }));
   },
 
-  async update(id: string, data: Partial<IRequestRecord>): Promise<IRequestRecord | null> {
+  // `silent` leaves updatedAt alone: a pure move isn't a content change, and bumping it
+  // makes the owner's own open tab look conflicted with the server.
+  async update(id: string, data: Partial<IRequestRecord>, opts?: { silent?: boolean }): Promise<IRequestRecord | null> {
     const patch: any = { ...data };
     if (data.params !== undefined) patch.params = JSON.stringify(data.params);
     if (data.headers !== undefined) patch.headers = JSON.stringify(data.headers);
     if (data.auth !== undefined) patch.auth = JSON.stringify(data.auth);
     if (data.body !== undefined) patch.body = JSON.stringify(data.body);
+    if (data.settings !== undefined) patch.settings = JSON.stringify(data.settings);
     if (data.comments !== undefined) patch.comments = JSON.stringify(data.comments);
-    await SqlRequest.update(patch, { where: { id } }); return this.findById(id);
+    await SqlRequest.update(patch, { where: { id }, silent: opts?.silent }); return this.findById(id);
   },
 
   async delete(id: string): Promise<void> {

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 import api from '../api/axios';
 import { useToastStore } from './toastStore';
+import { toRequestPayload } from '../utils/requestPayload';
 
 // The server broadcasts create/duplicate events to every socket in the
 // workspace, including the one that made the REST call — so the client that
@@ -108,6 +109,144 @@ interface CollectionStore {
 let workspaceLoadSeq = 0;
 let loadedWorkspaceId: string | null = null;
 
+const byOrder = (a: CollectionItem, b: CollectionItem) => (a.order || 0) - (b.order || 0);
+
+// Every collection and folder gets a bucket, empty or not: an absent bucket
+// means "not fetched", and loadCollectionChildren/loadFolderChildren would
+// hit the network for it.
+function buildTree(collections: Collection[], folders: Folder[], requests: ApiRequest[]) {
+  const foldersByCollection: Record<string, Folder[]> = {};
+  const requestsByFolder: Record<string, ApiRequest[]> = {};
+  for (const c of collections) { foldersByCollection[c._id] = []; requestsByFolder[c._id] = []; }
+  for (const f of folders) { foldersByCollection[f._id] = []; requestsByFolder[f._id] = []; }
+  for (const f of folders) (foldersByCollection[f.parentFolderId || f.collectionId] ??= []).push(f);
+  for (const r of requests) (requestsByFolder[r.folderId || r.collectionId] ??= []).push(r);
+  for (const arr of Object.values(foldersByCollection)) arr.sort(byOrder);
+  for (const arr of Object.values(requestsByFolder)) arr.sort(byOrder);
+  return { foldersByCollection, requestsByFolder };
+}
+
+// "<base>", then "<base> 2", "<base> 3"... until the name is free among the
+// siblings, so repeated copies never end up with identical names.
+export function uniqueName(base: string, taken: Iterable<string>): string {
+  const names = new Set(taken);
+  if (!names.has(base)) return base;
+  const m = base.match(/^(.*) \(Copy\)$/);
+  for (let n = 2; ; n++) {
+    const candidate = m ? `${m[1]} (Copy ${n})` : `${base} ${n}`;
+    if (!names.has(candidate)) return candidate;
+  }
+}
+
+function requestCopyPayload(source: any, name: string, folderId: string | null) {
+  return { ...toRequestPayload({ ...source, name }), folderId };
+}
+
+// Optimistic edits (rename / delete) change the tree before the server
+// answers. When the server says no, reload the workspace so the tree shows
+// what is really stored instead of an edit that never happened.
+function resyncAfterFailure(action: string) {
+  return (err: any) => {
+    console.error(err);
+    if (err?.response?.status !== 403) {
+      const reason = err?.response?.data?.message || err?.message || 'unknown error';
+      useToastStore.getState().addToast('error', `${action} failed: ${reason}`);
+    }
+    if (loadedWorkspaceId) void useCollectionStore.getState().loadWorkspace(loadedWorkspaceId);
+  };
+}
+
+// The create endpoints reject unknown keys and explicit nulls.
+function definedOnly<T extends Record<string, any>>(obj: T): Partial<T> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== null)) as Partial<T>;
+}
+
+function findFolder(id: string): Folder | undefined {
+  for (const arr of Object.values(useCollectionStore.getState().foldersByCollection)) {
+    if (Array.isArray(arr)) { const f = (arr as Folder[]).find(x => x._id === id); if (f) return f; }
+  }
+  return undefined;
+}
+
+async function copyRequestInto(source: ApiRequest, collectionId: string, folderId: string | null, name: string) {
+  const res = await api.post(`/collections/${collectionId}/requests`, requestCopyPayload(source, name, folderId));
+  useCollectionStore.setState((state) => {
+    const parentId = res.data.folderId || res.data.collectionId;
+    return { requestsByFolder: { ...state.requestsByFolder, [parentId]: appendUnique(state.requestsByFolder[parentId] as ApiRequest[], res.data) } };
+  });
+}
+
+async function copyFolderTree(sourceId: string, collectionId: string, parentFolderId: string | null, name: string): Promise<void> {
+  const source: any = findFolder(sourceId);
+  if (!source) return;
+  await useCollectionStore.getState().loadFolderChildren(source.collectionId, sourceId);
+
+  const fRes = await api.post(`/collections/${collectionId}/folders`, definedOnly({
+    name, parentFolderId,
+    description: source.description,
+    preRequestScript: source.preRequestScript,
+    testScript: source.testScript,
+  }));
+  let newFolder: Folder = fRes.data;
+  if (source.auth) newFolder = (await api.put(`/folders/${newFolder._id}`, { auth: source.auth })).data;
+
+  useCollectionStore.setState((state) => {
+    const parentKey = newFolder.parentFolderId || newFolder.collectionId;
+    return {
+      foldersByCollection: {
+        ...state.foldersByCollection,
+        [parentKey]: appendUnique(state.foldersByCollection[parentKey] as Folder[], newFolder),
+        [newFolder._id]: state.foldersByCollection[newFolder._id] ?? [],
+      },
+      requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: state.requestsByFolder[newFolder._id] ?? [] },
+    };
+  });
+
+  const { foldersByCollection, requestsByFolder } = useCollectionStore.getState();
+  const requests = Array.isArray(requestsByFolder[sourceId]) ? requestsByFolder[sourceId] as ApiRequest[] : [];
+  for (const req of requests) await copyRequestInto(req, collectionId, newFolder._id, req.name);
+  const children = Array.isArray(foldersByCollection[sourceId]) ? foldersByCollection[sourceId] as Folder[] : [];
+  for (const child of children) await copyFolderTree(child._id, collectionId, newFolder._id, child.name);
+}
+
+// Open tabs keep their own copy of collectionId/folderId; after a move they must follow,
+// otherwise the next save sends the stale folderId and the server rejects it (400).
+async function syncOpenTabsLocation() {
+  const { useRequestStore } = await import('./requestStore');
+  const loc = new Map<string, { collectionId: string; folderId: string | null }>();
+  for (const arr of Object.values(useCollectionStore.getState().requestsByFolder)) {
+    if (!Array.isArray(arr)) continue;
+    for (const r of arr as ApiRequest[]) loc.set(r._id, { collectionId: r.collectionId, folderId: r.folderId ?? null });
+  }
+  const fix = <T extends { _id?: string; collectionId?: string; folderId?: string | null }>(t: T): T => {
+    const l = t._id ? loc.get(t._id) : undefined;
+    return l && (t.collectionId !== l.collectionId || (t.folderId ?? null) !== l.folderId) ? { ...t, ...l } : t;
+  };
+  useRequestStore.setState((s) => ({
+    tabs: s.tabs.map(fix),
+    activeRequest: s.activeRequest ? fix(s.activeRequest) : s.activeRequest,
+  }));
+}
+
+// A request renamed or deleted in the tree must be reflected in its open tab:
+// the tab title follows the new name (unsaved edits are untouched) and a tab of
+// a deleted request is closed so it cannot be "saved" back as a 404.
+async function syncOpenTabsRequest(id: string, change: { name: string } | 'deleted') {
+  const { useRequestStore } = await import('./requestStore');
+  const state = useRequestStore.getState();
+  const isTarget = (t: { _id?: string; tabType?: string }) => t._id === id && t.tabType !== 'environment';
+  if (change === 'deleted') {
+    for (const t of state.tabs.filter(isTarget)) if (t.tabId) state.closeTab(t.tabId);
+    return;
+  }
+  const rename = <T extends { _id?: string; tabType?: string; name: string }>(t: T): T =>
+    isTarget(t) && t.name !== change.name ? { ...t, name: change.name } : t;
+  useRequestStore.setState((s) => ({
+    tabs: s.tabs.map(rename),
+    activeRequest: s.activeRequest ? rename(s.activeRequest) : s.activeRequest,
+  }));
+}
+
 export const useCollectionStore = create<CollectionStore>((set, get) => ({
   collections: [],
   foldersByCollection: {},
@@ -138,11 +277,26 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
   }),
   applyFolderUpserted: (f) => set((state) => {
     const parentId = f.parentFolderId || f.collectionId;
-    const arr = state.foldersByCollection[parentId];
-    if (!Array.isArray(arr)) return {};
+    // A move arrives as an update with a new parent; without this the folder
+    // stayed in its old bucket too and showed up twice for everyone else.
+    const nextF = { ...state.foldersByCollection };
+    let moved = false;
+    for (const key of Object.keys(nextF)) {
+      const bucket = nextF[key];
+      if (key !== parentId && Array.isArray(bucket) && bucket.some(x => x._id === f._id)) {
+        nextF[key] = bucket.filter(x => x._id !== f._id);
+        moved = true;
+      }
+    }
+    const arr = nextF[parentId];
+    if (!Array.isArray(arr)) return moved ? { foldersByCollection: nextF } : {};
     const existing = arr.find(fol => fol._id === f._id);
-    const nextArr = existing ? arr.map(fol => fol._id === f._id ? { ...fol, ...f } : fol) : [...arr, f].sort((a, b) => (a.order || 0) - (b.order || 0));
-    return { foldersByCollection: { ...state.foldersByCollection, [parentId]: nextArr } };
+    nextF[parentId] = existing ? arr.map(fol => fol._id === f._id ? { ...fol, ...f } : fol) : [...arr, f].sort((a, b) => (a.order || 0) - (b.order || 0));
+    nextF[f._id] = state.foldersByCollection[f._id] ?? [];
+    return {
+      foldersByCollection: nextF,
+      requestsByFolder: { ...state.requestsByFolder, [f._id]: state.requestsByFolder[f._id] ?? [] },
+    };
   }),
   applyFolderDeleted: (id) => set((state) => {
     const nextF = { ...state.foldersByCollection };
@@ -155,15 +309,30 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     delete nextR[id];
     return { foldersByCollection: nextF, requestsByFolder: nextR };
   }),
-  applyRequestUpserted: (r) => set((state) => {
+  applyRequestUpserted: (r) => {
+    if (r.name) void syncOpenTabsRequest(r._id, { name: r.name });
+    set((state) => {
     const parentId = r.folderId || r.collectionId;
-    const arr = state.requestsByFolder[parentId];
-    if (!Array.isArray(arr)) return {};
+    // Same as folders: a moved request must leave its old bucket.
+    const nextR = { ...state.requestsByFolder };
+    let moved = false;
+    for (const key of Object.keys(nextR)) {
+      const bucket = nextR[key];
+      if (key !== parentId && Array.isArray(bucket) && bucket.some(x => x._id === r._id)) {
+        nextR[key] = bucket.filter(x => x._id !== r._id);
+        moved = true;
+      }
+    }
+    const arr = nextR[parentId];
+    if (!Array.isArray(arr)) return moved ? { requestsByFolder: nextR } : {};
     const existing = arr.find(req => req._id === r._id);
-    const nextArr = existing ? arr.map(req => req._id === r._id ? { ...req, ...r } : req) : [...arr, r].sort((a, b) => (a.order || 0) - (b.order || 0));
-    return { requestsByFolder: { ...state.requestsByFolder, [parentId]: nextArr } };
-  }),
-  applyRequestDeleted: (id) => set((state) => {
+    nextR[parentId] = existing ? arr.map(req => req._id === r._id ? { ...req, ...r } : req) : [...arr, r].sort((a, b) => (a.order || 0) - (b.order || 0));
+    return { requestsByFolder: nextR };
+    });
+  },
+  applyRequestDeleted: (id) => {
+    void syncOpenTabsRequest(id, 'deleted');
+    set((state) => {
     const nextR = { ...state.requestsByFolder };
     for (const key of Object.keys(nextR)) {
       if (Array.isArray(nextR[key])) {
@@ -171,7 +340,8 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       }
     }
     return { requestsByFolder: nextR };
-  }),
+    });
+  },
   applyWorkspaceReordered: (payload) => set((state) => {
     if (!payload) return {};
     let newState = { ...state, foldersByCollection: { ...state.foldersByCollection }, requestsByFolder: { ...state.requestsByFolder } };
@@ -219,26 +389,54 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       const { db } = await import('../db');
 
       const localCols = await db.collections.where('workspaceId').equals(workspaceId).toArray();
+      const localIds = localCols.map(c => c._id);
+      const [localFolders, localReqs] = localIds.length
+        ? await Promise.all([
+            db.folders.where('collectionId').anyOf(localIds).toArray(),
+            db.requests.where('collectionId').anyOf(localIds).toArray(),
+          ])
+        : [[], []];
       if (seq !== workspaceLoadSeq) return;
       const switching = loadedWorkspaceId !== workspaceId;
       loadedWorkspaceId = workspaceId;
-      // A reload of the same workspace (socket reconnect) must keep folders
-      // and requests that are already open. A switch must not keep the
-      // previous workspace's tree.
-      set(switching
-        ? {
-            collections: localCols,
-            foldersByCollection: {},
-            requestsByFolder: {},
-            openCollectionIds: new Set(),
-          }
-        : { collections: localCols });
+      // Paint the cached tree while the network call is in flight. A switch
+      // must not keep the previous workspace's tree; a reload of the same
+      // workspace already holds data at least as fresh as the cache. An empty
+      // cache leaves the buckets absent so the lazy loaders can still fetch.
+      if (switching) {
+        const cached = localFolders.length || localReqs.length
+          ? buildTree(localCols, localFolders, localReqs)
+          : { foldersByCollection: {}, requestsByFolder: {} };
+        set({ collections: localCols, ...cached, openCollectionIds: new Set() });
+      } else {
+        set({ collections: localCols });
+      }
 
-      const res = await api.get(`/workspaces/${workspaceId}/collections`);
+      const res = await api.get(`/workspaces/${workspaceId}/tree`, { params: { full: 1 } });
       if (seq !== workspaceLoadSeq) return;
-      const collections = Array.isArray(res.data) ? res.data : [];
-      set({ collections });
-      await db.collections.bulkPut(collections.map((c: any) => ({ ...c, workspaceId })));
+      const collections: Collection[] = Array.isArray(res.data?.collections) ? res.data.collections : [];
+      const folders: Folder[] = Array.isArray(res.data?.folders) ? res.data.folders : [];
+      const requests: ApiRequest[] = Array.isArray(res.data?.requests) ? res.data.requests : [];
+      set({ collections, ...buildTree(collections, folders, requests) });
+      await syncOpenTabsLocation();
+
+      // Replace rather than merge, so items deleted elsewhere don't linger in
+      // the cache and reappear on the next cold start.
+      const ids = collections.map(c => c._id);
+      await db.transaction('rw', db.collections, db.folders, db.requests, async () => {
+        await db.collections.where('workspaceId').equals(workspaceId).delete();
+        if (localIds.length) {
+          await db.folders.where('collectionId').anyOf(localIds).delete();
+          await db.requests.where('collectionId').anyOf(localIds).delete();
+        }
+        if (ids.length) {
+          await db.folders.where('collectionId').anyOf(ids).delete();
+          await db.requests.where('collectionId').anyOf(ids).delete();
+        }
+        await db.collections.bulkPut(collections.map((c: any) => ({ ...c, workspaceId })));
+        await db.folders.bulkPut(folders);
+        await db.requests.bulkPut(requests);
+      });
     } catch (e) {
       if (seq !== workspaceLoadSeq) return;
       console.error(e);
@@ -373,7 +571,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       collections: state.collections.map(c => c._id === id ? { ...c, name } : c)
     }));
     import('../db').then(({ db }) => db.collections.update(id, { name }));
-    api.put(`/collections/${id}`, { name }).catch(console.error);
+    api.put(`/collections/${id}`, { name }).catch(resyncAfterFailure('Rename'));
   },
 
   deleteCollection: async (id) => {
@@ -393,46 +591,49 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       await db.folders.where('collectionId').equals(id).delete();
       await db.requests.where('collectionId').equals(id).delete();
     });
-    api.delete(`/collections/${id}`).catch(console.error);
+    api.delete(`/collections/${id}`).catch(resyncAfterFailure('Delete'));
   },
 
   duplicateCollection: async (id, workspaceId) => {
-    const { collections, foldersByCollection, requestsByFolder } = get();
-    const source = collections.find(c => c._id === id);
+    const source: any = get().collections.find(c => c._id === id);
     if (!source) return;
+    await get().loadCollectionChildren(id);
 
-    // Create new collection
-    const newColRes = await api.post(`/workspaces/${workspaceId}/collections`, {
-      name: `Copy of ${source.name}`
-    });
-    const newCol: Collection = newColRes.data;
+    // Names already used in the target workspace (only known for the one on screen).
+    const taken = workspaceId === loadedWorkspaceId ? get().collections.map(c => c.name) : [];
+    const newColRes = await api.post(`/workspaces/${workspaceId}/collections`, definedOnly({
+      name: uniqueName(`Copy of ${source.name}`, taken),
+      description: source.description,
+      variables: source.variables,
+      preRequestScript: source.preRequestScript,
+      testScript: source.testScript,
+    }));
+    let newCol: Collection = newColRes.data;
+    // The create endpoint doesn't accept auth, so it goes in a follow-up update.
+    if (source.auth) newCol = (await api.put(`/collections/${newCol._id}`, { auth: source.auth })).data;
 
-    // Duplicate top-level requests (no folder)
-    const topRequests = Array.isArray(requestsByFolder[id]) ? requestsByFolder[id] as ApiRequest[] : [];
-    for (const req of topRequests) {
-      const res = await api.post(`/collections/${newCol._id}/requests`, {
-        name: req.name, method: req.method, url: req.url || '',
-      });
-      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newCol._id]: appendUnique(state.requestsByFolder[newCol._id] as ApiRequest[], res.data) } }));
+    // A copy into another workspace must not show up in the one on screen.
+    const intoCurrent = workspaceId === loadedWorkspaceId;
+    if (intoCurrent) {
+      set((state) => ({
+        collections: appendUnique(state.collections, newCol),
+        foldersByCollection: { ...state.foldersByCollection, [newCol._id]: state.foldersByCollection[newCol._id] ?? [] },
+        requestsByFolder: { ...state.requestsByFolder, [newCol._id]: state.requestsByFolder[newCol._id] ?? [] },
+      }));
     }
 
-    // Duplicate top-level folders (simplified — one level)
-    const topFolders = Array.isArray(foldersByCollection[id]) ? foldersByCollection[id] as Folder[] : [];
-    for (const folder of topFolders) {
-      const fRes = await api.post(`/collections/${newCol._id}/folders`, { name: folder.name });
-      const newFolder: Folder = fRes.data;
-      set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [newCol._id]: appendUnique(state.foldersByCollection[newCol._id] as Folder[], newFolder) } }));
-
-      const folderRequests = Array.isArray(requestsByFolder[folder._id]) ? requestsByFolder[folder._id] as ApiRequest[] : [];
-      for (const req of folderRequests) {
-        const rRes = await api.post(`/collections/${newCol._id}/requests`, {
-          name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
-        });
-        set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: appendUnique(state.requestsByFolder[newFolder._id] as ApiRequest[], rRes.data) } }));
-      }
+    const { foldersByCollection, requestsByFolder } = get();
+    const rootRequests = Array.isArray(requestsByFolder[id]) ? requestsByFolder[id] as ApiRequest[] : [];
+    const rootFolders = Array.isArray(foldersByCollection[id]) ? foldersByCollection[id] as Folder[] : [];
+    try {
+      for (const req of rootRequests) await copyRequestInto(req, newCol._id, null, req.name);
+      for (const folder of rootFolders) await copyFolderTree(folder._id, newCol._id, null, folder.name);
+    } catch (err) {
+      // All-or-nothing: a failure part-way must not leave a half-filled copy.
+      await api.delete(`/collections/${newCol._id}`).catch(() => {});
+      if (intoCurrent) get().applyCollectionDeleted(newCol._id);
+      throw err;
     }
-
-    set((state) => ({ collections: appendUnique(state.collections, newCol) }));
   },
 
   // ── Folder ──────────────────────────────────────────────────────────────────
@@ -443,7 +644,16 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
     await db.folders.put(res.data);
     set((state) => {
       const parentId = res.data.parentFolderId || res.data.collectionId;
-      return { foldersByCollection: { ...state.foldersByCollection, [parentId]: appendIfLoaded(state.foldersByCollection[parentId], res.data) as Folder[] } };
+      // A new folder starts with empty buckets - an absent bucket means "not
+      // fetched" and would make the first drop/expand hit the network.
+      return {
+        foldersByCollection: {
+          ...state.foldersByCollection,
+          [parentId]: appendIfLoaded(state.foldersByCollection[parentId], res.data) as Folder[],
+          [res.data._id]: state.foldersByCollection[res.data._id] ?? [],
+        },
+        requestsByFolder: { ...state.requestsByFolder, [res.data._id]: state.requestsByFolder[res.data._id] ?? [] },
+      };
     });
     get().openCollection(collectionId);
     return res.data;
@@ -456,7 +666,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       )
     }));
     import('../db').then(({ db }) => db.folders.update(id, { name }));
-    api.put(`/folders/${id}`, { name }).catch(console.error);
+    api.put(`/folders/${id}`, { name }).catch(resyncAfterFailure('Rename'));
   },
 
   deleteFolder: async (id) => {
@@ -476,29 +686,15 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       await db.folders.where('parentFolderId').equals(id).delete();
       await db.requests.where('folderId').equals(id).delete();
     });
-    api.delete(`/folders/${id}`).catch(console.error);
+    api.delete(`/folders/${id}`).catch(resyncAfterFailure('Delete'));
   },
 
   duplicateFolder: async (id, collectionId, parentFolderId = null) => {
-    const { foldersByCollection, requestsByFolder } = get();
-    let source: Folder | undefined;
-    for (const arr of Object.values(foldersByCollection)) {
-      if (Array.isArray(arr)) { source = (arr as Folder[]).find(f => f._id === id); if (source) break; }
-    }
+    const source = findFolder(id);
     if (!source) return;
-    const fRes = await api.post(`/collections/${collectionId}/folders`, {
-      name: `Copy of ${source.name}`, parentFolderId
-    });
-    const newFolder: Folder = fRes.data;
-    set((state) => ({ foldersByCollection: { ...state.foldersByCollection, [collectionId]: appendUnique(state.foldersByCollection[collectionId] as Folder[], newFolder) } }));
-
-    const folderRequests = Array.isArray(requestsByFolder[id]) ? requestsByFolder[id] as ApiRequest[] : [];
-    for (const req of folderRequests) {
-      const rRes = await api.post(`/collections/${collectionId}/requests`, {
-        name: req.name, method: req.method, url: req.url || '', folderId: newFolder._id,
-      });
-      set((state) => ({ requestsByFolder: { ...state.requestsByFolder, [newFolder._id]: appendUnique(state.requestsByFolder[newFolder._id] as ApiRequest[], rRes.data) } }));
-    }
+    const siblings = get().foldersByCollection[parentFolderId || collectionId];
+    const taken = Array.isArray(siblings) ? (siblings as Folder[]).map(f => f.name) : [];
+    await copyFolderTree(id, collectionId, parentFolderId, uniqueName(`Copy of ${source.name}`, taken));
   },
 
   // ── Request ─────────────────────────────────────────────────────────────────
@@ -524,7 +720,8 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       )
     }));
     import('../db').then(({ db }) => db.requests.update(id, { name }));
-    api.put(`/requests/${id}`, { name }).catch(console.error);
+    void syncOpenTabsRequest(id, { name });
+    api.put(`/requests/${id}`, { name }).catch(resyncAfterFailure('Rename'));
   },
 
   deleteRequest: async (id) => {
@@ -538,7 +735,8 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       return { requestsByFolder: nextR };
     });
     import('../db').then(({ db }) => db.requests.delete(id));
-    api.delete(`/requests/${id}`).catch(console.error);
+    void syncOpenTabsRequest(id, 'deleted');
+    api.delete(`/requests/${id}`).catch(resyncAfterFailure('Delete'));
   },
 
   duplicateRequest: async (id) => {
@@ -548,16 +746,9 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       if (Array.isArray(arr)) { source = (arr as ApiRequest[]).find(r => r._id === id); if (source) break; }
     }
     if (!source) return;
-    const res = await api.post(`/collections/${source.collectionId}/requests`, {
-      name: `${source.name} (Copy)`,
-      method: source.method,
-      url: source.url || '',
-      folderId: source.folderId,
-    });
-    set((state) => {
-      const parentId = res.data.folderId || res.data.collectionId;
-      return { requestsByFolder: { ...state.requestsByFolder, [parentId]: appendUnique(state.requestsByFolder[parentId] as ApiRequest[], res.data) } };
-    });
+    const siblings = requestsByFolder[source.folderId || source.collectionId];
+    const taken = Array.isArray(siblings) ? (siblings as ApiRequest[]).map(r => r.name) : [];
+    await copyRequestInto(source, source.collectionId, source.folderId ?? null, uniqueName(`${source.name} (Copy)`, taken));
   },
 
   moveRequest: async (id, newCollectionId, newFolderId) => {
@@ -584,6 +775,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
       }
       return { requestsByFolder: nextR };
     });
+    await syncOpenTabsLocation();
     await api.put(`/requests/${id}`, { collectionId: newCollectionId, folderId: newFolderId });
   },
 
@@ -609,8 +801,28 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
         if (Array.isArray(nextF[pId])) nextF[pId] = [...(nextF[pId] as Folder[]), fol];
         else nextF[pId] = [fol];
       }
+      if (fol) {
+        const subtree = new Set<string>([id]);
+        const queue = [id];
+        while (queue.length) {
+          const cur = queue.shift()!;
+          for (const arr of Object.values(nextF)) {
+            if (!Array.isArray(arr)) continue;
+            for (const f of arr as Folder[]) if (f.parentFolderId === cur && !subtree.has(f._id)) { subtree.add(f._id); queue.push(f._id); }
+          }
+        }
+        for (const key of Object.keys(nextF)) {
+          if (Array.isArray(nextF[key])) nextF[key] = (nextF[key] as Folder[]).map(f => subtree.has(f._id) ? { ...f, collectionId: newCollectionId } : f);
+        }
+        const nextR = { ...state.requestsByFolder };
+        for (const key of Object.keys(nextR)) {
+          if (subtree.has(key) && Array.isArray(nextR[key])) nextR[key] = (nextR[key] as ApiRequest[]).map(r => ({ ...r, collectionId: newCollectionId }));
+        }
+        return { foldersByCollection: nextF, requestsByFolder: nextR };
+      }
       return { foldersByCollection: nextF };
     });
+    await syncOpenTabsLocation();
     await api.put(`/folders/${id}`, { collectionId: newCollectionId, parentFolderId: newParentFolderId });
   },
 

@@ -17,12 +17,27 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onCancel,
 }) => {
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  // A fast double click / double Enter must run the action once, not twice,
+  // before the parent has had a chance to unmount the modal.
+  const settledRef = useRef(false);
+  const confirmOnce = () => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    onConfirm();
+  };
+  const confirmRef = useRef(confirmOnce);
+  confirmRef.current = confirmOnce;
 
-  // Focus cancel button on open for safety; handle Escape key
+  // Focus cancel button on open for safety; Escape cancels, Enter confirms
   useEffect(() => {
     cancelBtnRef.current?.focus();
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        confirmRef.current();
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -61,7 +76,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </button>
           <button
             data-testid="confirm-btn"
-            onClick={onConfirm}
+            onClick={confirmOnce}
             className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium transition-colors"
           >
             {confirmLabel}

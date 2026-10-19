@@ -47,7 +47,7 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
   if (!text) return '';
   let result = resolveDynamicVars(text);
 
-  const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars } = useEnvironmentStore.getState();
+  const { environments, activeEnvironmentId, globalEnvironment, localVariables: storeLocalVars, userProfileVariables } = useEnvironmentStore.getState();
   const activeEnv = environments.find(e => e._id === activeEnvironmentId);
 
   const envVars = new Map<string, string>();
@@ -73,17 +73,26 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     }
   }
 
-  // Iteration data overrides everything
-  if (iterationData) {
-    for (const [key, value] of Object.entries(iterationData)) {
-      envVars.set(key, String(value));
+  // Profile variables are the user's own cross-workspace values, so they sit
+  // above collection/environment but below the workspace-specific locals that
+  // follow — a local variable is the narrower scope and should win.
+  if (userProfileVariables) {
+    for (const v of userProfileVariables) {
+      if (v.enabled && v.key) envVars.set(v.key, String(v.value !== undefined ? v.value : (v.currentValue || '')));
     }
   }
 
-  // Store local variables override collection and environment
+  // Store local variables override collection, environment and profile
   if (storeLocalVars) {
     for (const v of storeLocalVars) {
       if (v.enabled && v.key) envVars.set(v.key, String(v.value !== undefined ? v.value : (v.currentValue || '')));
+    }
+  }
+
+  // Iteration data overrides every stored scope (collection, environment, profile, local)
+  if (iterationData) {
+    for (const [key, value] of Object.entries(iterationData)) {
+      envVars.set(key, String(value));
     }
   }
 
@@ -98,7 +107,8 @@ export function resolveAllVariables(text: string, collectionId?: string, iterati
     const trimmed = varName.trim();
     if (trimmed.startsWith('$')) return match; // already handled
     if (envVars.has(trimmed)) {
-      return envVars.get(trimmed)!;
+      // A variable's value may itself hold dynamic ({{$guid}}) placeholders.
+      return resolveDynamicVars(envVars.get(trimmed)!);
     }
     return match;
   });

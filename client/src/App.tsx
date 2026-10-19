@@ -85,6 +85,12 @@ function AuthGuard({ children, requireSuperAdmin = false }: { children: React.Re
   return children;
 }
 
+// Login/register are for signed-out visitors; a signed-in user is sent to the app (A1.11).
+function GuestGuard({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  return isAuthenticated ? <Navigate to="/" replace /> : <>{children}</>;
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   const [loading, setLoading] = useState(true);
@@ -97,7 +103,13 @@ function App() {
     const handleUnauthorized = () => {
       useAuthStore.getState().setUser(null);
       const path = window.location.pathname;
-      if (path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/auth/')) return;
+      // Routes that are meant to work without a session. `/share/` belongs
+      // here: the bootstrap's own /auth/me 401s for an anonymous visitor, and
+      // without this the redirect fired and bounced every recipient of a
+      // share link to the login page — the one audience the feature exists
+      // for. The page itself is already outside AuthGuard.
+      const PUBLIC_PATHS = ['/login', '/register', '/auth/', '/share/'];
+      if (PUBLIC_PATHS.some(p => path.startsWith(p))) return;
       window.location.assign('/login');
     };
     window.addEventListener('unauthorized', handleUnauthorized);
@@ -138,7 +150,7 @@ function App() {
             const fresh = currentActive
               ? workspaces.find((w: any) => w._id === currentActive._id)
               : undefined;
-            setActiveWorkspace(fresh || workspaces[0]);
+            setActiveWorkspace(fresh || workspaces.find((w: any) => w.isPersonal) || workspaces[0]);
           } else {
             setActiveWorkspace(null);
           }
@@ -189,15 +201,17 @@ function App() {
       <ContextMenuProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/auth/google/callback" element={<OAuthCallbackPage />} />
+            <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
+            <Route path="/register" element={<GuestGuard><RegisterPage /></GuestGuard>} />
+            <Route path="/auth/:provider/callback" element={<OAuthCallbackPage />} />
             <Route path="/share/:shortId" element={<SharedCollectionPage />} />
             
             <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
               <Route index element={<AppScreen />} />
               <Route path="admin" element={<AuthGuard requireSuperAdmin><AdminPage /></AuthGuard>} />
             </Route>
+            {/* An unknown path used to render a blank page. */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ContextMenuProvider>

@@ -75,7 +75,7 @@ export function applyRequestAuth(opts: {
 
   if (auth.type === 'bearer' && auth.bearer?.token) {
     const token = resolve(auth.bearer.token);
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) headers.Authorization = `${auth.bearer.prefix?.trim() || 'Bearer'} ${token}`;
   } else if (auth.type === 'basic' && auth.basic?.username) {
     const username = resolve(auth.basic.username);
     const password = resolve(auth.basic.password || '');

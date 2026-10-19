@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { recordHandledError } from '../utils/errorReporter';
 
 interface Bucket {
   count: number;
@@ -21,6 +22,9 @@ export function rateLimit(options: { windowMs: number; max: number; message?: st
   }
 
   const buckets = new Map<string, Bucket>();
+  // Each limiter needs its own Redis namespace; with a shared `ratelimit:<ip>`
+  // key every limiter counted every other limiter's hits.
+  const limiterId = `${options.windowMs}:${options.max}:${(options.message ?? '').slice(0, 24)}`;
 
   let redisClient: any = null;
   if (process.env.REDIS_URL) {
@@ -45,7 +49,7 @@ export function rateLimit(options: { windowMs: number; max: number; message?: st
     const now = Date.now();
     
     if (redisClient) {
-      const redisKey = `ratelimit:${key}`;
+      const redisKey = `ratelimit:${limiterId}:${key}`;
       try {
         const count = await redisClient.incr(redisKey);
         if (count === 1) {
@@ -60,6 +64,7 @@ export function rateLimit(options: { windowMs: number; max: number; message?: st
       } catch (e) {
         // Fallback to in-memory if Redis fails? Or just pass through.
         console.error('Redis rate limit error', e);
+        recordHandledError('rate-limit', e);
         return next();
       }
     }

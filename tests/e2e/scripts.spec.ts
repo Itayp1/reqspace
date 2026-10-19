@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -50,7 +50,7 @@ test.describe('Script Execution', () => {
 
     // 4. Write Pre-request Script
     await page.getByTestId('req-tab-pre-request-script').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.environment.set("myvar", "123");');
@@ -82,7 +82,7 @@ test.describe('Script Execution', () => {
 
     // 2. Write Test Script with failing assertion
     await page.getByTestId('req-tab-tests').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("Should fail", function() { pm.expect(1).to.eql(2); });\npm.test("Should pass", function() { pm.expect(1).to.eql(1); });');
@@ -115,7 +115,7 @@ test.describe('Script Execution', () => {
 
     // Pre-request script to send a request
     await page.getByTestId('req-tab-pre-request-script').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), `pm.sendRequest('https://httpbin.org/status/201', function (err, res) { pm.globals.set("sr_code", res.code); });`);
@@ -140,7 +140,7 @@ test.describe('Script Execution', () => {
 
     // Pre-request script defining a variable
     await page.getByTestId('req-tab-pre-request-script').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), 'var my_isolated_var = "hello";');
@@ -148,7 +148,7 @@ test.describe('Script Execution', () => {
 
     // Test script trying to access it
     await page.getByTestId('req-tab-tests').click();
-    await page.getByTestId('monaco-editor-container').click();
+    await page.getByTestId('monaco-editor-container').locator('.monaco-editor').first().click();
     
     await page.keyboard.press('Control+A');
     await page.evaluate((text) => navigator.clipboard.writeText(text), 'pm.test("Isolated var is undefined", function() { pm.expect(typeof my_isolated_var).to.eql("undefined"); });');

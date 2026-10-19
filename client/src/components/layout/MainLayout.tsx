@@ -61,6 +61,7 @@ export default function MainLayout() {
         {/* Bottom Status Bar */}
         <div className="h-6 bg-gray-900 border-t border-gray-800 flex items-center justify-between px-3 text-[11px] text-gray-400 select-none shrink-0" role="status" aria-live="polite">
           <button
+            data-testid="console-toggle-btn"
             onClick={toggleIsOpen}
             aria-label={isOpen ? 'Close console drawer' : 'Open console drawer'}
             aria-expanded={isOpen}

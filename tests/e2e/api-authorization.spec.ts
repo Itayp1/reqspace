@@ -1,4 +1,7 @@
-import { test, expect, request as pwRequest, APIRequestContext } from '@playwright/test';
+import { test, expect, request as pwRequest, APIRequestContext } from './fixtures';
+
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
 
 test.describe('TEST-4: API Authorization Layer', () => {
   let superadminReq: APIRequestContext;
@@ -21,7 +24,7 @@ test.describe('TEST-4: API Authorization Layer', () => {
   const getUuid = () => require('crypto').randomUUID();
 
   test.beforeAll(async () => {
-    const baseURL = 'http://localhost:3005';
+    const baseURL = (process.env.REQSPACE_API_URL || 'http://localhost:3005');
     const randomIp = () => `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.1.1`;
     superadminReq = await pwRequest.newContext({ baseURL, extraHTTPHeaders: { 'X-Forwarded-For': randomIp() } });
     ownerReq = await pwRequest.newContext({ baseURL, extraHTTPHeaders: { 'X-Forwarded-For': randomIp() } });
@@ -193,7 +196,9 @@ test.describe('TEST-4: API Authorization Layer', () => {
       method: 'POST',
       url: () => `/api/import/wsdl`,
       body: () => ({ workspaceId: workspaceIdA, url: 'http://example.com/wsdl' }),
-      expected: { anonymous: 401, nonMember: 403, viewer: 403, editor: 500, owner: 500, superadmin: 500 }, // 500 because example.com/wsdl fails soap parser but auth passes
+      // 400 because example.com/wsdl is not a WSDL — the authz checks passed and
+      // the URL itself was rejected. (It used to answer 500 and log a server fault.)
+      expected: { anonymous: 401, nonMember: 403, viewer: 403, editor: 400, owner: 400, superadmin: 400 },
       massAssignment: {
         url: () => `/api/import/wsdl`,
         body: () => ({ workspaceId: workspaceIdB, url: 'http://example.com/wsdl' }),

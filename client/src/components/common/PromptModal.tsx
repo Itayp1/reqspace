@@ -28,9 +28,19 @@ export const PromptModal: React.FC<PromptModalProps> = ({
     }
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  const submittedRef = useRef(false);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (value.trim()) {
+    if (value.trim() && !submittedRef.current) {
+      submittedRef.current = true;
       onSubmit(value.trim());
     }
   };

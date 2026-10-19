@@ -19,6 +19,7 @@ export class SqlUser extends Model {
   declare historyUsedBytes: number;
   declare mustChangePassword: boolean;
   declare lastLoginAt: Date | null;
+  declare tokenVersion: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -47,6 +48,7 @@ export class SqlCollection extends Model {
   declare name: string;
   declare description: string;
   declare variables: string; // JSON
+  declare auth: string; // JSON
   declare preRequestScript: string;
   declare testScript: string;
   declare roles: string; // JSON
@@ -65,6 +67,7 @@ export class SqlFolder extends Model {
   declare parentFolderId: string | null;
   declare name: string;
   declare description: string;
+  declare auth: string; // JSON
   declare preRequestScript: string;
   declare testScript: string;
   declare roles: string; // JSON
@@ -87,6 +90,7 @@ export class SqlRequest extends Model {
   declare headers: string; // JSON
   declare auth: string; // JSON
   declare body: string; // JSON
+  declare settings: string; // JSON
   declare preRequestScript: string;
   declare testScript: string;
   declare description: string;
@@ -223,6 +227,26 @@ export class SqlForkItemHash extends Model {
   declare sourceItemId: string;
   declare baseHash: string;
 }
+// ──────────────────────────────────────────────────────────────────────────────
+// FP ERRORS (client and server faults, reviewed in the admin screen)
+// ──────────────────────────────────────────────────────────────────────────────
+export class SqlFpError extends Model {
+  declare id: string;
+  declare source: string;
+  declare kind: string;
+  declare message: string;
+  declare stack: string | null;
+  declare componentStack: string | null;
+  declare route: string | null;
+  declare method: string | null;
+  declare status: number | null;
+  declare userId: string | null;
+  declare userAgent: string | null;
+  declare fingerprint: string;
+  declare repeats: number;
+  declare createdAt: Date;
+}
+
 export function initSqlModels() {
   const sq = getSequelize();
 
@@ -240,6 +264,7 @@ export function initSqlModels() {
     historyUsedBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
     mustChangePassword: { type: DataTypes.BOOLEAN, defaultValue: false },
     lastLoginAt: { type: DataTypes.DATE, allowNull: true },
+    tokenVersion: { type: DataTypes.INTEGER, defaultValue: 0, allowNull: false },
   }, { sequelize: sq, tableName: 'users', timestamps: true });
 
   SqlWorkspace.init({
@@ -261,6 +286,8 @@ export function initSqlModels() {
     name: { type: DataTypes.STRING(255), allowNull: false },
     description: { type: DataTypes.TEXT, defaultValue: '' },
     variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+    // Ancestor auth for requests set to `inherit` — see migration 015.
+    auth: { type: DataTypes.TEXT, defaultValue: '{"type":"none"}' },
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
     roles: { type: DataTypes.TEXT, defaultValue: '[]' },
@@ -279,6 +306,9 @@ export function initSqlModels() {
     parentFolderId: { type: DataTypes.STRING(36), allowNull: true },
     name: { type: DataTypes.STRING(255), allowNull: false },
     description: { type: DataTypes.TEXT, defaultValue: '' },
+    // Pass-through by default so an untouched folder doesn't shadow its
+    // collection's auth — see migration 015.
+    auth: { type: DataTypes.TEXT, defaultValue: '{"type":"inherit"}' },
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
     roles: { type: DataTypes.TEXT, defaultValue: '[]' },
@@ -299,6 +329,7 @@ export function initSqlModels() {
     headers: { type: DataTypes.TEXT, defaultValue: '[]' },
     auth: { type: DataTypes.TEXT, defaultValue: '{"type":"none"}' },
     body: { type: DataTypes.TEXT, defaultValue: '{"mode":"none"}' },
+    settings: { type: DataTypes.TEXT, defaultValue: '{}' },
     preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
     testScript: { type: DataTypes.TEXT, defaultValue: '' },
     description: { type: DataTypes.TEXT, defaultValue: '' },
@@ -403,6 +434,24 @@ export function initSqlModels() {
     baseHash: { type: DataTypes.STRING(32), allowNull: false },
   }, { sequelize: sq, tableName: 'fork_item_hashes', timestamps: false, createdAt: false, updatedAt: false,
     indexes: [{ fields: ['forkId'] }, { fields: ['itemId'] }, { fields: ['forkId', 'sourceItemId'], unique: true, name: 'uniq_fork_item_hashes_fork_source' }] });
+
+  SqlFpError.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    source: { type: DataTypes.STRING(10), allowNull: false },
+    kind: { type: DataTypes.STRING(40), allowNull: false },
+    message: { type: DataTypes.TEXT, allowNull: false },
+    stack: { type: DataTypes.TEXT, allowNull: true },
+    componentStack: { type: DataTypes.TEXT, allowNull: true },
+    route: { type: DataTypes.STRING(500), allowNull: true },
+    method: { type: DataTypes.STRING(10), allowNull: true },
+    status: { type: DataTypes.INTEGER, allowNull: true },
+    userId: { type: DataTypes.STRING(36), allowNull: true },
+    userAgent: { type: DataTypes.STRING(500), allowNull: true },
+    fingerprint: { type: DataTypes.STRING(64), allowNull: false },
+    // Occurrences swallowed by the dedupe window after this row was stored.
+    repeats: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  }, { sequelize: sq, tableName: 'fperrors', timestamps: true, createdAt: 'createdAt', updatedAt: false,
+    indexes: [{ fields: ['createdAt'] }, { fields: ['fingerprint'] }] });
 }
 
 

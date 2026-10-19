@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
-import { Shield, ShieldOff, Trash2, Ban } from 'lucide-react';
+import { Shield, ShieldOff, Trash2, Ban, X } from 'lucide-react';
 import { AddUserModal } from '../components/admin/AddUserModal';
+import { ErrorsPanel } from '../components/admin/ErrorsPanel';
 import { customConfirm } from '../utils/dialog';
 import { useToastStore } from '../store/toastStore';
+import { OAUTH_LABELS, OAUTH_PROVIDERS, oauthRedirectUri } from '../utils/oauth';
 
 
 export default function AdminPage() {
@@ -14,10 +16,17 @@ export default function AdminPage() {
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings' | 'errors'>('users');
   const [loading, setLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+  const [usersNext, setUsersNext] = useState<string | null>(null);
+  const [logFilters, setLogFilters] = useState({ action: '', from: '', to: '' });
+  const [logPage, setLogPage] = useState(1);
+  const [logTotal, setLogTotal] = useState(0);
+  const [testingSmtp, setTestingSmtp] = useState(false);
+  const testingSmtpRef = useRef(false); // synchronous guard: state is stale between rapid clicks
 
   useEffect(() => {
     if (user?.isSuperAdmin) {
@@ -25,19 +34,40 @@ export default function AdminPage() {
     }
   }, [user]);
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    try { const res = await api.get('/admin/users'); setUsers(res.data.users || []); } catch (e) { console.error(e); }
+  const USERS_PAGE = 100;
+  const fetchUsers = async (search = userSearch, cursor?: string) => {
+    if (!cursor) setLoading(true);
+    try {
+      const res = await api.get('/admin/users', { params: { search: search || undefined, limit: USERS_PAGE, cursor } });
+      setUsers(prev => (cursor ? [...prev, ...(res.data.users || [])] : res.data.users || []));
+      setUsersNext(res.data.nextCursor || null);
+    } catch (e) { console.error(e); }
     setLoading(false);
   };
   const fetchWorkspaces = async () => {
     setLoading(true);
-    try { const res = await api.get('/admin/workspaces'); setWorkspaces(res.data || []); } catch (e) { console.error(e); }
+    // The endpoint is paginated ({ workspaces, nextCursor }); handing the whole
+    // object to the table made workspaces.map throw and took the page down.
+    try { const res = await api.get('/admin/workspaces'); setWorkspaces(res.data?.workspaces || []); } catch (e) { console.error(e); }
     setLoading(false);
   };
-  const fetchLogs = async () => {
+  const LOGS_PAGE = 50;
+  const fetchLogs = async (page = logPage, filters = logFilters) => {
     setLoading(true);
-    try { const res = await api.get('/admin/audit-logs'); setAuditLogs(res.data.logs || []); } catch (e) { console.error(e); }
+    try {
+      const res = await api.get('/admin/logs', {
+        params: {
+          action: filters.action.trim() || undefined,
+          from: filters.from ? new Date(`${filters.from}T00:00:00`).toISOString() : undefined,
+          to: filters.to ? new Date(`${filters.to}T23:59:59.999`).toISOString() : undefined,
+          page,
+          limit: LOGS_PAGE,
+        },
+      });
+      setAuditLogs(res.data.logs || []);
+      setLogTotal(res.data.total || 0);
+      setLogPage(page);
+    } catch (e) { console.error(e); }
     setLoading(false);
   };
   const fetchConfig = async () => {
@@ -49,26 +79,28 @@ export default function AdminPage() {
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'workspaces') fetchWorkspaces();
-    if (activeTab === 'logs') fetchLogs();
+    if (activeTab === 'logs') fetchLogs(1);
     if (activeTab === 'settings') fetchConfig();
   }, [activeTab]);
 
-  const handlePromote = async (id: string) => {
-    await api.post(`/admin/users/${id}/promote`);
+  // Each action reports its own outcome; a rejected call (e.g. revoking the
+  // last super admin) used to surface as an unhandled promise rejection.
+  const runUserAction = async (action: () => Promise<unknown>, success: string) => {
+    try {
+      await action();
+      useToastStore.getState().addToast('success', success);
+    } catch (e: any) {
+      useToastStore.getState().addToast('error', e?.response?.data?.message || e?.message || 'Action failed');
+    }
     fetchUsers();
   };
-  const handleRevoke = async (id: string) => {
-    await api.post(`/admin/users/${id}/revoke`);
-    fetchUsers();
-  };
-  const handleSuspend = async (id: string, suspend: boolean) => {
-    await api.post(`/admin/users/${id}/suspend`, { suspended: suspend });
-    fetchUsers();
-  };
+  const handlePromote = (id: string) => runUserAction(() => api.post(`/admin/users/${id}/promote`), 'User is now a super admin');
+  const handleRevoke = (id: string) => runUserAction(() => api.post(`/admin/users/${id}/revoke`), 'Super admin role revoked');
+  const handleSuspend = (id: string, suspend: boolean) =>
+    runUserAction(() => api.post(`/admin/users/${id}/suspend`, { suspended: suspend }), suspend ? 'User suspended' : 'User reactivated');
   const handleDeleteUser = async (id: string) => {
-    if (await customConfirm('Confirm Deletion', 'Delete user?')) {
-      await api.delete(`/admin/users/${id}`);
-      fetchUsers();
+    if (await customConfirm('Confirm Deletion', 'Delete this user? Their personal workspace is deleted too; shared workspaces they own are transferred to you.')) {
+      await runUserAction(() => api.delete(`/admin/users/${id}`), 'User deleted');
     }
   };
 
@@ -79,6 +111,7 @@ export default function AdminPage() {
       delete (payload as any).id;
       delete (payload as any).createdAt;
       delete (payload as any).updatedAt;
+      delete (payload as any).oauthRedirectAllowlist; // read-only, computed by the server
       await api.put('/admin/config', payload);
       useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
@@ -91,7 +124,7 @@ export default function AdminPage() {
       <h1 data-testid="admin-dashboard-title" className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
       
       <div className="flex border-b border-border mb-6">
-        {['users', 'workspaces', 'logs', 'settings'].map(tab => (
+        {['users', 'workspaces', 'logs', 'settings', 'errors'].map(tab => (
           <button 
             key={tab}
             data-testid={`admin-tab-${tab}`}
@@ -113,7 +146,17 @@ export default function AdminPage() {
 
         {!loading && activeTab === 'users' && (
           <div className="flex flex-col h-full">
-            <div className="p-4 border-b border-border flex justify-end bg-surface">
+            <div className="p-4 border-b border-border flex justify-between gap-2 bg-surface">
+              <form className="flex gap-2" onSubmit={e => { e.preventDefault(); fetchUsers(userSearch); }}>
+                <input
+                  data-testid="admin-user-search"
+                  className="p-2 border border-border rounded bg-background text-sm"
+                  placeholder="Search name or email..."
+                  value={userSearch}
+                  onChange={e => setUserSearch(e.target.value)}
+                />
+                <button type="submit" data-testid="admin-user-search-btn" className="px-3 py-2 border border-border rounded text-sm hover:bg-border">Search</button>
+              </form>
               <button
                 data-testid="admin-add-user-btn"
                 className="bg-primary text-white px-4 py-2 rounded-md font-semibold text-sm hover:bg-orange-600 transition"
@@ -130,6 +173,7 @@ export default function AdminPage() {
                   <th className="p-4">Email</th>
                   <th className="p-4">Status</th>
                   <th className="p-4">SuperAdmin</th>
+                  <th className="p-4">Created</th>
                   <th className="p-4">Actions</th>
                 </tr>
               </thead>
@@ -138,22 +182,29 @@ export default function AdminPage() {
                   <tr key={u._id} data-testid={`user-row-${u.name}`} className="border-b border-border last:border-0 hover:bg-surface">
                     <td className="p-4">{u.name}</td>
                     <td className="p-4">{u.email}</td>
-                    <td className="p-4">
-                      {u.suspended ? <span className="text-red-500 font-bold">Suspended</span> : <span className="text-green-500">Active</span>}
+                    <td className="p-4" data-testid={`user-status-${u.name}`}>
+                      {u.status === 'suspended' ? <span className="text-red-500 font-bold">Suspended</span> : <span className="text-green-500">Active</span>}
                     </td>
-                    <td className="p-4">
+                    <td className="p-4" data-testid={`user-superadmin-${u.name}`} data-superadmin={u.isSuperAdmin ? 'true' : 'false'}>
                       {u.isSuperAdmin ? <Shield className="w-5 h-5 text-green-500" /> : <ShieldOff className="w-5 h-5 text-text-muted" />}
                     </td>
+                    <td className="p-4 whitespace-nowrap text-text-muted">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : ''}</td>
                     <td className="p-4 flex gap-2">
                       {u.isSuperAdmin ? (
-                        <button onClick={() => handleRevoke(u._id)} className="flex items-center gap-1 p-1 text-orange-500 hover:bg-border rounded" title="Revoke Admin"><ShieldOff className="w-4 h-4" /><span className="text-xs">Revoke Admin</span></button>
+                        <button data-testid={`user-revoke-${u.name}`} onClick={() => handleRevoke(u._id)} className="flex items-center gap-1 p-1 text-orange-500 hover:bg-border rounded" title="Revoke Admin"><ShieldOff className="w-4 h-4" /><span className="text-xs">Revoke Admin</span></button>
                       ) : (
-                        <button onClick={() => handlePromote(u._id)} className="flex items-center gap-1 p-1 text-green-500 hover:bg-border rounded" title="Make Admin"><Shield className="w-4 h-4" /><span className="text-xs">Make Admin</span></button>
+                        <button data-testid={`user-promote-${u.name}`} onClick={() => handlePromote(u._id)} className="flex items-center gap-1 p-1 text-green-500 hover:bg-border rounded" title="Make Admin"><Shield className="w-4 h-4" /><span className="text-xs">Make Admin</span></button>
                       )}
-                      <button onClick={() => handleSuspend(u._id, !u.suspended)} className="flex items-center gap-1 p-1 text-text-muted hover:text-red-500 hover:bg-border rounded" title="Suspend">
+                      <button
+                        data-testid={`user-suspend-${u.name}`}
+                        onClick={() => handleSuspend(u._id, u.status !== 'suspended')}
+                        className="flex items-center gap-1 p-1 text-text-muted hover:text-red-500 hover:bg-border rounded"
+                        title={u.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+                        aria-label={u.status === 'suspended' ? 'Reactivate user' : 'Suspend user'}
+                      >
                         <Ban className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleDeleteUser(u._id)} className="flex items-center gap-1 p-1 text-text-muted hover:text-red-500 hover:bg-border rounded" title="Delete">
+                      <button data-testid={`user-delete-${u.name}`} onClick={() => handleDeleteUser(u._id)} className="flex items-center gap-1 p-1 text-text-muted hover:text-red-500 hover:bg-border rounded" title="Delete" aria-label="Delete user">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
@@ -161,6 +212,11 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+            {usersNext && (
+              <div className="p-4 text-center">
+                <button data-testid="admin-users-load-more" className="px-4 py-2 border border-border rounded text-sm hover:bg-surface" onClick={() => fetchUsers(userSearch, usersNext)}>Load more</button>
+              </div>
+            )}
           </div>
         </div>
         )}
@@ -171,18 +227,24 @@ export default function AdminPage() {
               <thead className="bg-surface border-b border-border">
                 <tr>
                   <th className="p-4">Name</th>
+                  <th className="p-4">Owner</th>
                   <th className="p-4">Members</th>
+                  <th className="p-4">Size</th>
                   <th className="p-4">Created At</th>
+                  <th className="p-4">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {workspaces.map(w => (
-                  <tr key={w._id} className="border-b border-border last:border-0 hover:bg-surface">
+                  <tr key={w._id} data-testid={`admin-workspace-row-${w.name}`} className="border-b border-border last:border-0 hover:bg-surface">
                     <td className="p-4 font-medium">{w.name}</td>
+                    <td className="p-4">{w.owner ? (w.owner.name || w.owner.email) : '—'}</td>
                     <td className="p-4">{w.members?.length || 0} members</td>
+                    <td className="p-4 whitespace-nowrap text-text-muted">{w.collectionCount ?? 0} collections · {w.requestCount ?? 0} requests · {(w.storageBytes ?? 0) < 1024 ? `${w.storageBytes ?? 0} B` : `${((w.storageBytes ?? 0) / 1024).toFixed(1)} KB`}</td>
                     <td className="p-4 text-text-muted">{new Date(w.createdAt).toLocaleDateString()}</td>
                     <td className="p-4">
                       <button
+                        data-testid={`admin-manage-permissions-${w.name}`}
                         onClick={() => setSelectedWorkspaceId(w._id)}
                         className="text-primary hover:underline text-sm font-semibold"
                       >
@@ -198,6 +260,12 @@ export default function AdminPage() {
 
         {!loading && activeTab === 'logs' && (
           <div className="overflow-x-auto">
+            <form className="p-4 border-b border-border flex flex-wrap gap-2 bg-surface" onSubmit={e => { e.preventDefault(); fetchLogs(1); }}>
+              <input data-testid="audit-filter-action" className="p-2 border border-border rounded bg-background text-sm" placeholder="Action (e.g. auth.login)" value={logFilters.action} onChange={e => setLogFilters({ ...logFilters, action: e.target.value })} />
+              <input data-testid="audit-filter-from" type="date" aria-label="From date" className="p-2 border border-border rounded bg-background text-sm" value={logFilters.from} onChange={e => setLogFilters({ ...logFilters, from: e.target.value })} />
+              <input data-testid="audit-filter-to" type="date" aria-label="To date" className="p-2 border border-border rounded bg-background text-sm" value={logFilters.to} onChange={e => setLogFilters({ ...logFilters, to: e.target.value })} />
+              <button type="submit" data-testid="audit-filter-apply" className="px-3 py-2 border border-border rounded text-sm hover:bg-border">Filter</button>
+            </form>
             <table className="w-full text-left text-sm">
               <thead className="bg-surface border-b border-border">
                 <tr>
@@ -210,18 +278,27 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {auditLogs.map(l => (
-                  <tr key={l._id} className="border-b border-border last:border-0 hover:bg-surface">
+                  <tr key={l._id || l.id} data-testid="audit-log-row" className="border-b border-border last:border-0 hover:bg-surface">
                     <td className="p-4 whitespace-nowrap text-text-muted">{new Date(l.createdAt).toLocaleString()}</td>
                     <td className="p-4 font-bold">{l.action}</td>
-                      <td className="p-4">{l.userId?.name || l.userId?.email || String(l.userId) || 'System'}</td>
-                    <td className="p-4">{l.resourceType} ({l.resourceId})</td>
-                    <td className="p-4 font-mono text-xs">{JSON.stringify(l.details)}</td>
+                    <td className="p-4">{(typeof l.userId === 'object' ? (l.userId?.name || l.userId?.email) : l.userId) || 'System'}</td>
+                    <td className="p-4">{l.targetType || l.targetId ? `${l.targetType || '—'}${l.targetId ? ` (${l.targetId})` : ''}` : '—'}</td>
+                    <td className="p-4 font-mono text-xs">{l.details ? JSON.stringify(l.details) : ''}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <div className="p-4 flex items-center justify-between text-sm text-text-muted">
+              <span>{logTotal} entries · page {logPage} of {Math.max(1, Math.ceil(logTotal / LOGS_PAGE))}</span>
+              <span className="flex gap-2">
+                <button data-testid="audit-prev" disabled={logPage <= 1} className="px-3 py-1 border border-border rounded disabled:opacity-40" onClick={() => fetchLogs(logPage - 1)}>Prev</button>
+                <button data-testid="audit-next" disabled={logPage * LOGS_PAGE >= logTotal} className="px-3 py-1 border border-border rounded disabled:opacity-40" onClick={() => fetchLogs(logPage + 1)}>Next</button>
+              </span>
+            </div>
           </div>
         )}
+
+        {activeTab === 'errors' && <ErrorsPanel />}
 
         {!loading && activeTab === 'settings' && config && (
           <div className="p-8 max-w-2xl space-y-6">
@@ -234,6 +311,7 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2 mb-2">
                     <input 
                       type="checkbox" 
+                      data-testid="admin-smtp-enabled"
                       checked={config.auth?.smtp?.enabled || false} 
                       onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth?.smtp, enabled: e.target.checked}}})}
                     />
@@ -243,40 +321,52 @@ export default function AdminPage() {
                     <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
                       <div>
                         <label className="block text-xs mb-1 text-text-muted">Host</label>
-                        <input type="text" value={config.auth.smtp.host || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, host: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="smtp.gmail.com" />
+                        <input data-testid="admin-smtp-host" type="text" value={config.auth.smtp.host || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, host: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="smtp.gmail.com" />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">Port</label>
-                          <input type="number" value={config.auth.smtp.port || 587} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, port: Number(e.target.value)}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input data-testid="admin-smtp-port" type="number" value={config.auth.smtp.port || 587} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, port: Number(e.target.value)}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">From Address</label>
-                          <input type="text" value={config.auth.smtp.fromAddress || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, fromAddress: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="noreply@reqspace.com" />
+                          <input data-testid="admin-smtp-from" type="text" value={config.auth.smtp.fromAddress || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, fromAddress: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="noreply@reqspace.com" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">User</label>
-                          <input type="text" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input data-testid="admin-smtp-user" type="text" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">Password</label>
-                          <input type="password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input data-testid="admin-smtp-pass" type="password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                       </div>
                       <button 
                         onClick={async () => {
+                          if (testingSmtpRef.current) return;
+                          if (!config.auth.smtp.host?.trim()) {
+                            useToastStore.getState().addToast('error', 'SMTP host is required');
+                            return;
+                          }
+                          testingSmtpRef.current = true;
+                          setTestingSmtp(true);
                           try {
                             const res = await api.post('/admin/test-smtp', config.auth.smtp);
                             useToastStore.getState().addToast('success', res.data.message);
                           } catch(err: any) {
                             useToastStore.getState().addToast('error', err.response?.data?.message || err.message);
+                          } finally {
+                            testingSmtpRef.current = false;
+                            setTestingSmtp(false);
                           }
                         }}
-                        className="bg-primary text-white text-xs px-3 py-1.5 rounded hover:bg-orange-600 transition"
+                        disabled={testingSmtp}
+                        data-testid="admin-smtp-test"
+                        className="bg-primary text-white text-xs px-3 py-1.5 rounded hover:bg-orange-600 transition disabled:opacity-50"
                       >
-                        Test Connection
+                        {testingSmtp ? 'Testing...' : 'Test Connection'}
                       </button>
                     </div>
                   )}
@@ -287,6 +377,7 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2">
                     <input 
                       type="checkbox" 
+                      data-testid="admin-self-registration"
                       checked={config.auth?.allowSelfRegistration || false} 
                       onChange={e => setConfig({...config, auth: {...config.auth, allowSelfRegistration: e.target.checked}})}
                     />
@@ -299,53 +390,77 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {/* 3. SSO Header */}
-                <div className="p-4 border border-border rounded-lg bg-surface">
-                  <div className="flex items-center gap-2 mb-2">
-                    <input 
-                      type="checkbox" 
-                      checked={config.auth?.mode === 'header' || config.auth?.mode === 'both'} 
-                      onChange={e => setConfig({...config, auth: {...config.auth, mode: e.target.checked ? 'both' : 'login'}})}
-                    />
-                    <label className="text-sm font-bold">3. SSO Header (Reverse Proxy)</label>
-                  </div>
-                  {(config.auth?.mode === 'header' || config.auth?.mode === 'both') && (
-                    <div className="mt-3 ml-6 border-l-2 border-border pl-4">
-                      <label className="block text-xs mb-1 text-text-muted">Auth Header Name</label>
-                      <input 
-                        type="text" 
-                        value={config.auth?.headerName || ''} 
-                        onChange={e => setConfig({...config, auth: {...config.auth, headerName: e.target.value}})}
-                        className="w-full p-2 border border-border rounded bg-background text-sm"
-                        placeholder="e.g. X-Auth-User"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 4. Google OAuth */}
-                <div className="p-4 border border-border rounded-lg bg-surface">
-                  <div className="flex items-center gap-2 mb-2">
-                    <input 
-                      type="checkbox" 
-                      checked={config.auth?.googleOAuth?.enabled || false} 
-                      onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth?.googleOAuth, enabled: e.target.checked}}})}
-                    />
-                    <label className="text-sm font-bold">4. Google OAuth</label>
-                  </div>
-                  {config.auth?.googleOAuth?.enabled && (
-                    <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
-                      <div>
-                        <label className="block text-xs mb-1 text-text-muted">Client ID</label>
-                        <input type="text" value={config.auth.googleOAuth.clientId || ''} onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth.googleOAuth, clientId: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                {/* 3-5. OAuth sign-in providers */}
+                {OAUTH_PROVIDERS.map((provider, i) => {
+                  const key = `${provider}OAuth`;
+                  const label = OAUTH_LABELS[provider];
+                  const p = config.auth?.[key] || {};
+                  const setP = (patch: Record<string, unknown>) => setConfig({ ...config, auth: { ...config.auth, [key]: { ...p, ...patch } } });
+                  return (
+                    <div key={provider} className="p-4 border border-border rounded-lg bg-surface">
+                      <div className="flex items-center gap-2 mb-2">
+                        <input type="checkbox" data-testid={`admin-${provider}-enabled`} checked={p.enabled || false} onChange={e => setP({ enabled: e.target.checked })} />
+                        <label className="text-sm font-bold">{i + 3}. {provider === 'microsoft' ? 'Microsoft (Azure / Entra ID)' : provider === 'custom' ? 'Custom OAuth2 / OIDC' : label} OAuth</label>
                       </div>
-                      <div>
-                        <label className="block text-xs mb-1 text-text-muted">Client Secret</label>
-                        <input type="password" value={config.auth.googleOAuth.clientSecret || ''} onChange={e => setConfig({...config, auth: {...config.auth, googleOAuth: {...config.auth.googleOAuth, clientSecret: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
-                      </div>
+                      {p.enabled && (
+                        <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
+                          <div className="text-xs text-text-muted">Redirect URI: <code>{oauthRedirectUri(provider)}</code></div>
+                          {(() => {
+                            const required: [string, unknown][] = [['Client ID', p.clientId], ['Client Secret', p.clientSecret],
+                              ...(provider === 'custom' ? [['Authorize URL', p.authorizeUrl], ['Token URL', p.tokenUrl], ['UserInfo URL', p.userinfoUrl]] as [string, unknown][] : [])];
+                            const missing = required.filter(([, v]) => !String(v ?? '').trim()).map(([n]) => n);
+                            const allowed: string[] | undefined = config.oauthRedirectAllowlist?.[provider];
+                            const uri = oauthRedirectUri(provider);
+                            return (
+                              <>
+                                {missing.length > 0 && (
+                                  <div data-testid={`admin-${provider}-missing`} className="text-xs text-red-500">
+                                    Not ready: missing {missing.join(', ')}. Until it is set, people cannot sign in with {label}.
+                                  </div>
+                                )}
+                                {allowed && !allowed.includes(uri) && (
+                                  <div data-testid={`admin-${provider}-redirect-warning`} className="text-xs text-red-500">
+                                    The server will refuse this Redirect URI. Add <code>{uri}</code> to the <code>OAUTH_ALLOWED_REDIRECT_URIS</code> environment variable and restart the server.
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                          <div>
+                            <label className="block text-xs mb-1 text-text-muted">{provider === 'microsoft' ? 'Application (client) ID' : 'Client ID'}</label>
+                            <input data-testid={`admin-${provider}-client-id`} type="text" value={p.clientId || ''} onChange={e => setP({ clientId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          </div>
+                          <div>
+                            <label className="block text-xs mb-1 text-text-muted">Client Secret</label>
+                            <input data-testid={`admin-${provider}-client-secret`} type="password" value={p.clientSecret || ''} onChange={e => setP({ clientSecret: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          </div>
+                          {provider === 'custom' && (
+                            <>
+                              {([
+                                ['name', 'Button label', 'SSO'],
+                                ['authorizeUrl', 'Authorize URL', 'https://idp.example.com/authorize'],
+                                ['tokenUrl', 'Token URL', 'https://idp.example.com/token'],
+                                ['userinfoUrl', 'UserInfo URL (must return email)', 'https://idp.example.com/userinfo'],
+                                ['scope', 'Scope', 'openid email profile'],
+                              ] as const).map(([field, text, ph]) => (
+                                <div key={field}>
+                                  <label className="block text-xs mb-1 text-text-muted">{text}</label>
+                                  <input data-testid={`admin-custom-${field}`} type="text" value={p[field] || ''} onChange={e => setP({ [field]: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder={ph} />
+                                </div>
+                              ))}
+                            </>
+                          )}
+                          {provider === 'microsoft' && (
+                            <div>
+                              <label className="block text-xs mb-1 text-text-muted">Tenant ID (or common / organizations / consumers)</label>
+                              <input data-testid="admin-microsoft-tenant-id" type="text" value={p.tenantId || ''} onChange={e => setP({ tenantId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="common" />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })}
 
               </div>
             </div>
@@ -368,6 +483,28 @@ export default function AdminPage() {
                     type="number" 
                     value={config.history?.maxTotalPerUserMB || 20} 
                     onChange={e => setConfig({...config, history: {...config.history, maxTotalPerUserMB: +e.target.value}})}
+                    className="w-full p-2 border border-border rounded bg-surface"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Max History Records per User (0 = unlimited)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    data-testid="admin-history-max-records"
+                    value={config.history?.maxRecords ?? 0}
+                    onChange={e => setConfig({...config, history: {...config.history, maxRecords: +e.target.value}})}
+                    className="w-full p-2 border border-border rounded bg-surface"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">History Retention Days (0 = keep forever)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    data-testid="admin-history-retention-days"
+                    value={config.history?.retentionDays ?? 0}
+                    onChange={e => setConfig({...config, history: {...config.history, retentionDays: +e.target.value}})}
                     className="w-full p-2 border border-border rounded bg-surface"
                   />
                 </div>
@@ -395,11 +532,13 @@ export default function AdminPage() {
                   <div>
                     <label className="text-sm font-medium block">Allow requests to internal/private network addresses</label>
                     <p className="text-xs text-text-muted mt-0.5">
-                      Off by default: every user's "Send" and share-link requests are blocked from reaching
-                      localhost, RFC1918 ranges, and link-local addresses (including cloud metadata endpoints like
+                      Off by default: requests this server makes on a user's behalf (for example importing a
+                      collection, OpenAPI or WSDL definition from a URL) are blocked from reaching localhost,
+                      RFC1918 ranges, and link-local addresses (including cloud metadata endpoints like
                       169.254.169.254) — this prevents any signed-in user from using this server to reach its own
-                      internal network (SSRF). Only enable this on a self-hosted, single-tenant deployment that
-                      genuinely needs to test its own internal APIs.
+                      internal network (SSRF). It does not affect "Send": those requests run from the user's own
+                      browser or desktop app, not from this server. Only enable this on a self-hosted,
+                      single-tenant deployment that genuinely needs the server to fetch internal URLs.
                     </p>
                   </div>
                 </div>
@@ -471,7 +610,17 @@ export default function AdminPage() {
                           const dump = JSON.parse(event.target?.result as string);
                           if (!(await customConfirm('Confirm Import', 'This will insert all dumped collections, environments, and globals into the current workspace. Proceed?'))) return;
                           
-                          await api.post(`/admin/import/${workspaceId}`, dump);
+                          try {
+                            await api.post(`/admin/import/${workspaceId}`, dump);
+                          } catch (err: any) {
+                            if (err.response?.data?.code !== 'WORKSPACE_NOT_EMPTY') throw err;
+                            // The workspace already has data: ask whether to add to it or replace it.
+                            let mode: 'append' | 'overwrite';
+                            if (await customConfirm('Workspace is not empty', 'This workspace already has collections or environments. Add the imported data next to them? (Cancel to choose another option)')) mode = 'append';
+                            else if (await customConfirm('Replace workspace data', 'Delete the existing collections and environments and replace them with the imported data?')) mode = 'overwrite';
+                            else return;
+                            await api.post(`/admin/import/${workspaceId}?mode=${mode}`, dump);
+                          }
                           useToastStore.getState().addToast('success', 'Import successful! Reloading...');
                           setTimeout(() => window.location.reload(), 1500);
                         } catch (err: any) {
@@ -491,7 +640,7 @@ export default function AdminPage() {
             </div>
 
             <div className="pt-6 mt-6 border-t border-border">
-              <button onClick={saveConfig} className="bg-primary text-white px-6 py-2 rounded hover:bg-orange-600 transition">
+              <button data-testid="admin-save-config" onClick={saveConfig} className="bg-primary text-white px-6 py-2 rounded hover:bg-orange-600 transition">
                 Save System Config
               </button>
             </div>
@@ -576,8 +725,8 @@ function WorkspacePermissionsModal({ workspaceId, onClose }: { workspaceId: stri
       <div className="bg-background rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] border border-border">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-xl font-bold">Manage Permissions {workspace ? `- ${workspace.name}` : ''}</h2>
-          <button onClick={onClose} className="p-1 text-text-muted hover:text-text rounded-md">
-            <Ban size={20} />
+          <button onClick={onClose} data-testid="admin-perm-close" aria-label="Close" className="p-1 text-text-muted hover:text-text rounded-md">
+            <X size={20} />
           </button>
         </div>
         
@@ -605,16 +754,17 @@ function WorkspacePermissionsModal({ workspaceId, onClose }: { workspaceId: stri
                 </div>
                 <div>
                   <label className="block text-xs font-semibold mb-1">Role</label>
-                  <select 
-                    value={role} 
+                  {/* The server only knows viewer / editor / owner; the old
+                      runner / tester / admin options were always rejected. */}
+                  <select
+                    data-testid="admin-perm-invite-role"
+                    value={role}
                     onChange={e => setRole(e.target.value)}
                     className="w-32 bg-background border border-border rounded px-3 py-1.5 text-sm"
                   >
                     <option value="viewer">Viewer</option>
-                    <option value="runner">Runner</option>
-                    <option value="tester">Tester</option>
                     <option value="editor">Editor</option>
-                    <option value="admin">Admin</option>
+                    <option value="owner">Owner</option>
                   </select>
                 </div>
                 <button type="submit" className="bg-primary text-white px-4 py-1.5 rounded hover:bg-orange-600 transition text-sm font-semibold">
@@ -645,11 +795,8 @@ function WorkspacePermissionsModal({ workspaceId, onClose }: { workspaceId: stri
                               className="bg-background border border-border rounded px-2 py-1 text-xs"
                             >
                               <option value="viewer">Viewer</option>
-                              <option value="runner">Runner</option>
-                              <option value="tester">Tester</option>
                               <option value="editor">Editor</option>
-                              <option value="admin">Admin</option>
-                              <option value="owner" disabled>Owner</option>
+                              <option value="owner">Owner</option>
                             </select>
                           </td>
                           <td className="p-3">
