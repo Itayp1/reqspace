@@ -17,7 +17,7 @@ export async function up({ context: queryInterface }: { context: QueryInterface 
   const q = (name: string) => queryInterface.quoteIdentifier(name);
   // collections.workspaceId is a varchar on Postgres, which won't implicitly
   // assign into the new uuid column.
-  const cast = queryInterface.sequelize.getDialect() === 'postgres' ? '::uuid' : '';
+  const cast = queryInterface.sequelize.getDialect?.() === 'postgres' ? '::uuid' : '';
   for (const table of ['folders', 'requests']) {
     await queryInterface.sequelize.query(
       `UPDATE ${table} SET ${q('workspaceId')} = (SELECT c.${q('workspaceId')}${cast} FROM collections c WHERE c.id = ${table}.${q('collectionId')})`
