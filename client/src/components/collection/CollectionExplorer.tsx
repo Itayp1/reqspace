@@ -791,7 +791,7 @@ const TreeFilterInput = ({ onChange }: { onChange: (debounced: string) => void }
 export const CollectionExplorer: React.FC = () => {
   const {
     collections, foldersByCollection, requestsByFolder,
-    createCollection, openCollectionIds, toggleCollectionOpen,
+    createCollection, openCollectionIds,
     deleteCollection, deleteFolder, deleteRequest,
     duplicateCollection, duplicateFolder,
     loadWorkspace

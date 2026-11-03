@@ -385,41 +385,59 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
 
   loadWorkspace: async (workspaceId: string) => {
     const seq = ++workspaceLoadSeq;
+    // Start the network read before touching IndexedDB: a cold browser context
+    // can leave the Dexie read pending, and awaiting it first would mean the
+    // server tree never reaches the store.
+    const fetchPromise = api.get(`/workspaces/${workspaceId}/tree`, { params: { full: 1 } });
+    fetchPromise.catch(() => {});
+    let serverApplied = false;
     try {
       const { db } = await import('../db');
 
-      const localCols = await db.collections.where('workspaceId').equals(workspaceId).toArray();
-      const localIds = localCols.map(c => c._id);
-      const [localFolders, localReqs] = localIds.length
-        ? await Promise.all([
-            db.folders.where('collectionId').anyOf(localIds).toArray(),
-            db.requests.where('collectionId').anyOf(localIds).toArray(),
-          ])
-        : [[], []];
-      if (seq !== workspaceLoadSeq) return;
+      const cachePromise = (async () => {
+        const localCols = await db.collections.where('workspaceId').equals(workspaceId).toArray();
+        const ids = localCols.map(c => c._id);
+        const [localFolders, localReqs] = ids.length
+          ? await Promise.all([
+              db.folders.where('collectionId').anyOf(ids).toArray(),
+              db.requests.where('collectionId').anyOf(ids).toArray(),
+            ])
+          : [[], []];
+        return { localCols, ids, localFolders, localReqs };
+      })();
+
+      // Paint the cached tree while the network call is in flight, but only
+      // if the server has not answered first. A switch must not keep the
+      // previous workspace's tree; a reload of the same workspace already
+      // holds data at least as fresh as the cache. An empty cache leaves the
+      // buckets absent so the lazy loaders can still fetch.
       const switching = loadedWorkspaceId !== workspaceId;
       loadedWorkspaceId = workspaceId;
-      // Paint the cached tree while the network call is in flight. A switch
-      // must not keep the previous workspace's tree; a reload of the same
-      // workspace already holds data at least as fresh as the cache. An empty
-      // cache leaves the buckets absent so the lazy loaders can still fetch.
-      if (switching) {
-        const cached = localFolders.length || localReqs.length
-          ? buildTree(localCols, localFolders, localReqs)
-          : { foldersByCollection: {}, requestsByFolder: {} };
-        set({ collections: localCols, ...cached, openCollectionIds: new Set() });
-      } else {
-        set({ collections: localCols });
-      }
+      if (switching) set({ collections: [], foldersByCollection: {}, requestsByFolder: {}, openCollectionIds: new Set() });
+      void cachePromise.then(({ localCols, localFolders, localReqs }) => {
+        if (serverApplied || seq !== workspaceLoadSeq) return;
+        if (switching) {
+          const cached = localFolders.length || localReqs.length
+            ? buildTree(localCols, localFolders, localReqs)
+            : { foldersByCollection: {}, requestsByFolder: {} };
+          set({ collections: localCols, ...cached });
+        } else {
+          set({ collections: localCols });
+        }
+      }).catch(console.error);
 
-      const res = await api.get(`/workspaces/${workspaceId}/tree`, { params: { full: 1 } });
+      const res = await fetchPromise;
       if (seq !== workspaceLoadSeq) return;
+      serverApplied = true;
       const collections: Collection[] = Array.isArray(res.data?.collections) ? res.data.collections : [];
       const folders: Folder[] = Array.isArray(res.data?.folders) ? res.data.folders : [];
       const requests: ApiRequest[] = Array.isArray(res.data?.requests) ? res.data.requests : [];
       set({ collections, ...buildTree(collections, folders, requests) });
       await syncOpenTabsLocation();
 
+      // Detached: a stuck IndexedDB must not keep the server tree from reaching the UI.
+      void (async () => {
+      const localIds = (await cachePromise).ids;
       // Replace rather than merge, so items deleted elsewhere don't linger in
       // the cache and reappear on the next cold start.
       const ids = collections.map(c => c._id);
@@ -437,6 +455,7 @@ export const useCollectionStore = create<CollectionStore>((set, get) => ({
         await db.folders.bulkPut(folders);
         await db.requests.bulkPut(requests);
       });
+      })().catch(console.error);
     } catch (e) {
       if (seq !== workspaceLoadSeq) return;
       console.error(e);
