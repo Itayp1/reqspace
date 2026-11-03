@@ -45,16 +45,26 @@ function authCookieOptions() {
   };
 }
 
-export function setCookieToken(res: Response, token: string, ttlDays: number) {
-  res.cookie('token', token, {
-    ...authCookieOptions(),
-    maxAge: ttlDays * 24 * 60 * 60 * 1000,
-  });
+// Readable-by-script companion to the httpOnly `token` cookie. It carries no
+// identity or secret — only "a session was issued" — so the client can skip
+// calling the API at all when it is absent. It is a hint, never an authority:
+// every request is still authorized by the httpOnly token.
+export const SESSION_FLAG_COOKIE = 'logged_in';
+
+function sessionFlagCookieOptions() {
+  return { ...authCookieOptions(), httpOnly: false };
 }
 
-/** Clears the auth cookie using the exact attributes it was set with. */
+export function setCookieToken(res: Response, token: string, ttlDays: number) {
+  const maxAge = ttlDays * 24 * 60 * 60 * 1000;
+  res.cookie('token', token, { ...authCookieOptions(), maxAge });
+  res.cookie(SESSION_FLAG_COOKIE, '1', { ...sessionFlagCookieOptions(), maxAge });
+}
+
+/** Clears the auth cookies using the exact attributes they were set with. */
 export function clearAuthCookie(res: Response) {
   res.clearCookie('token', authCookieOptions());
+  res.clearCookie(SESSION_FLAG_COOKIE, sessionFlagCookieOptions());
 }
 
 /**

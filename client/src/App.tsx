@@ -15,6 +15,12 @@ import ForcePasswordChangeModal from './components/auth/ForcePasswordChangeModal
 import SharedCollectionPage from './pages/SharedCollectionPage';
 import { ToastContainer } from './components/common/ToastContainer';
 import { ExtensionDownloadModal } from './components/common/ExtensionDownloadModal';
+import { installUnauthorizedSessionListener } from './utils/unauthorizedSession';
+import { hasSessionFlag } from './utils/sessionFlag';
+
+// Bind before the first commit. A 401 during the loading shell (or in the
+// gap before this component's effect runs) must still reach /login.
+installUnauthorizedSessionListener();
 
 // ── DB Error Banner ───────────────────────────────────────────────────────────
 function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string }) {
@@ -100,20 +106,9 @@ function App() {
   const setActiveWorkspace = useAuthStore((state) => state.setActiveWorkspace);
 
   useEffect(() => {
-    const handleUnauthorized = () => {
-      useAuthStore.getState().setUser(null);
-      const path = window.location.pathname;
-      // Routes that are meant to work without a session. `/share/` belongs
-      // here: the bootstrap's own /auth/me 401s for an anonymous visitor, and
-      // without this the redirect fired and bounced every recipient of a
-      // share link to the login page — the one audience the feature exists
-      // for. The page itself is already outside AuthGuard.
-      const PUBLIC_PATHS = ['/login', '/register', '/auth/', '/share/'];
-      if (PUBLIC_PATHS.some(p => path.startsWith(p))) return;
-      window.location.assign('/login');
-    };
-    window.addEventListener('unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+    // Same handler as the module-level bind. Do not remove it on cleanup:
+    // StrictMode's setup/cleanup pass would drop a 401 before the effect re-runs.
+    installUnauthorizedSessionListener();
   }, []);
 
   useEffect(() => {
@@ -135,7 +130,21 @@ function App() {
           return;
         }
 
-        // 2. DB is OK — load user session
+        // 2. DB is OK — load user session. The httpOnly token is invisible to
+        // the page, so the server also sets a script-readable `logged_in` flag.
+        // Without it there is no session to look up, so skip /auth/me (and the
+        // 401 it would return). Header/"both" auth modes sign the user in from
+        // a proxy header with no prior cookie, so those still have to ask.
+        let mayHaveSession = hasSessionFlag();
+        if (!mayHaveSession) {
+          try {
+            const { data: cfg } = await api.get('/auth/config');
+            mayHaveSession = cfg?.mode !== 'login';
+          } catch {
+            mayHaveSession = true;
+          }
+        }
+        if (!mayHaveSession) return;
         try {
           const { data: user } = await api.get('/auth/me');
           setUser(user);

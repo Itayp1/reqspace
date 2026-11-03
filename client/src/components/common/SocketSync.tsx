@@ -9,10 +9,14 @@ import api from '../../api/axios';
 
 export function SocketSync() {
   const activeWorkspace = useAuthStore(state => state.activeWorkspace);
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!activeWorkspace) return;
+    // activeWorkspace is persisted across sessions, so on its own it says
+    // nothing about being signed in — without this a logged-out visitor opens a
+    // socket and refetches the workspace on every reconnect and focus.
+    if (!activeWorkspace || !isAuthenticated) return;
 
     const socketUrl = window.location.origin;
     // withCredentials is required so the auth cookie reaches the server ג€” it
@@ -153,18 +157,18 @@ export function SocketSync() {
     return () => {
       socket.disconnect();
     };
-  }, [activeWorkspace]);
+  }, [activeWorkspace, isAuthenticated]);
 
   // Window focus listener (if away for hours)
   useEffect(() => {
     const onFocus = () => {
-      if (activeWorkspace) {
+      if (activeWorkspace && isAuthenticated) {
         useCollectionStore.getState().loadWorkspace(activeWorkspace._id);
       }
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [activeWorkspace]);
+  }, [activeWorkspace, isAuthenticated]);
 
   return null;
 }
