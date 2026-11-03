@@ -59,21 +59,21 @@ export default function MainLayout() {
           <ConsoleDrawer />
         </div>
         {/* Bottom Status Bar */}
-        <div className="h-6 bg-gray-900 border-t border-gray-800 flex items-center justify-between px-3 text-[11px] text-gray-400 select-none shrink-0" role="status" aria-live="polite">
+        <div className="h-6 bg-gray-100 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-3 text-[11px] text-gray-600 dark:text-gray-400 select-none shrink-0" role="status" aria-live="polite">
           <button
             data-testid="console-toggle-btn"
             onClick={toggleIsOpen}
             aria-label={isOpen ? 'Close console drawer' : 'Open console drawer'}
             aria-expanded={isOpen}
             aria-controls="console-drawer"
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded hover:bg-gray-800 transition-colors ${
-              isOpen ? 'text-blue-400 font-semibold' : 'text-gray-400'
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors ${
+              isOpen ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-600 dark:text-gray-400'
             }`}
           >
             <Terminal size={11} aria-hidden="true" />
             <span>Console</span>
             {logs.length > 0 && (
-              <span className="bg-gray-800 px-1 rounded text-[10px] text-gray-300" aria-label={`${logs.length} log entries`}>
+              <span className="bg-gray-200 dark:bg-gray-800 px-1 rounded text-[10px] text-gray-700 dark:text-gray-300" aria-label={`${logs.length} log entries`}>
                 {logs.length}
               </span>
             )}

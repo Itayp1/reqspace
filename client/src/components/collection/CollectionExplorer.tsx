@@ -80,7 +80,7 @@ const ActionMenu = ({
     <div className="relative flex items-center" ref={menuRef} onClick={(e) => e.stopPropagation()}>
       <button
         data-testid="action-menu-btn"
-        className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white cursor-pointer"
+        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer"
         onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }}
         aria-label="Item actions"
         aria-haspopup="menu"
@@ -140,7 +140,7 @@ const InlineRename = ({
     <input
       ref={inputRef}
       data-testid="inline-rename-input"
-      className="flex-1 bg-gray-700 text-gray-100 text-xs px-1 py-0.5 rounded border border-blue-500 outline-none min-w-0"
+      className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs px-1 py-0.5 rounded border border-blue-500 outline-none min-w-0"
       value={val}
       onChange={e => setVal(e.target.value)}
       onKeyDown={handleKey}
@@ -291,8 +291,8 @@ const RequestNodeImpl = ({
       onDragEnd={() => setIsDragging(false)}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); showContextMenu({ x: e.clientX, y: e.clientY, items: menuOptions }); }}
       className={`flex items-center group px-2 py-1.5 rounded cursor-pointer transition-opacity ${
-        isDragging ? 'opacity-30 bg-gray-800' : ''
-      } ${isActive ? 'bg-gray-700 text-white' : 'hover:bg-gray-800 text-gray-400'}`}
+        isDragging ? 'opacity-30 bg-gray-200 dark:bg-gray-800' : ''
+      } ${isActive ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
       onClick={handleClick}
       onDoubleClick={() => { if (canEdit) setIsRenaming(true); }}
     >
@@ -435,16 +435,16 @@ const FolderNode = ({
           isDragOver
             ? 'bg-blue-600/20 border border-blue-500 text-blue-300'
             : isDragging
-            ? 'opacity-30 bg-gray-800'
-            : 'hover:bg-gray-800'
+            ? 'opacity-30 bg-gray-200 dark:bg-gray-800'
+            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
         }`}
         onClick={(e) => { if (!isRenaming) { e.stopPropagation(); setIsOpen(!isOpenState); } }}
         onDoubleClick={() => { if (canEdit) setIsRenaming(true); }}
       >
-        <span className="mr-1 text-gray-400 shrink-0">
+        <span className="mr-1 text-gray-500 dark:text-gray-400 shrink-0">
           {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </span>
-        <FolderIcon size={13} className="mr-2 text-gray-300 shrink-0" />
+        <FolderIcon size={13} className="mr-2 text-gray-700 dark:text-gray-300 shrink-0" />
         {isRenaming ? (
           <InlineRename
             value={folder.name}
@@ -462,7 +462,7 @@ const FolderNode = ({
       </div>
 
       {isOpen && (
-        <div className="pl-3 ml-2 border-l border-gray-800/50 mt-0.5">
+        <div className="pl-3 ml-2 border-l border-gray-200 dark:border-gray-800/50 mt-0.5">
           {isLoading && <div className="text-gray-500 text-xs py-1 px-2 ml-4">Loading...</div>}
           {!isLoading && childFolders.map(childFolder => (
             <FolderNode
@@ -489,7 +489,7 @@ const FolderNode = ({
           ))}
           {/* Quick Add Request */}
           <div
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-400 cursor-pointer rounded hover:bg-gray-800 mt-0.5"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 cursor-pointer rounded hover:bg-gray-200 dark:hover:bg-gray-800 mt-0.5"
             onClick={() => onPrompt({ title: 'Request name:', placeholder: 'My Request', onSubmit: async (name) => await createRequest(collectionId, name, folder._id) })}
             style={{ display: isLoading || !canEdit ? 'none' : 'flex' }}
           >
@@ -673,15 +673,15 @@ const CollectionNodeImpl = ({
         className={`flex items-center group px-2 py-1.5 rounded cursor-pointer transition-all ${
           isDragOver
             ? 'bg-blue-600/20 border border-blue-500 text-blue-300'
-            : 'hover:bg-gray-800'
+            : 'hover:bg-gray-200 dark:hover:bg-gray-800'
         }`}
         onClick={(e) => { if (!isRenaming) { e.stopPropagation(); onToggle(); } }}
         onDoubleClick={() => { if (canEdit) setIsRenaming(true); }}
       >
-        <span className="mr-1 text-gray-400 shrink-0">
+        <span className="mr-1 text-gray-500 dark:text-gray-400 shrink-0">
           {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </span>
-        <FolderIcon size={13} className="mr-2 text-gray-300 shrink-0" />
+        <FolderIcon size={13} className="mr-2 text-gray-700 dark:text-gray-300 shrink-0" />
         {isRenaming ? (
           <InlineRename
             value={collection.name}
@@ -689,7 +689,7 @@ const CollectionNodeImpl = ({
             onCancel={() => setIsRenaming(false)}
           />
         ) : (
-          <span data-testid={`node-${collection.name}`} className="flex-1 truncate text-sm font-medium text-gray-200">{collection.name}</span>
+          <span data-testid={`node-${collection.name}`} className="flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-200">{collection.name}</span>
         )}
         {!isRenaming && forkSyncError && (
           <span title={`Fork sync is failing: ${forkSyncError}`} className="shrink-0 mx-1 inline-flex">
@@ -708,7 +708,7 @@ const CollectionNodeImpl = ({
       </div>
 
       {isOpen && (
-        <div className="ml-4 border-l border-gray-800 pl-2">
+        <div className="ml-4 border-l border-gray-200 dark:border-gray-800 pl-2">
           {isLoading && <div className="text-gray-500 text-xs py-1 px-2 ml-4">Loading...</div>}
           {!isLoading && childFolders.map(folder => (
             <FolderNode
@@ -743,7 +743,7 @@ const CollectionNodeImpl = ({
           ))}
           {/* Quick Add Request at bottom of collection */}
           <div
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 hover:text-gray-400 cursor-pointer rounded hover:bg-gray-800 mt-0.5"
+            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 cursor-pointer rounded hover:bg-gray-200 dark:hover:bg-gray-800 mt-0.5"
             onClick={() => onPrompt({ title: 'Request name:', placeholder: 'My Request', onSubmit: async (name) => await createRequest(collection._id, name) })}
             style={{ display: isLoading || !canEdit ? 'none' : 'flex' }}
           >
@@ -777,10 +777,10 @@ const TreeFilterInput = ({ onChange }: { onChange: (debounced: string) => void }
         placeholder="Filter requests..."
         value={value}
         onChange={e => setValue(e.target.value)}
-        className="flex-1 bg-transparent text-xs text-gray-300 placeholder-gray-600 outline-none py-1"
+        className="flex-1 bg-transparent text-xs text-gray-700 dark:text-gray-300 placeholder-gray-600 outline-none py-1"
       />
       {value && (
-        <button onClick={() => setValue('')} className="text-gray-500 hover:text-gray-300">
+        <button onClick={() => setValue('')} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
           <X size={12} />
         </button>
       )}
@@ -1037,13 +1037,13 @@ export const CollectionExplorer: React.FC = () => {
 
   return (
     <>
-      <div className="w-full h-full text-sm text-gray-300 bg-gray-900 flex flex-col">
+      <div className="w-full h-full text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 flex flex-col">
         {/* Header */}
-        <div className="p-3 border-b border-gray-800 font-semibold text-gray-100 flex justify-between items-center">
+        <div className="p-3 border-b border-gray-200 dark:border-gray-800 font-semibold text-gray-900 dark:text-gray-100 flex justify-between items-center">
           <span>Collections</span>
           {canEdit && <button
             data-testid="new-collection-btn"
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
             title="New Collection"
             onClick={handleCreateCollection}
           >
@@ -1052,8 +1052,8 @@ export const CollectionExplorer: React.FC = () => {
         </div>
 
         {/* Search Input */}
-        <div className="px-2 py-1.5 border-b border-gray-800">
-          <div className="flex items-center bg-gray-800 rounded px-2 gap-1">
+        <div className="px-2 py-1.5 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center bg-gray-200 dark:bg-gray-800 rounded px-2 gap-1">
             <Search size={12} className="text-gray-500 shrink-0" />
             <TreeFilterInput onChange={setDebouncedFilter} />
           </div>
@@ -1063,7 +1063,7 @@ export const CollectionExplorer: React.FC = () => {
         <div className="p-2 flex-1 overflow-y-auto space-y-0.5">
           {collections.length === 0 ? (
             <div className="text-center mt-8 px-4">
-              <FolderIcon size={32} className="mx-auto text-gray-700 mb-3" />
+              <FolderIcon size={32} className="mx-auto text-gray-300 dark:text-gray-700 mb-3" />
               <p className="text-xs text-gray-500 mb-3">No collections yet.</p>
               {canEdit && <button
                 data-testid="new-collection-empty-btn"

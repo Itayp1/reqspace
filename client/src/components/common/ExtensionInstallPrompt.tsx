@@ -33,9 +33,9 @@ export function ExtensionInstallPrompt() {
   return (
     <div
       data-testid="extension-install-prompt"
-      className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 text-sm bg-indigo-950/60 border-b border-indigo-800 text-indigo-100"
+      className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 text-sm bg-indigo-50 dark:bg-indigo-950/60 border-b border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-100"
     >
-      <Puzzle size={16} className="text-indigo-300 shrink-0" aria-hidden="true" />
+      <Puzzle size={16} className="text-indigo-600 dark:text-indigo-300 shrink-0" aria-hidden="true" />
       <span className="flex-1 min-w-[200px]">
         <span className="font-semibold">Extension not active.</span>{' '}
         Requests to servers that block CORS will fail until the Reqspace Transport extension is installed.
@@ -49,12 +49,12 @@ export function ExtensionInstallPrompt() {
       <a
         href="/extension/reqspace-transport.zip"
         download="reqspace-transport.zip"
-        className="inline-flex items-center gap-1 px-3 py-1 rounded-md border border-indigo-500 text-indigo-100 hover:bg-indigo-900 font-medium"
+        className="inline-flex items-center gap-1 px-3 py-1 rounded-md border border-indigo-500 text-indigo-700 dark:text-indigo-100 hover:bg-indigo-100 dark:hover:bg-indigo-900 font-medium"
       >
         <Download size={14} aria-hidden="true" />
         Download
       </a>
-      <button onClick={dismiss} aria-label="Dismiss" className="p-1 rounded hover:bg-indigo-900 text-indigo-300">
+      <button onClick={dismiss} aria-label="Dismiss" className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-300">
         <X size={16} />
       </button>
     </div>

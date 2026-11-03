@@ -32,27 +32,27 @@ export const ConsoleDrawer: React.FC = () => {
 
   const getMethodColor = (method?: string) => {
     switch (method?.toUpperCase()) {
-      case 'GET': return 'text-green-400';
-      case 'POST': return 'text-yellow-400';
-      case 'PUT': return 'text-blue-400';
-      case 'DELETE': return 'text-red-400';
-      default: return 'text-gray-400';
+      case 'GET': return 'text-green-600 dark:text-green-400';
+      case 'POST': return 'text-yellow-600 dark:text-yellow-400';
+      case 'PUT': return 'text-blue-600 dark:text-blue-400';
+      case 'DELETE': return 'text-red-600 dark:text-red-400';
+      default: return 'text-gray-600 dark:text-gray-400';
     }
   };
 
   return (
-    <div id="console-drawer" data-testid="console-drawer" className="h-60 border-t border-gray-800 bg-gray-950 flex flex-col text-xs font-mono select-none">
+    <div id="console-drawer" data-testid="console-drawer" className="h-60 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-col text-xs font-mono select-none">
       {/* Console Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-800">
-        <div className="flex items-center gap-2 text-gray-300 font-semibold text-[11px]">
-          <Terminal size={13} className="text-gray-400" />
+      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-semibold text-[11px]">
+          <Terminal size={13} className="text-gray-600 dark:text-gray-400" />
           <span>Console ({logs.length})</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             data-testid="console-reveal-btn"
             onClick={() => setRevealSecrets(v => !v)}
-            className="px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+            className="px-1.5 py-0.5 text-[10px] text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-800 rounded transition-colors"
             title="Toggle masking of Authorization / API key / Cookie headers"
           >
             {revealSecrets ? 'Hide secrets' : 'Show secrets'}
@@ -60,7 +60,7 @@ export const ConsoleDrawer: React.FC = () => {
           <button
             data-testid="console-clear-btn"
             onClick={clearLogs}
-            className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+            className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-800 rounded transition-colors"
             title="Clear Console"
           >
             <Trash2 size={13} />
@@ -68,7 +68,7 @@ export const ConsoleDrawer: React.FC = () => {
           <button
             data-testid="console-close-btn"
             onClick={() => setIsOpen(false)}
-            className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+            className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-800 rounded transition-colors"
             title="Close Console"
           >
             <X size={13} />
@@ -77,7 +77,7 @@ export const ConsoleDrawer: React.FC = () => {
       </div>
 
       {/* Logs List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-gray-900/60 p-1">
+      <div className="flex-1 overflow-y-auto divide-y divide-gray-200 dark:divide-gray-900/60 p-1">
         {logs.length === 0 ? (
           <div className="p-6 text-center text-gray-600 text-xs font-sans">
             No logs yet. Network requests and script logs will appear here.
@@ -101,14 +101,14 @@ export const ConsoleDrawer: React.FC = () => {
                       <span className={`font-bold shrink-0 ${getMethodColor(log.method)}`}>
                         {log.method}
                       </span>
-                      <span className="text-gray-300 truncate flex-1">{log.url}</span>
+                      <span className="text-gray-700 dark:text-gray-300 truncate flex-1">{log.url}</span>
                       {log.url && UNRESOLVED_VAR.test(log.url) && (
-                        <span data-testid="console-unresolved-var" className="shrink-0 text-amber-400" title="This URL still contains an undefined {{variable}}">
+                        <span data-testid="console-unresolved-var" className="shrink-0 text-amber-600 dark:text-amber-400" title="This URL still contains an undefined {{variable}}">
                           ⚠ unresolved variable
                         </span>
                       )}
                       {log.status !== undefined && (
-                        <span className={`font-semibold shrink-0 ${log.status >= 200 && log.status < 400 ? 'text-green-400' : 'text-red-400'}`}>
+                        <span className={`font-semibold shrink-0 ${log.status >= 200 && log.status < 400 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                           {log.status}
                         </span>
                       )}
@@ -120,8 +120,8 @@ export const ConsoleDrawer: React.FC = () => {
 
                   {log.type !== 'request' && (
                     <span className={`flex-1 ${
-                      log.type === 'error' ? 'text-red-400' :
-                      log.type === 'warn' ? 'text-amber-400' : 'text-gray-300'
+                      log.type === 'error' ? 'text-red-600 dark:text-red-400' :
+                      log.type === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-gray-700 dark:text-gray-300'
                     }`}>
                       {log.message}
                     </span>
@@ -130,11 +130,11 @@ export const ConsoleDrawer: React.FC = () => {
 
                 {/* Expanded Details */}
                 {isExpanded && log.type === 'request' && (
-                  <div data-testid="console-log-details" className="mt-2 ml-4 p-2 bg-gray-900/80 rounded border border-gray-800 space-y-2 text-[11px]">
+                  <div data-testid="console-log-details" className="mt-2 ml-4 p-2 bg-gray-100 dark:bg-gray-900/80 rounded border border-gray-200 dark:border-gray-800 space-y-2 text-[11px]">
                     {log.requestHeaders && Object.keys(log.requestHeaders).length > 0 && (
                       <div>
                         <div className="text-gray-500 font-semibold mb-0.5">Request Headers:</div>
-                        <pre className="text-gray-400 font-mono whitespace-pre-wrap">
+                        <pre className="text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap">
                           {JSON.stringify(maskHeaders(log.requestHeaders, revealSecrets), null, 2)}
                         </pre>
                       </div>
@@ -142,13 +142,13 @@ export const ConsoleDrawer: React.FC = () => {
                     {log.requestBody && (
                       <div>
                         <div className="text-gray-500 font-semibold mb-0.5">Request Body:</div>
-                        <pre className="text-gray-400 font-mono whitespace-pre-wrap">{log.requestBody}</pre>
+                        <pre className="text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap">{log.requestBody}</pre>
                       </div>
                     )}
                     {log.responseHeaders && Object.keys(log.responseHeaders).length > 0 && (
                       <div>
                         <div className="text-gray-500 font-semibold mb-0.5">Response Headers:</div>
-                        <pre className="text-gray-400 font-mono whitespace-pre-wrap">
+                        <pre className="text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap">
                           {JSON.stringify(maskHeaders(log.responseHeaders, revealSecrets), null, 2)}
                         </pre>
                       </div>
@@ -156,7 +156,7 @@ export const ConsoleDrawer: React.FC = () => {
                     {log.responseBody && (
                       <div>
                         <div className="text-gray-500 font-semibold mb-0.5">Response Body:</div>
-                        <pre className="text-gray-400 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
+                        <pre className="text-gray-600 dark:text-gray-400 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
                           {log.responseBody}
                         </pre>
                       </div>
