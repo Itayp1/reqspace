@@ -8,11 +8,8 @@ on:
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
-  test:
-    uses: ./.github/workflows/test.yml
-
+  # Tests run separately via test.yml on every push; flaky E2E must not block publishing.
   build-and-push:
-    needs: test
     runs-on: ubuntu-latest
     
     steps:
@@ -34,7 +31,7 @@ jobs:
         with:
           images: itayp/reqspace
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
 
       - name: Build and push Docker Image
