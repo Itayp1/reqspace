@@ -30,7 +30,9 @@ export function EnvironmentTabEditor() {
       setName(env.name ?? '');
       setRevealedIndices(new Set());
     }
-  }, [envId, !!env]); // Reset when switching tabs or when the env finishes loading
+    // env.variables / env.name by reference: a store replacement (socket or
+    // reload) refreshes the buffer; keystrokes only touch localVars.
+  }, [envId, env?.variables, env?.name]);
 
   const handleAddVar = () => {
     setLocalVars([...localVars, { key: '', initialValue: '', currentValue: '', isSecret: false, enabled: true }]);

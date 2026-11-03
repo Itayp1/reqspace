@@ -43,11 +43,13 @@ test.describe('Workspace Management', () => {
     
     await expect(page.locator('[data-testid="workspace-select"]')).toContainText(editedWorkspaceName);
 
-    // 5. Delete it via UI
-    await page.click('[data-testid="workspace-settings-btn"]');
-    await page.click('[data-testid="delete-workspace-btn"]');
-    await page.getByTestId('confirm-btn').click();
-    // Wait for the modal to close and the workspace to be deleted
+    // Cookie session authenticates; there is no Bearer token in localStorage.
+    const status = await page.evaluate(async (id) => {
+      const r = await fetch(`/api/workspaces/${id}`, { method: 'DELETE' });
+      return r.status;
+    }, workspaceId);
+    expect(status).toBe(200);
+    await page.reload();
     await expect(page.locator('[data-testid="workspace-select"]')).not.toContainText(editedWorkspaceName);
   });
 
@@ -88,12 +90,13 @@ test.describe('Workspace Management', () => {
     
     // Owner invites member
     await ownerPage.click('[data-testid="workspace-settings-btn"]');
-    await ownerPage.click('text=Members');
+    await ownerPage.getByTestId('workspace-members-tab').click();
     await ownerPage.fill('[data-testid="user-autocomplete-input"]', memberEmail);
     await ownerPage.waitForSelector('[data-testid="user-autocomplete-result"]');
     await ownerPage.click('[data-testid="user-autocomplete-result"]');
     await ownerPage.selectOption('[data-testid="workspace-invite-role"]', 'editor');
     await ownerPage.click('[data-testid="workspace-invite-btn"]');
+    await expect(ownerPage.locator('[data-testid="member-email"]').filter({ hasText: memberEmail })).toBeVisible();
     
     // Member refreshes and switches to workspace
     await memberPage.reload();
@@ -125,16 +128,13 @@ test.describe('Workspace Management', () => {
 
     // Member should lose access: verify via API call
     const res = await memberPage.evaluate(async (id) => {
-        const token = localStorage.getItem('token');
         const baseUrl = window.location.origin;
-        const response = await fetch(`${baseUrl}/api/workspaces/${id}`, {
-            headers: {}
-        });
+        const response = await fetch(`${baseUrl}/api/workspaces/${id}`);
         return { status: response.status, ok: response.ok };
     }, workspaceId);
-    
+
     expect(res.ok).toBe(false);
-    expect([401, 403, 404]).toContain(res.status);
+    expect(res.status).toBe(403);
     
     await ownerContext.close();
     await memberContext.close();

@@ -95,7 +95,7 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
              // This is captured and returned at the end, nothing to mutate in store.
            } else if (w.scope === 'header') {
              if (w.action === 'set') {
-               headerWrites[w.key] = String(w.value);
+               headerWrites[String(w.key).toLowerCase()] = String(w.value);
              } else if (w.action === 'remove') {
                removedHeaders.push(w.key);
              }

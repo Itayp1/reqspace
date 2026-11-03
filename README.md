@@ -500,6 +500,11 @@ to build, and why. Open work is in [`TODO.md`](TODO.md).
   a Sequelize model.
 * **Every change ships a test** that fails before it and passes after.
 
+## Test-plan fixes
+
+Progress for the failed manual test plan is in [`test_plan_fix/README.md`](test_plan_fix/README.md).
+All 32 tracked items are done. See [`test_plan_fix/README.md`](test_plan_fix/README.md).
+
 ## 📝 License
 
 This project is open-source and available under the [ISC License](LICENSE).

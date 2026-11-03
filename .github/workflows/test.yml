@@ -61,6 +61,7 @@ jobs:
         run: |
           DB_TYPE=${{ matrix.db }} DB_STORAGE_PATH=/tmp/ci.sqlite NODE_ENV=test PORT=3005 \
             MUTATION_RATE_LIMIT_MAX=300 READ_RATE_LIMIT_MAX=2000 \
+            ALLOW_DEFAULT_ADMIN=true ADMIN_PASSWORD=admin \
             DB_HOST=127.0.0.1 DB_USER=root DB_PASSWORD="" DB_NAME=reqspace_test \
             CERT_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
             node server/dist/index.js > /tmp/server.log 2>&1 &

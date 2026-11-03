@@ -92,21 +92,32 @@ test.describe('TEST-4: API Authorization Layer', () => {
     const envA = await envResA.json();
     envIdA = envA._id || envA.id;
 
-    // Enable history saving for owner so the proxy request actually generates a history entry
-    await ownerReq.put('/api/user/settings', { data: { saveHistory: true } });
+    // History is recorded by POST /api/workspaces/:id/history (there is no /api/proxy).
+    // saveHistory defaults to true; this confirms the owner setting the list will use.
+    const settingsRes = await ownerReq.put('/api/auth/settings', { data: { saveHistory: true } });
+    if (!settingsRes.ok()) throw new Error(`Settings update failed: ${await settingsRes.text()}`);
 
-    // Create a history entry via proxy simulation
-    await ownerReq.post('/api/proxy', {
-      data: { method: 'GET', url: 'http://example.com', workspaceId: workspaceIdA }
+    const historyCreateRes = await ownerReq.post(`/api/workspaces/${workspaceIdA}/history`, {
+      data: {
+        requestSnapshot: { method: 'GET', url: 'http://example.com', headers: {}, body: '' },
+        responseBody: 'ok',
+        responseStatus: 200,
+        responseStatusText: 'OK',
+        responseHeaders: {},
+        responseTime: 1,
+        responseSize: 2,
+        testResults: [],
+      },
     });
-    
-    // Wait a brief moment for the async saveHistoryEntry to complete
-    await new Promise(r => setTimeout(r, 500));
+    if (!historyCreateRes.ok()) throw new Error(`History create failed: ${await historyCreateRes.text()}`);
 
-    // Fetch the history list to get the actual history ID
+    // List shape is { items, total }, not a bare array.
     const historyListRes = await ownerReq.get(`/api/workspaces/${workspaceIdA}/history`);
+    if (!historyListRes.ok()) throw new Error(`History list failed: ${await historyListRes.text()}`);
     const historyList = await historyListRes.json();
-    historyIdA = historyList[0]?._id || historyList[0]?.id || getUuid();
+    const historyItems = historyList.items ?? [];
+    historyIdA = historyItems[0]?._id || historyItems[0]?.id;
+    if (!historyIdA) throw new Error(`History id missing: ${JSON.stringify(historyList)}`);
 
     // === Workspace B Setup (Owned by NonMember) ===
     const wsResB = await nonMemberReq.post('/api/workspaces', { data: { name: `Workspace B ${getUuid()}` } });
@@ -183,7 +194,9 @@ test.describe('TEST-4: API Authorization Layer', () => {
       method: 'POST',
       url: () => `/api/history/${historyIdA}/save`,
       body: () => ({ collectionId: collectionIdA, name: 'Saved Req' }),
-      expected: { anonymous: 401, nonMember: 403, viewer: 403, editor: 404, owner: 404, superadmin: 404 },
+      // The setup row belongs to the owner. Save looks up history by that user id,
+      // so the owner gets 201 and an editor or superadmin gets 404.
+      expected: { anonymous: 401, nonMember: 403, viewer: 403, editor: 404, owner: 201, superadmin: 404 },
 
       massAssignment: {
         url: () => `/api/history/${historyIdA}/save`,
