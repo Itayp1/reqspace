@@ -569,6 +569,19 @@ to build, and why. Open work is in [`TODO.md`](TODO.md).
 Progress for the failed manual test plan is in [`test_plan_fix/README.md`](test_plan_fix/README.md).
 All 32 tracked items are done. See [`test_plan_fix/README.md`](test_plan_fix/README.md).
 
+## ✍️ Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+Windows installers are built only by GitHub Actions from this repository.
+
+- Committers, reviewers and approvers: [@Itayp1](https://github.com/Itayp1)
+
+## 🔒 Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the
+person installing or operating it. The desktop app connects only to the server URL the user configures (or to its own
+local server in offline mode) and checks GitHub Releases for application updates.
+
 ## 📝 License
 
 This project is open-source and available under the [ISC License](LICENSE).
