@@ -81,3 +81,6 @@ video/*.mp4
 /server/test_sdk.js
 /video/build-player.js
 /tasks/
+
+# Marketing video source (Remotion, not open source) - kept local only
+/video/

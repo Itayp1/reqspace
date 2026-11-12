@@ -16,9 +16,7 @@
     "test:e2e:all": "node scripts/run-e2e-all.js",
     "test:e2e:electron": "node scripts/run-e2e-targets.js --electron-only --shards=auto",
     "test:e2e:targets": "node scripts/run-e2e-targets.js --shards=auto",
-    "test:all": "npm run test:server && npm run test:e2e",
-    "video:dev": "npm --prefix video run dev",
-    "video:render": "npm --prefix video run render"
+    "test:all": "npm run test:server && npm run test:e2e"
   },
   "build": {
     "appId": "com.reqspace.app",
