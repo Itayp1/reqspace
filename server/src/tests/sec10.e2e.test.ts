@@ -1,0 +1,52 @@
+export {};
+const port = process.env.TEST_PORT || process.env.PORT || 3005;
+const BASE_URL = `http://127.0.0.1:${port}`;
+
+// These counts match the server's real ceilings (mutationMax 300, readMax 2000, the
+// Settings defaults). Each test sends a distinct X-Forwarded-For, so
+// the burst stays in its own bucket and does not throttle the rest of the suite.
+describe('SEC-10: Rate limiting', () => {
+  it('should rate limit POST requests after 300 attempts', async () => {
+    // Generate a unique dummy workspace payload so we don't conflict
+    const payload = JSON.stringify({ name: 'RateLimit Test', description: 'test' });
+    
+    let hit429 = false;
+    for (let i = 0; i < 350; i++) {
+      const res = await fetch(`${BASE_URL}/api/workspaces`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '10.0.0.99' 
+        },
+        body: payload
+      });
+      // Note: we might get 401 Unauthorized here because we aren't logged in,
+      // but the limiter runs BEFORE auth, so we should STILL hit 429 eventually.
+      if (res.status === 429) {
+        hit429 = true;
+        break;
+      }
+    }
+    
+    expect(hit429).toBe(true);
+  }, 20000);
+
+  it('should rate limit GET requests after 2000 attempts (high ceiling, reads included)', async () => {
+    let hit429 = false;
+    const batchSize = 100;
+    for (let batch = 0; batch < 21 && !hit429; batch++) {
+      const results = await Promise.all(
+        Array.from({ length: batchSize }, () =>
+          fetch(`${BASE_URL}/api/auth/config`, {
+            headers: { 'x-forwarded-for': '10.0.0.100' },
+          })
+        )
+      );
+      if (results.some((res) => res.status === 429)) hit429 = true;
+    }
+
+    expect(hit429).toBe(true);
+  }, 30000);
+});
+
+

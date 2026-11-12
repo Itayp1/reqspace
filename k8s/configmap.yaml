@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reqspace-web-config
+data:
+  NODE_ENV: "production"
+  PORT: "3005"
+  # Trust proxy is a database setting now: after first deploy set "Trust proxy" to 1
+  # in Admin > Settings > Server & Security (behind the Ingress, for req.ip / rate limiting).

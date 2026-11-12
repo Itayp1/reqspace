@@ -1,0 +1,88 @@
+import { useState } from 'react';
+import { Outlet } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import TopBar from './TopBar';
+import { ConsoleDrawer } from './ConsoleDrawer';
+import { ExtensionInstallPrompt } from '../common/ExtensionInstallPrompt';
+import { useConsoleStore } from '../../store/consoleStore';
+import { Terminal, Menu, X } from 'lucide-react';
+
+export default function MainLayout() {
+  const { isOpen, toggleIsOpen, logs } = useConsoleStore();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  return (
+    <div className="flex flex-col md:flex-row h-screen bg-background text-text overflow-hidden relative">
+      {/* Mobile Header with Hamburger */}
+      <header className="md:hidden flex items-center justify-between p-3 bg-surface border-b border-border z-10 shrink-0">
+        <span className="font-bold">reqSpace</span>
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="p-1 text-text-muted hover:text-text"
+          aria-label={isSidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={isSidebarOpen}
+          aria-controls="sidebar-nav"
+        >
+          {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </header>
+
+      {/* Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/50 z-30" 
+          onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar with mobile overlay */}
+      <div
+        id="sidebar-nav"
+        className={`
+          fixed md:relative top-0 bottom-0 left-0 z-40 transform transition-transform duration-300 ease-in-out md:transform-none bg-surface flex
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+        aria-hidden={!isSidebarOpen && undefined}
+      >
+        <Sidebar />
+      </div>
+
+      {/* Main Content Area */}
+      <main id="main-content" className="flex-1 flex flex-col min-w-0 h-full relative z-0" tabIndex={-1}>
+        <TopBar />
+        <ExtensionInstallPrompt />
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <Outlet />
+          </div>
+          <ConsoleDrawer />
+        </div>
+        {/* Bottom Status Bar */}
+        <div className="h-6 bg-gray-100 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-3 text-[11px] text-gray-600 dark:text-gray-400 select-none shrink-0" role="status" aria-live="polite">
+          <button
+            data-testid="console-toggle-btn"
+            onClick={toggleIsOpen}
+            aria-label={isOpen ? 'Close console drawer' : 'Open console drawer'}
+            aria-expanded={isOpen}
+            aria-controls="console-drawer"
+            className={`flex items-center gap-1.5 px-2 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors ${
+              isOpen ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-600 dark:text-gray-400'
+            }`}
+          >
+            <Terminal size={11} aria-hidden="true" />
+            <span>Console</span>
+            {logs.length > 0 && (
+              <span className="bg-gray-200 dark:bg-gray-800 px-1 rounded text-[10px] text-gray-700 dark:text-gray-300" aria-label={`${logs.length} log entries`}>
+                {logs.length}
+              </span>
+            )}
+          </button>
+          <div className="flex items-center gap-3 text-gray-500" aria-label="Connection status">
+            <span>Online</span>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

@@ -1,0 +1,72 @@
+{
+  "name": "reqspace",
+  "version": "1.0.0",
+  "description": "reqSpace Desktop App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:client": "cd client && npm run build",
+    "build:server": "cd server && npm run build && cd .. && node scripts/build-extension-zip.js",
+    "build:extension": "powershell -File scripts/build-extension.ps1",
+    "pack": "npm run build:client && npm run build:server && electron-builder --dir",
+    "dist": "npm run build:client && npm run build:server && electron-builder",
+    "wipe:db": "node scripts/wipe-db.js",
+    "test:server": "node scripts/run-server-e2e.js",
+    "test:e2e": "playwright test",
+    "test:e2e:all": "node scripts/run-e2e-all.js",
+    "test:e2e:electron": "node scripts/run-e2e-targets.js --electron-only --shards=auto",
+    "test:e2e:targets": "node scripts/run-e2e-targets.js --shards=auto",
+    "test:all": "npm run test:server && npm run test:e2e",
+    "video:dev": "npm --prefix video run dev",
+    "video:render": "npm --prefix video run render"
+  },
+  "build": {
+    "appId": "com.reqspace.app",
+    "productName": "reqSpace",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "electron/**/*",
+      "setup.html",
+      "loading.html"
+    ],
+    "extraResources": [
+      {
+        "from": "server/dist",
+        "to": "server/dist"
+      },
+      {
+        "from": "server/package.json",
+        "to": "server/package.json"
+      },
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules"
+      },
+      {
+        "from": "client/dist",
+        "to": "client/dist"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.5.1",
+    "concurrently": "^10.0.5",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
+    "mysql2": "^3.24.4",
+    "socket.io-client": "^4.8.4",
+    "wait-on": "^9.1.0"
+  }
+}

@@ -1,0 +1,83 @@
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+*.log
+
+*.sqlite
+dist-electron/
+client/test-results/
+server/data.sqlite
+server/reqspace-local.sqlite
+# Written by the error reporter when the database is unreachable.
+fperrors-fallback.jsonl
+
+# Compiled TypeScript output — rebuilt from source, never committed.
+server/dist/
+client/dist/
+
+.env
+.jwt-secret.local
+
+release/
+
+# One-off scratch fix/patch scripts (see scripts/clean-scratch-files.sh)
+/fix.js
+/fix[0-9].js
+/fix_*.js
+/fix_*.py
+/fix.ps1
+patch_*.js
+
+reqspace-transport.zip
+
+# QA dummy servers: generated certs / proxy log
+qa/dummy/proxy.log
+
+# Per-target runs of scripts/run-e2e-targets.js
+/test-results-*/
+/playwright-report-*/
+
+# Local test/QA scratch — never part of the product
+/qa/
+/test_plan_fix/
+/test-results/
+/playwright-report/
+*.db
+*.jar
+*.pem
+.jwt-secret.local
+
+# Claude Code local state and git worktrees
+.claude/settings.local.json
+.claude/worktrees/
+
+# Generated video renders (rebuilt from video/src)
+video/build/
+video/out-*.png
+video/*.mp4
+
+# Not for the public repo: scratch notes, QA screenshots, local settings
+/manualtestfixes.md
+/maualtestrejects.md
+/ui-ux-proposals.md
+/failed.md
+/plantest.md
+/testgap.md
+/testfaild.md
+/bugs_queue.json
+/pictures/
+/settings.local.json
+/.claude/deploy-status.json
+/.claude/scheduled_tasks.lock
+/.claude/agents/
+/.claude/skills/ponytail*/
+/server/test_export.json
+/server/test_schema.js
+/server/test_sdk.js
+/video/build-player.js
+/tasks/

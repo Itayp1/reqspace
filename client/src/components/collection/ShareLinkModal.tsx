@@ -1,0 +1,191 @@
+import { useEscape } from '../../hooks/useEscape';
+import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Copy, Check } from 'lucide-react';
+import api from '../../api/axios';
+import { useToastStore } from '../../store/toastStore';
+
+interface Props {
+  collectionId: string;
+  collectionName: string;
+  onClose: () => void;
+}
+
+export function ShareLinkModal({ collectionId, collectionName, onClose }: Props) {
+  useEscape(onClose);
+  const [expiresInDays, setExpiresInDays] = useState('7');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [sharedLink, setSharedLink] = useState('');
+  const [shortId, setShortId] = useState('');
+  const [copied, setCopied] = useState(false);
+  // Links created earlier (possibly in a previous session of this dialog).
+  const [links, setLinks] = useState<{ shortId: string; url: string; expiresAt: string | null; canRevoke: boolean }[]>([]);
+
+  const loadLinks = useCallback(async () => {
+    try {
+      const res = await api.get('/share/collection/' + collectionId + '/links');
+      setLinks(res.data);
+    } catch {
+      setLinks([]);
+    }
+  }, [collectionId]);
+
+  useEffect(() => { loadLinks(); }, [loadLinks]);
+
+  const revokeExisting = async (id: string) => {
+    try {
+      await api.delete('/share/' + id);
+      setLinks(prev => prev.filter(l => l.shortId !== id));
+    } catch (e: any) {
+      useToastStore.getState().addToast('error', e.response?.data?.message || 'Failed to revoke link');
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      setLoading(true);
+      const res = await api.post('/share/collection/' + collectionId, { expiresInDays: parseInt(expiresInDays) });
+      setSharedLink(window.location.origin + res.data.url);
+      setShortId(res.data.shortId);
+      setLoading(false);
+      loadLinks();
+    } catch (err: any) {
+      const message = err.response?.data?.message || 'Failed to generate link';
+      // Local state for inline feedback while the modal is still open, plus a
+      // toast so the error isn't silently lost if the user already closed it
+      // before this async call settled (UI-2).
+      setError(message);
+      useToastStore.getState().addToast('error', message);
+      setLoading(false);
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(sharedLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return createPortal(
+    <div data-testid="share-link-modal" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-label={`Share ${collectionName}`} className="bg-background text-text border border-border rounded-lg shadow-2xl p-6 w-[440px] max-w-[95vw]">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 className="text-base font-semibold truncate min-w-0" title={collectionName}>Share “{collectionName}”</h2>
+          <button aria-label="Close" onClick={onClose} className="p-1 hover:bg-surface rounded text-text-muted hover:text-text outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        {!sharedLink ? (
+          <div className="space-y-4">
+            <p className="text-sm text-text-muted">
+              Anyone with the link can view and run this collection without signing in. The link expires automatically and you can revoke it at any time.
+            </p>
+            <p data-testid="share-link-exposure" className="text-xs text-text-muted">
+              Shared: request names, methods, URLs, descriptions and headers. Not shared: auth credentials, secret-looking headers and query values, or environment values.
+            </p>
+            <div>
+              <label htmlFor="share-expires" className="block text-sm font-medium mb-1">Expires in</label>
+              <select
+                id="share-expires"
+                value={expiresInDays}
+                onChange={e => setExpiresInDays(e.target.value)}
+                className="w-full p-2 border border-border rounded bg-background text-text text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <option value="1">1 Day</option>
+                <option value="7">1 Week</option>
+                <option value="30">1 Month</option>
+              </select>
+            </div>
+
+            {error && <div role="alert" className="text-red-600 dark:text-red-400 text-sm">{error}</div>}
+
+            {links.length > 0 && (
+              <div data-testid="share-link-existing" className="border-t border-border pt-3">
+                <div className="text-sm font-medium mb-2">Active links ({links.length})</div>
+                <ul className="space-y-2 max-h-40 overflow-y-auto">
+                  {links.map(l => (
+                    <li key={l.shortId} data-testid="share-link-existing-row" className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-mono min-w-0" title={window.location.origin + l.url}>
+                        {l.url}{l.expiresAt ? ' (expires ' + new Date(l.expiresAt).toLocaleDateString() + ')' : ''}
+                      </span>
+                      {l.canRevoke && (
+                        <button
+                          data-testid="share-link-existing-revoke"
+                          onClick={() => revokeExisting(l.shortId)}
+                          className="text-red-600 dark:text-red-400 hover:underline shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="pt-4 flex justify-end gap-2">
+              <button onClick={onClose} className="px-4 py-2 hover:bg-surface rounded text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                Cancel
+              </button>
+              <button 
+                data-testid="share-link-generate-btn"
+                onClick={handleShare} 
+                disabled={loading}
+                className="bg-primary-strong text-white px-4 py-2 rounded text-sm font-medium hover:bg-primary/90 disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                {loading ? 'Generating…' : 'Generate Link'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p role="status" className="text-sm text-green-600 dark:text-green-400">Link generated. Copy it to share.</p>
+            <div className="flex gap-2">
+              <input 
+                data-testid="share-link-result"
+                type="text"
+                readOnly
+                aria-label="Share link"
+                onFocus={e => e.currentTarget.select()}
+                value={sharedLink}
+                className="flex-1 min-w-0 p-2 border border-border rounded bg-surface text-text font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              />
+              <button 
+                onClick={copyToClipboard}
+                aria-label={copied ? 'Link copied' : 'Copy link'}
+                title={copied ? 'Copied' : 'Copy link'}
+                className="bg-background border border-border hover:bg-surface text-text p-2 rounded flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                {copied ? <Check size={18} className="text-green-600 dark:text-green-400" aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+              </button>
+            </div>
+            <div className="pt-4 flex justify-between">
+              <button 
+                data-testid="share-link-revoke-btn"
+                onClick={async () => {
+                  try {
+                    await api.delete('/share/' + shortId);
+                    setSharedLink('');
+                    loadLinks();
+                  } catch (e: any) {
+                    useToastStore.getState().addToast('error', e.response?.data?.message || 'Failed to revoke link');
+                    console.error('Failed to revoke:', e);
+                  }
+                }}
+                className="px-4 py-2 hover:bg-surface text-red-600 dark:text-red-400 rounded text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                Revoke Link
+              </button>
+              <button onClick={onClose} className="bg-primary-strong text-white px-4 py-2 rounded text-sm font-medium hover:bg-primary/90 outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}

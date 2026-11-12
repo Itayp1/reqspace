@@ -1,0 +1,153 @@
+import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
+import { SqlUser } from '../db/sql-models';
+import { getSequelize } from '../db/sequelize';
+import { QueryTypes, Op } from 'sequelize';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
+import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
+
+export interface IUserRecord {
+  _id: string;
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string | null;
+  authType: string;
+  isSuperAdmin: boolean;
+  status: string;
+  avatar?: string | null;
+  settings: any;
+  clientCertificates: any[];
+  historyUsedBytes: number;
+  mustChangePassword?: boolean;
+  lastLoginAt?: Date | null;
+  tokenVersion: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function sqlToRecord(u: SqlUser): IUserRecord {
+  return {
+    _id: u.id,
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    passwordHash: u.passwordHash,
+    authType: u.authType,
+    isSuperAdmin: u.isSuperAdmin,
+    status: u.status,
+    avatar: u.avatar,
+    settings: typeof u.settings === 'string' ? JSON.parse(u.settings) : u.settings,
+      clientCertificates: typeof u.clientCertificates === 'string' ? JSON.parse(u.clientCertificates) : (u.clientCertificates || []),
+    historyUsedBytes: Number(u.historyUsedBytes),
+    mustChangePassword: u.mustChangePassword,
+    lastLoginAt: u.lastLoginAt,
+    tokenVersion: u.tokenVersion ?? 0,
+    createdAt: u.createdAt,
+    updatedAt: u.updatedAt,
+  };
+}
+
+export const UserRepository = {
+  async findById(id: string): Promise<IUserRecord | null> {
+    const u = await SqlUser.findByPk(id);
+    return u ? sqlToRecord(u) : null;
+  },
+
+  async findByEmail(email: string): Promise<IUserRecord | null> {
+    const u = await SqlUser.findOne({ where: { email: email.toLowerCase() } });
+    return u ? sqlToRecord(u) : null;
+  },
+
+  async create(data: {
+    name: string;
+    email: string;
+    passwordHash?: string | null;
+    authType?: string;
+    isSuperAdmin?: boolean;
+    status?: string;
+    mustChangePassword?: boolean;
+  }): Promise<IUserRecord> {
+    const u = await SqlUser.create({
+      id: uuidv4(),
+      ...data,
+      email: data.email.toLowerCase(),
+      settings: JSON.stringify({ followRedirects: true, verifySsl: true, sendNoCacheHeader: false, encodeUrl: true, timeout: 0, proxyEnabled: false, proxyUrl: 'http://127.0.0.1:8080', proxyAuthEnabled: false, proxyUsername: '', proxyPassword: '', saveHistory: true, shortcuts: { search: 'ctrl+k', save: 'ctrl+s', send: 'ctrl+enter' } }),
+        clientCertificates: '[]',
+    });
+    return sqlToRecord(u);
+  },
+
+  async update(id: string, data: Partial<IUserRecord & { passwordHash: string }>): Promise<IUserRecord | null> {
+    await SqlUser.update({
+      ...data,
+      settings: data.settings ? JSON.stringify(data.settings) : undefined,
+        clientCertificates: data.clientCertificates ? JSON.stringify(data.clientCertificates) : undefined,
+    }, { where: { id } });
+    return this.findById(id);
+  },
+
+  async delete(id: string): Promise<void> {
+    await SqlUser.destroy({ where: { id } });
+  },
+
+  async list(filter: Record<string, any> = {}, options?: { limit?: number, cursor?: string }): Promise<{ items: IUserRecord[], nextCursor: string | null }> {
+    const limit = (options && options.limit && options.limit <= 200) ? options.limit : 200;
+    const cursorObj = decodeCursor(options?.cursor);
+    const cursorWhere = getCursorWhere(cursorObj, 'createdAt', true); // DESC
+    
+    const users = await SqlUser.findAll({ 
+      where: (Object.keys(cursorWhere).length || Object.getOwnPropertySymbols(cursorWhere).length ? { [Op.and]: [filter, cursorWhere] } : filter) as any,
+      order: [['createdAt', 'DESC'], ['id', 'DESC']],
+      limit: limit + 1
+    });
+
+    let nextCursor = null;
+    if (users.length > limit) {
+      users.pop();
+      const lastItem = users[users.length - 1];
+      nextCursor = encodeCursor(lastItem.createdAt, lastItem.id);
+    }
+
+    return { items: users.map(sqlToRecord), nextCursor };
+  },
+
+  async count(): Promise<number> {
+    return SqlUser.count();
+  },
+
+  async countSuperAdmins(): Promise<number> {
+    return SqlUser.count({ where: { isSuperAdmin: true } });
+  },
+
+  async existsByEmail(email: string): Promise<boolean> {
+    const u = await this.findByEmail(email);
+    return !!u;
+  },
+
+  async search(query: string): Promise<Pick<IUserRecord, '_id' | 'name' | 'email' | 'avatar'>[]> {
+    // Escaped here as well as at the route, so a second caller cannot skip it.
+    const term = escapeLike(String(query).slice(0, MAX_SEARCH_LENGTH));
+    if (!term) return [];
+    const pattern = `${term}%`;
+    // Sequelize's `{ [Op.like]: pattern }` doesn't add an ESCAPE clause, and
+    // sqlite (unlike postgres/mysql) has no implicit default escape
+    // character for LIKE — without it, escapeLike's backslashes are just
+    // literal characters and every escaped `_`/`%` stops matching at all
+    // (e.g. searching a real email containing '_' returned zero results).
+    // A raw, parameterized query lets us say ESCAPE explicitly for all three.
+    // LOWER() on both sides: Postgres LIKE is case-sensitive, and emails are stored lowercased at registration.
+    // MySQL reads a backslash inside a string literal as an escape, so its ESCAPE literal needs two.
+    const escChar = getSequelize().getDialect() === 'mysql' ? '\\\\' : '\\';
+    const users = await getSequelize().query(
+      `SELECT id, name, email, avatar FROM users WHERE LOWER(name) LIKE LOWER(:pattern) ESCAPE '${escChar}' OR LOWER(email) LIKE LOWER(:pattern) ESCAPE '${escChar}' LIMIT 10`,
+      { replacements: { pattern }, type: QueryTypes.SELECT }
+    ) as Array<{ id: string; name: string; email: string; avatar: string | null }>;
+    return users.map(u => ({
+      _id: u.id,
+      name: u.name,
+      email: u.email,
+      avatar: u.avatar
+    }));
+  }
+};

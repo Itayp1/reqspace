@@ -1,0 +1,142 @@
+import { test, expect } from './fixtures';
+
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+test.describe('Workspace Management', () => {
+  const timestamp = Date.now();
+  const testEmail = `wsuser_${timestamp}@example.com`;
+  const testPassword = 'password123';
+
+  test('should register, login, create, edit, switch and delete a workspace', async ({ page }) => {
+    // 1. Register and Login
+    await page.goto('/register');
+    await page.fill('[data-testid="register-name"]', 'WS User');
+    await page.fill('[data-testid="register-email"]', testEmail);
+    await page.fill('[data-testid="register-password"]', testPassword);
+    await page.click('[data-testid="register-submit"]');
+    await expect(page).toHaveURL(/.*\/$/);
+    
+    // 2. Create a new Workspace
+    const newWorkspaceName = `Test Workspace ${timestamp}`;
+    const editedWorkspaceName = `${newWorkspaceName} Edited`;
+
+    await page.click('[data-testid="new-workspace-btn"]');
+    await page.getByTestId('prompt-input').fill(newWorkspaceName);
+    await page.getByTestId('prompt-submit').click();
+    
+    await expect(page.locator('[data-testid="workspace-select"]')).toContainText(newWorkspaceName);
+
+    // 3. Switch to it
+    const workspaceId = await page.locator('[data-testid="workspace-select"]').inputValue();
+    await page.selectOption('[data-testid="workspace-select"]', workspaceId);
+
+    // 4. Edit the workspace
+    await page.click('[data-testid="workspace-settings-btn"]');
+    await page.fill('[data-testid="workspace-name-input"]', editedWorkspaceName);
+    const saved = page.waitForResponse(
+      (r) => r.request().method() === 'PUT' && /\/workspaces\/[^/]+$/.test(r.url()) && r.ok(),
+    );
+    await page.click('[data-testid="workspace-save-btn"]');
+    await saved;
+    await page.click('[data-testid="close-workspace-modal"]');
+    
+    await expect(page.locator('[data-testid="workspace-select"]')).toContainText(editedWorkspaceName);
+
+    // Cookie session authenticates; there is no Bearer token in localStorage.
+    const status = await page.evaluate(async (id) => {
+      const r = await fetch(`/api/workspaces/${id}`, { method: 'DELETE' });
+      return r.status;
+    }, workspaceId);
+    expect(status).toBe(200);
+    await page.reload();
+    await expect(page.locator('[data-testid="workspace-select"]')).not.toContainText(editedWorkspaceName);
+  });
+
+  test('removing a member immediately revokes their access', async ({ browser }) => {
+    const ownerContext = await browser.newContext();
+    const ownerPage = await ownerContext.newPage();
+    const ownerEmail = `owner_${Date.now()}@example.com`;
+    
+    // Register owner
+    await ownerPage.goto('/register');
+    await ownerPage.fill('[data-testid="register-name"]', 'Owner User');
+    await ownerPage.fill('[data-testid="register-email"]', ownerEmail);
+    await ownerPage.fill('[data-testid="register-password"]', 'password123');
+    await ownerPage.click('[data-testid="register-submit"]');
+    await expect(ownerPage).toHaveURL(/.*\/$/);
+    
+    // Owner creates workspace
+    const wsName = `Shared Workspace ${Date.now()}`;
+    await ownerPage.click('[data-testid="new-workspace-btn"]');
+    await ownerPage.getByTestId('prompt-input').fill(wsName);
+    await ownerPage.getByTestId('prompt-submit').click();
+    await expect(ownerPage.locator('[data-testid="workspace-select"]')).toContainText(wsName);
+    
+    const workspaceId = await ownerPage.locator('[data-testid="workspace-select"]').inputValue();
+    await ownerPage.selectOption('[data-testid="workspace-select"]', workspaceId);
+
+    // Register member
+    const memberContext = await browser.newContext();
+    const memberPage = await memberContext.newPage();
+    const memberEmail = `member_${Date.now()}@example.com`;
+    
+    await memberPage.goto('/register');
+    await memberPage.fill('[data-testid="register-name"]', 'Member User');
+    await memberPage.fill('[data-testid="register-email"]', memberEmail);
+    await memberPage.fill('[data-testid="register-password"]', 'password123');
+    await memberPage.click('[data-testid="register-submit"]');
+    await expect(memberPage).toHaveURL(/.*\/$/);
+    
+    // Owner invites member
+    await ownerPage.click('[data-testid="workspace-settings-btn"]');
+    await ownerPage.getByTestId('workspace-members-tab').click();
+    await ownerPage.fill('[data-testid="user-autocomplete-input"]', memberEmail);
+    await ownerPage.waitForSelector('[data-testid="user-autocomplete-result"]');
+    await ownerPage.click('[data-testid="user-autocomplete-result"]');
+    await ownerPage.selectOption('[data-testid="workspace-invite-role"]', 'editor');
+    await ownerPage.click('[data-testid="workspace-invite-btn"]');
+    await expect(ownerPage.locator('[data-testid="member-email"]').filter({ hasText: memberEmail })).toBeVisible();
+    
+    // Member refreshes and switches to workspace
+    await memberPage.reload();
+    await expect(memberPage.locator('[data-testid="workspace-select"]')).toContainText(wsName);
+    await memberPage.selectOption('[data-testid="workspace-select"]', workspaceId);
+    
+    // Verify member has access
+    await expect(memberPage.locator('[data-testid="workspace-select"]')).toHaveValue(workspaceId);
+    
+    // Verify member has access via API first
+    const resBefore = await memberPage.evaluate(async (id) => {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/workspaces/${id}`, { headers: {} });
+        return { status: response.status, ok: response.ok };
+    }, workspaceId);
+    expect(resBefore.ok).toBe(true);
+    expect(resBefore.status).toBe(200);
+
+    // Owner removes member
+    const memberRow = ownerPage.locator('[data-testid="member-row"]').filter({ hasText: memberEmail });
+    await expect(memberRow).toBeVisible();
+    await memberRow.locator('[data-testid="member-remove-btn"]').click();
+    const removed = ownerPage.waitForResponse(
+      (r) => r.url().includes('/members/') && r.request().method() === 'DELETE' && r.ok(),
+    );
+    await ownerPage.getByTestId('confirm-btn').click();
+    await removed;
+    await expect(memberRow).toHaveCount(0);
+
+    // Member should lose access: verify via API call
+    const res = await memberPage.evaluate(async (id) => {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/workspaces/${id}`);
+        return { status: response.status, ok: response.ok };
+    }, workspaceId);
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    
+    await ownerContext.close();
+    await memberContext.close();
+  });
+});

@@ -1,0 +1,940 @@
+import type React from 'react';
+import { matchesShortcut } from '../../utils/shortcuts';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useRequestStore } from '../../store/requestStore';
+import { useAuthStore } from '../../store/authStore';
+import { useCollectionStore, type Folder } from '../../store/collectionStore';
+import { useConsoleStore } from '../../store/consoleStore';
+import { useCookieStore } from '../../store/cookieStore';
+import { useSettingsStore, getLocalProxyConfig } from '../../store/settingsStore';
+import { Save, Play, Code2, Cookie, Activity, ChevronDown } from 'lucide-react';
+import { VariableInput } from '../common/VariableInput';
+import api from '../../api/axios';
+import { SaveRequestModal } from './SaveRequestModal';
+import { LoadTestModal } from './LoadTestModal';
+import { CodeGenModal } from './CodeGenModal';
+import { ConfirmModal } from '../common/ConfirmModal';
+import { CookieManagerModal } from '../common/CookieManagerModal';
+import type { KeyValueItem, ActiveRequest } from '../../store/requestStore';
+
+import { fileToBase64 } from '../../utils/fileToBase64';
+import { resolveAllVariables } from '../../utils/variables';
+import { applyRequestAuth, resolveInheritedAuth } from '../../utils/requestAuth';
+import { runPreRequestScript, runTestScript, diffRequestMods } from '../../utils/scripts';
+import { stripJsonComments } from '../../utils/jsonComments';
+import { toRequestPayload } from '../../utils/requestPayload';
+import { useToastStore } from '../../store/toastStore';
+import { notifyHistoryUpdated } from '../../utils/historySync';
+
+function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div data-testid="viewer-fork-modal" className="bg-background text-text rounded-lg shadow-xl w-[400px] max-w-[95vw] border border-border flex flex-col overflow-hidden">
+        <div className="p-4 border-b border-border bg-surface">
+          <h2 className="text-lg font-bold text-text">Permission Denied</h2>
+        </div>
+        <div className="p-4 text-sm text-text-muted">
+          <p>You do not have permission to edit this workspace. Would you like to copy this request to your personal workspace?</p>
+        </div>
+        <div className="p-4 border-t border-border bg-surface flex justify-end gap-2">
+          <button data-testid="viewer-fork-cancel" onClick={onClose} className="px-4 py-2 text-sm font-medium text-text-muted hover:text-text">Cancel</button>
+          <button data-testid="viewer-fork-copy" onClick={onCopy} className="px-4 py-2 text-sm font-medium bg-primary-strong text-white rounded hover:bg-primary-strong-hover">Copy to my workspace</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
+
+// ── URL ↔ Params Sync ─────────────────────────────────────────────────────────
+
+function parseUrlParams(url: string): KeyValueItem[] {
+  try {
+    const withoutHash = url.split('#')[0];
+    const questionIdx = withoutHash.indexOf('?');
+    if (questionIdx === -1) return [];
+    const queryString = withoutHash.slice(questionIdx + 1);
+    if (!queryString) return [];
+    return queryString.split('&').map((pair) => {
+      const [key, ...rest] = pair.split('=');
+      return {
+        key: decodeURIComponent(key || ''),
+        value: decodeURIComponent(rest.join('=') || ''),
+        enabled: true,
+        description: '',
+      };
+    }).filter(p => p.key);
+  } catch {
+    return [];
+  }
+}
+
+function buildUrlWithParams(baseUrl: string, params: KeyValueItem[]): string {
+  const hashIdx = baseUrl.indexOf('#');
+  const hash = hashIdx === -1 ? '' : baseUrl.slice(hashIdx);
+  baseUrl = hashIdx === -1 ? baseUrl : baseUrl.slice(0, hashIdx);
+  const enabledParams = params.filter(p => p.enabled && p.key.trim());
+  if (enabledParams.length === 0) {
+    return baseUrl.split('?')[0] + hash;
+  }
+  const queryString = enabledParams
+    .map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
+    .join('&');
+  return `${baseUrl.split('?')[0]}?${queryString}${hash}`;
+}
+
+// Headers the network layer adds itself; surfaced in the Console for debugging.
+function withAutoHeaders(headers: Record<string, string>, body: unknown): Record<string, string> {
+  if (body == null || body === '' || typeof body === 'object') return headers;
+  if (Object.keys(headers).some((k) => k.toLowerCase() === 'content-length')) return headers;
+  return { ...headers, 'Content-Length': String(new TextEncoder().encode(String(body)).length) };
+}
+
+// ── UrlBar ────────────────────────────────────────────────────────────────────
+
+// A browser reports CORS, mixed-content, certificate and DNS failures all as the same
+// opaque TypeError, so the message lists the likely causes and names the ones we can detect.
+function conflictDiff(remote: any, local: any): React.ReactNode {
+  const fmt = (r: any) => {
+    const p: any = toRequestPayload(r);
+    const hdrs = (p.headers || []).map((h: any) => `${h.key}: ${h.value}`).join('\n');
+    const b = p.body;
+    const body = !b || b.mode === 'none' ? '' : b.raw ?? JSON.stringify(b, null, 2);
+    return { Method: p.method || '', URL: p.url || '', Headers: hdrs, Body: body };
+  };
+  const a = fmt(remote), b = fmt(local);
+  const rows = (Object.keys(a) as (keyof typeof a)[]).filter(k => a[k] !== b[k]);
+  if (!rows.length) return null;
+  const cell = 'font-mono text-xs whitespace-pre-wrap break-all max-h-24 overflow-auto rounded border border-border bg-surface p-2';
+  return (
+    <div data-testid="conflict-diff" className="mb-6 -mt-2 flex flex-col gap-3">
+      <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-text-muted"><span>On server</span><span>Your version</span></div>
+      {rows.map(k => (
+        <div key={k}>
+          <div className="text-xs text-text-muted mb-1">{k}</div>
+          <div className="grid grid-cols-2 gap-3"><pre className={cell}>{a[k] || '(empty)'}</pre><pre className={cell}>{b[k] || '(empty)'}</pre></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function describeNetworkError(url: string): string {
+  // An undefined {{variable}} is the cause, not the network: name it instead of listing CORS/SSL guesses.
+  const undefinedVars = [...new Set([...url.matchAll(/\{\{\s*([^}$]+?)\s*\}\}/g)].map((m) => m[1]))];
+  if (undefinedVars.length) {
+    return [`Could not reach ${url}`, '', `Variable${undefinedVars.length > 1 ? 's' : ''} not defined in the current environment: ${undefinedVars.join(', ')}.`, 'Select an environment that defines it, or add it to Globals.'].join('\n');
+  }
+  const mixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(url);
+  const isHttps = /^https:\/\//i.test(url);
+  const out = [`Could not reach ${url}`, '', 'The request never left the browser.'];
+  if (mixedContent) {
+    out.push('', 'Mixed content: this app is served over HTTPS and the browser blocks requests to plain HTTP URLs. Use an HTTPS URL, or send the request with the Desktop App or Browser Extension.');
+  }
+  else if (/^http:\/\//i.test(url)) {
+    out.push('', 'Mixed content: if this app is opened over HTTPS, the browser blocks requests to plain HTTP URLs like this one (it reports this as a generic network failure). Use an HTTPS URL, or send the request with the Desktop App or Browser Extension.');
+  }
+  if (isHttps) {
+    out.push('', 'SSL/certificate error: for a self-signed or expired certificate the browser blocks the request and cannot say why. Hint: turn off "Verify SSL" in the request Settings (or Global Settings) to skip certificate validation - the web browser itself cannot honor it, so send the request with the Desktop App or Browser Extension.');
+  }
+  out.push('', 'Other likely causes: the server blocks cross-origin (CORS) requests, a wrong URL or DNS failure, no network, or an ad blocker. Install the browser extension to send requests to servers that block CORS.');
+  return out.join('\n');
+}
+
+export function UrlBar() {
+  const { activeWorkspace } = useAuthStore();
+  const {
+    activeRequest,
+    updateActiveRequest,
+    setResponseForTab,
+    setIsLoading,
+    isLoading,
+    markSaved,
+  } = useRequestStore();
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{ isOpen: boolean; title: string; message: string; confirmLabel: string; details?: React.ReactNode; onConfirm: () => void; onCancel: () => void }>({ isOpen: false, title: '', message: '', confirmLabel: '', onConfirm: () => {}, onCancel: () => {} });
+  const [isLoadTestModalOpen, setIsLoadTestModalOpen] = useState(false);
+  const [isCodeGenOpen, setIsCodeGenOpen] = useState(false);
+  const [isCookieModalOpen, setIsCookieModalOpen] = useState(false);
+  const [isRenamingTitle, setIsRenamingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [isViewerForkModalOpen, setIsViewerForkModalOpen] = useState(false);
+
+  const isDirty = !!activeRequest?.isDirty;
+
+  useEffect(() => {
+    if (!isSaveMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (saveMenuRef.current && !saveMenuRef.current.contains(e.target as Node)) setIsSaveMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [isSaveMenuOpen]);
+
+  const handleUrlChange = useCallback((newUrl: string) => {
+    if (!activeRequest) return;
+    const parsedParams = parseUrlParams(newUrl);
+    updateActiveRequest({ url: newUrl, params: parsedParams.length > 0 ? parsedParams : activeRequest.params });
+  }, [activeRequest, updateActiveRequest]);
+
+  // Pasting a whole cURL command fills in method, URL, headers, body and auth.
+  const handleUrlPaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData?.getData('text') ?? '';
+    if (!activeRequest || !activeWorkspace || !/^\s*curl\s/i.test(text)) return;
+    e.preventDefault();
+    api.post('/requests/import/curl', { workspaceId: activeWorkspace._id, curl: text }).then(res => {
+      const d = res.data;
+      const toItems = (list: any[]) => (list || []).map((h: any) => ({ key: h.key, value: h.value, enabled: h.enabled !== false }));
+      updateActiveRequest({
+        method: d.method,
+        url: d.url,
+        params: parseUrlParams(d.url),
+        headers: toItems(d.headers),
+        body: d.body,
+        ...(d.auth ? { auth: d.auth } : {}),
+      });
+    }).catch(() => useToastStore.getState().addToast('error', 'Could not parse the pasted cURL command'));
+  }, [activeRequest, activeWorkspace, updateActiveRequest]);
+
+  const handleParamsChange = useCallback((params: KeyValueItem[]) => {
+    if (!activeRequest) return;
+    const newUrl = buildUrlWithParams(activeRequest.url, params);
+    updateActiveRequest({ params, url: newUrl });
+  }, [activeRequest?.url, updateActiveRequest]);
+
+  // Expose handleParamsChange via window so KeyValueEditor can call it when in Params tab
+  (window as any).__onParamsChange = handleParamsChange;
+
+  const handleSend = async () => {
+    if (!activeRequest) return;
+    // Captured now, not re-read from the store later — the user may switch
+    // tabs while this request is in flight, and the response still has to
+    // land on the tab that actually sent it.
+    const tabId = activeRequest.tabId!;
+    const startTime = Date.now();
+    // Set once the request is fully built, so a failed send can still be logged.
+    let sentSnapshot: Record<string, unknown> | null = null;
+    let historyRecorded = false;
+    // The URL after variable resolution, for error messages.
+    let sentUrl = activeRequest.url;
+    const recordHistory = (payload: Record<string, unknown>) => {
+      if (historyRecorded) return;
+      historyRecorded = true;
+      const workspaceId = useAuthStore.getState().activeWorkspace?._id;
+      if (useSettingsStore.getState().settings.saveHistory === false || !workspaceId || !sentSnapshot) return;
+      api.post(`/workspaces/${workspaceId}/history`, { requestSnapshot: sentSnapshot, testResults: [], ...payload })
+        .then(() => notifyHistoryUpdated())
+        .catch(err => console.error('Failed to save history', err));
+    };
+    try {
+      setIsLoading(true);
+
+      const { collections, foldersByCollection } = useCollectionStore.getState();
+      // There's no flat top-level folders list — each bucket is keyed by
+      // direct parent (a folder id for nested ones, else the collection id).
+      const allFolders = Object.values(foldersByCollection).filter((v): v is Folder[] => Array.isArray(v)).flat();
+      const colId = activeRequest.collectionId;
+      const collection = collections.find(c => c._id === colId);
+
+      const preScripts: string[] = [];
+      const testScripts: string[] = [];
+
+      if (collection) {
+        if (collection.preRequestScript) preScripts.push(collection.preRequestScript);
+        if (collection.testScript) testScripts.push(collection.testScript);
+      }
+
+      const requestFolders = [];
+      let currFolderId = activeRequest.folderId;
+      while (currFolderId) {
+        const f = allFolders.find(f => f._id === currFolderId);
+        if (f) {
+          requestFolders.unshift(f);
+          currFolderId = f.parentFolderId;
+        } else {
+          break;
+        }
+      }
+
+      for (const f of requestFolders) {
+        if (f.preRequestScript) preScripts.push(f.preRequestScript);
+        if (f.testScript) testScripts.push(f.testScript);
+      }
+
+      if (activeRequest.preRequestScript) preScripts.push(activeRequest.preRequestScript);
+      if (activeRequest.testScript) testScripts.push(activeRequest.testScript);
+
+      // Local variables map spanning pre-request and test scripts
+      const localVariables = new Map<string, string>();
+
+      // 1. Run combined Pre-request script
+      const rawBodyMode = activeRequest.body?.mode;
+      const origRequest = {
+        url: activeRequest.url,
+        method: activeRequest.method,
+        headers: (activeRequest.headers || []).reduce((acc: Record<string, string>, h: any) => {
+          if (h.key && h.enabled) acc[h.key] = h.value;
+          return acc;
+        }, {}),
+        body: rawBodyMode === 'raw' ? ((activeRequest.body as any)?.raw ?? '') : undefined,
+      };
+      const preResult = await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables, origRequest);
+
+      // 2. Resolve all variables in URL, headers, and body
+      // pm.request changes made by the pre-request script (F1.2)
+      const mods = diffRequestMods(origRequest, preResult?.requestMods);
+      const urlTemplate = mods.url ?? activeRequest.url;
+      let resolvedUrl = resolveAllVariables(urlTemplate, colId, undefined, localVariables);
+      // Saved params the URL does not carry (no "?") would otherwise never be sent.
+      if (!urlTemplate.includes('?')) {
+        resolvedUrl = buildUrlWithParams(resolvedUrl, (activeRequest.params || []).map((p) => ({
+          ...p,
+          key: resolveAllVariables(p.key, colId, undefined, localVariables),
+          value: resolveAllVariables(p.value, colId, undefined, localVariables),
+        })));
+      }
+      let finalUrl = resolvedUrl;
+      sentUrl = resolvedUrl;
+      const reqMethod = mods?.method || activeRequest.method;
+      const bodyMode = activeRequest.body?.mode;
+      let requestBody: any = (activeRequest.body as any)?.[bodyMode as any] || '';
+      if (bodyMode === 'raw' && (activeRequest.body?.rawLanguage ?? 'json') === 'json' && typeof requestBody === 'string') {
+        requestBody = stripJsonComments(requestBody);
+      }
+      // Raw bodies carry {{vars}} too; urlencoded/form-data/graphql resolve per field below.
+      if (bodyMode === 'raw' && typeof requestBody === 'string') {
+        requestBody = resolveAllVariables(requestBody, colId, undefined, localVariables);
+      }
+
+      // Rows with the same header name (any case) are folded into one
+      // comma-separated value (RFC 7230 s3.2.2) instead of the last one winning.
+      let reqHeaders: Record<string, string> = (activeRequest.headers || []).reduce((acc: Record<string, string>, h: any) => {
+        if (!h.key || !h.enabled) return acc;
+        const value = resolveAllVariables(h.value, colId, undefined, localVariables);
+        const existing = Object.keys(acc).find((k) => k.toLowerCase() === h.key.toLowerCase());
+        if (existing) acc[existing] = `${acc[existing]}, ${value}`;
+        else acc[h.key] = value;
+        return acc;
+      }, {});
+
+      const sendCookies = useSettingsStore.getState().settings.sendCookies !== false;
+      const cookieVal = sendCookies ? useCookieStore.getState().getCookiesHeaderForUrl(resolvedUrl) : '';
+      if (cookieVal && !reqHeaders['Cookie'] && !reqHeaders['cookie']) {
+        reqHeaders['Cookie'] = cookieVal;
+      }
+
+      // Auth and body are independent. They used to share one else-if chain,
+      // so a Bearer/Basic/API-key/OAuth request never encoded form-data,
+      // urlencoded, or GraphQL.
+      const auth = resolveInheritedAuth(activeRequest.auth, [...requestFolders].reverse(), collection);
+      const appliedAuth = applyRequestAuth({
+        auth,
+        headers: reqHeaders,
+        url: finalUrl,
+        resolve: (value) => resolveAllVariables(value, colId, undefined, localVariables),
+      });
+      reqHeaders = appliedAuth.headers;
+      finalUrl = appliedAuth.url;
+
+      // The body mode decides the Content-Type; drop a differently-cased manual one so it cannot be sent twice.
+      if (bodyMode === 'graphql' || bodyMode === 'urlencoded') {
+        Object.keys(reqHeaders).filter((k) => k.toLowerCase() === 'content-type').forEach((k) => delete reqHeaders[k]);
+      }
+      if (bodyMode === 'graphql') {
+        const query = resolveAllVariables(activeRequest.body?.graphql?.query || '', colId, undefined, localVariables);
+        const varsStr = resolveAllVariables(activeRequest.body?.graphql?.variables || '{}', colId, undefined, localVariables);
+        try {
+          const variables = JSON.parse(varsStr);
+          requestBody = JSON.stringify({ query, variables });
+        } catch {
+          requestBody = JSON.stringify({ query, variables: varsStr });
+        }
+        reqHeaders['Content-Type'] = 'application/json';
+      } else if (bodyMode === 'urlencoded') {
+        const params = new URLSearchParams();
+        activeRequest.body?.urlencoded?.filter(i => i.enabled && i.key).forEach(i => {
+          params.append(i.key, resolveAllVariables(i.value, colId, undefined, localVariables));
+        });
+        requestBody = params.toString();
+        reqHeaders['Content-Type'] = 'application/x-www-form-urlencoded';
+      } else if (bodyMode === 'form-data') {
+        const formDataPayload = [];
+        for (const item of (activeRequest.body?.formData || [])) {
+          if (!item.enabled || !item.key) continue;
+          if (item.type === 'file' && !item.file) {
+            // Only the file name survives a save/reload; never send it as if it were the content.
+            useConsoleStore.getState().addLog({ type: 'warn', message: `form-data field "${item.key}": file "${item.value || ''}" is not attached (files are not saved with the request) - skipped` });
+            continue;
+          }
+          if (item.type === 'file' && item.file) {
+            const base64 = await fileToBase64(item.file);
+            formDataPayload.push({ type: 'file', key: item.key, filename: item.file.name, content: base64.split(',')[1] });
+          } else {
+            formDataPayload.push({ type: 'text', key: item.key, value: resolveAllVariables(item.value, colId, undefined, localVariables) });
+          }
+        }
+        // The transport sets multipart/form-data with its own boundary; a manual Content-Type would break it.
+        Object.keys(reqHeaders).filter((k) => k.toLowerCase() === 'content-type').forEach((k) => delete reqHeaders[k]);
+        // No rows: send no body rather than a boundary-only multipart payload.
+        requestBody = formDataPayload.length ? { _isFormData: true, items: formDataPayload } : undefined;
+      }
+
+      // A raw body with no stored language is shown as JSON, so send it as JSON too.
+      // Without this fetch() labels the string text/plain. A Content-Type the user set wins.
+      if (bodyMode === 'raw' && (activeRequest.body?.rawLanguage ?? 'json') === 'json' && !Object.keys(reqHeaders).some((k) => k.toLowerCase() === 'content-type')) {
+        reqHeaders['Content-Type'] = 'application/json';
+      }
+
+      if (mods?.headers) {
+        Object.entries(mods.headers).forEach(([k, v]) => {
+          const ex = Object.keys(reqHeaders).find((hk) => hk.toLowerCase() === k.toLowerCase());
+          if (ex) delete reqHeaders[ex];
+          reqHeaders[k] = resolveAllVariables(String(v), colId, undefined, localVariables);
+        });
+      }
+      if (mods?.body !== undefined && typeof requestBody === 'string' && bodyMode === 'raw') requestBody = mods.body;
+      if (preResult?.headerWrites) {
+        Object.entries(preResult.headerWrites).forEach(([k, v]) => {
+          reqHeaders[k] = v;
+        });
+      }
+      if (preResult?.removedHeaders) {
+        preResult.removedHeaders.forEach((k) => {
+          const keyToRemove = Object.keys(reqHeaders).find((hk) => hk.toLowerCase() === k.toLowerCase());
+          if (keyToRemove) delete reqHeaders[keyToRemove];
+        });
+      }
+
+      const abortController = new AbortController();
+      (window as any).__abortController = abortController;
+
+      if (activeRequest.settings?.encodeUrl === true) {
+        try { finalUrl = new URL(finalUrl).href; } catch { /* not an absolute URL: send as typed */ }
+      }
+
+      // name/rawUrl: restoring or saving from History must give back the {{variable}} form, not the resolved URL.
+      sentSnapshot = { method: reqMethod, url: finalUrl, rawUrl: activeRequest.url, name: activeRequest.name, headers: reqHeaders, body: requestBody };
+      const { sendRequest, getTransport, BrowserTransport, getBrowserTransportWarnings } = await import('../../transport');
+      const reqPayload = {
+        method: reqMethod,
+        url: finalUrl,
+        headers: reqHeaders,
+        body: requestBody,
+        // Per-request settings (Settings tab) override the global ones.
+        followRedirects: activeRequest.settings?.followRedirects ?? useSettingsStore.getState().settings.followRedirects,
+        verifySsl: activeRequest.settings?.verifySsl ?? useSettingsStore.getState().settings.verifySsl,
+        timeout: activeRequest.settings?.timeout ?? useSettingsStore.getState().settings.timeout ?? 0,
+        localProxy: getLocalProxyConfig(),
+        signal: abortController.signal,
+      };
+      
+      // A plain browser fetch() silently ignores forbidden headers, SSL
+      // verification being off and proxy settings - say so instead.
+      if (getTransport() instanceof BrowserTransport) {
+        const warnings = getBrowserTransportWarnings(reqPayload);
+        warnings.forEach((message) => useConsoleStore.getState().addLog({ type: 'warn', message }));
+        if (warnings.length) useToastStore.getState().addToast('info', warnings[0]);
+      }
+
+      const res = await sendRequest(reqPayload);
+      // Capture Set-Cookie into the jar when the transport exposes it
+      // (extension/desktop; a plain browser fetch() hides this header).
+      useCookieStore.getState().storeSetCookies(finalUrl, (res.headers as any)?.['set-cookie'] ?? (res.headers as any)?.['Set-Cookie']);
+      const endTime = Date.now();
+      const responseTime = res.responseTime || (endTime - startTime);
+      const responseBody = typeof res.body === 'string'
+        ? res.body
+        : JSON.stringify(res.body || res, null, 2);
+      const isBase64 = !!res.isBase64;
+
+      // Manually save history if enabled
+      recordHistory({
+        responseBody,
+        responseStatus: res.status,
+        responseStatusText: res.statusText,
+        responseHeaders: res.headers,
+        responseTime,
+        responseSize: res.size || 0,
+      });
+
+
+      // 3. Run combined Test script
+      const scriptReturn = await runTestScript(testScripts.join('\n\n'), {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers || {},
+        body: responseBody,
+        time: responseTime,
+      }, colId, undefined, localVariables);
+
+      const testResults = [
+        ...(preResult?.testResults || []),
+        ...(scriptReturn?.testResults || [])
+      ];
+      const visualizerData = scriptReturn?.visualizerData;
+
+      setResponseForTab(tabId, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers || {},
+        body: responseBody,
+        isBase64,
+        responseTime,
+        size: res.size || 0,
+        testResults,
+        visualizerData,
+      } as any);
+
+      // Log to Console Drawer. Log the headers and URL that were actually
+      // sent (`reqHeaders` / `finalUrl`), not a fresh re-derivation from
+      // activeRequest.headers — that one dropped the Cookie header, the
+      // resolved auth header, Content-Type, anything a pre-request script
+      // wrote or removed, and any apikey-in-query auth appended to the URL,
+      // and it resolved variables without the local-variable scope. The
+      // Console is meant to show the request as it left the app.
+      useConsoleStore.getState().addLog({
+        type: 'request',
+        method: activeRequest.method,
+        url: finalUrl,
+        status: res.status,
+        time: responseTime,
+        requestHeaders: withAutoHeaders(reqHeaders, requestBody),
+        // form-data mode makes requestBody a {_isFormData, items} object.
+        // The drawer renders this straight into a <pre>, and React throws on
+        // an object child — so it has to be a string by the time it lands.
+        requestBody: typeof requestBody === 'string' ? requestBody : JSON.stringify(requestBody, null, 2),
+        responseHeaders: res.headers || {},
+        responseBody,
+      });
+    } catch (err: any) {
+      if (err.name === 'CanceledError' || err.message === 'canceled') {
+        setResponseForTab(tabId, {
+          status: 0,
+          statusText: 'Canceled',
+          headers: {},
+          body: 'Request was canceled by user.',
+          responseTime: Date.now() - startTime,
+          size: 0,
+        });
+        return;
+      }
+      const isNetworkError = !err.response && err instanceof TypeError
+        && /failed to fetch|networkerror|load failed/i.test(err.message);
+      // Input the user must fix (e.g. empty URL) is not a server failure.
+      const isClientError = err?.code === 'EMPTY_URL';
+      const errorBody = err.response?.data
+        ? JSON.stringify(err.response.data, null, 2)
+        : isNetworkError
+          ? describeNetworkError(sentUrl)
+          : err.message;
+      setResponseForTab(tabId, {
+        status: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
+        statusText: err.response?.statusText || (isNetworkError ? 'Network Error' : isClientError ? 'Invalid request' : 'Error'),
+        headers: err.response?.headers || {},
+        body: errorBody,
+        responseTime: 0,
+        size: 0,
+      });
+
+      // A request that never got a response is still part of the history,
+      // recorded with status 0 so it reads as a network failure.
+      recordHistory({
+        responseBody: errorBody,
+        responseStatus: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
+        responseStatusText: err.response?.statusText || (isNetworkError ? 'Network Error' : isClientError ? 'Invalid request' : 'Error'),
+        responseHeaders: {},
+        responseTime: Date.now() - startTime,
+        responseSize: 0,
+      });
+
+      useConsoleStore.getState().addLog({
+        type: 'request',
+        method: activeRequest.method,
+        url: activeRequest.url,
+        status: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
+        time: 0,
+        responseBody: errorBody,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // The tab is marked saved optimistically; a failed PUT has to undo that and
+  // say so, or the user walks away believing the change is stored.
+  // Applies to the tab that was saved, which is not necessarily the active one
+  // by the time the server answers.
+  const applyToTab = (tabId: string | undefined, updates: Partial<ActiveRequest>) => {
+    if (!tabId) return;
+    const st = useRequestStore.getState();
+    st.updateTab(tabId, updates);
+    if (st.activeTabId === tabId) st.updateActiveRequest(updates);
+  };
+  const markTabDirty = (tabId?: string) => {
+    if (!tabId) return;
+    const st = useRequestStore.getState();
+    st.updateTab(tabId, { isDirty: true });
+    if (st.activeTabId === tabId) st.updateActiveRequest({ isDirty: true });
+  };
+  const reportSaveFailure = (err: any, tabId?: string) => {
+    console.error('Failed to update request', err);
+    markTabDirty(tabId);
+    const status = err?.response?.status;
+    if (status === 403) {
+      // Permission was downgraded: the axios interceptor already toasted the
+      // reason; offer to keep the work as a copy in a workspace the user can edit.
+      setIsViewerForkModalOpen(true);
+    } else if (status === 404) {
+      useToastStore.getState().addToast('error', 'This request no longer exists - it was deleted by someone else.');
+      setConfirmConfig({
+        isOpen: true,
+        title: 'Request was deleted',
+        message: 'This request was deleted on the server. Save your version as a new request?',
+        confirmLabel: 'Save as new',
+        onConfirm: () => { setConfirmConfig((c: any) => ({ ...c, isOpen: false })); setIsSaveModalOpen(true); },
+        onCancel: () => setConfirmConfig((c: any) => ({ ...c, isOpen: false })),
+      });
+    } else {
+      useToastStore.getState().addToast('error', `Save failed: ${err?.response?.data?.message || err?.message || 'unknown error'}`);
+    }
+  };
+
+  const handleSaveClick = async (isAutoSave = false) => {
+    if (!activeRequest) return;
+    const canSave = !activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || useAuthStore.getState().user?.isSuperAdmin;
+    if (!canSave) {
+      if (!isAutoSave) setIsViewerForkModalOpen(true);
+      return;
+    }
+
+    if (activeRequest.collectionId && activeRequest._id) {
+      const savingTabId = activeRequest.tabId;
+      try {
+        // 1. Instant local DB save
+        import('../../db').then(({ db }) => {
+          if (activeRequest._id) db.requests.update(activeRequest._id, { ...activeRequest });
+        });
+
+        // Instant UI update
+        markSaved();
+
+        // The server's update schema is `.strict()` and only accepts these
+        // request fields — sending the whole tab object (tabId, isDirty,
+        // isConflicted, collectionId, _id, a form-data row's File, ...) gets
+        // the PUT rejected with a 400.
+        const updatePayload = {
+          ...toRequestPayload(activeRequest),
+          folderId: activeRequest.folderId ?? null,
+        };
+
+        // 2. Background server sync
+        const { data: remoteReq } = await api.get(`/requests/${activeRequest._id}`);
+        if (remoteReq.updatedAt && activeRequest.updatedAt && new Date(remoteReq.updatedAt).getTime() > new Date(activeRequest.updatedAt).getTime()) {
+          if (isAutoSave) return; // Silent abort for auto-save conflict
+
+          setConfirmConfig({
+            isOpen: true,
+            title: 'Conflict Detected',
+            details: conflictDiff(remoteReq, updatePayload),
+            message: `A newer version of this request exists on the server${remoteReq.updatedByName ? `, updated by ${remoteReq.updatedByName}` : ''} (last saved ${new Date(remoteReq.updatedAt).toLocaleString()}). Do you want to overwrite it?`,
+            confirmLabel: 'Overwrite',
+            onConfirm: async () => {
+              setConfirmConfig((c: any) => ({ ...c, isOpen: false }));
+              try {
+                const res = await api.put(`/requests/${activeRequest._id}`, updatePayload);
+                applyToTab(savingTabId, { updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
+                import('../../db').then(({ db }) => {
+                  if (activeRequest._id) db.requests.update(activeRequest._id, { updatedAt: res.data.updatedAt });
+                });
+              } catch (err) {
+                reportSaveFailure(err, savingTabId);
+              }
+            },
+            onCancel: () => {
+              setConfirmConfig((c: any) => ({ ...c, isOpen: false }));
+              updateActiveRequest({ isConflicted: true, isDirty: true }); // revert isDirty so user can decide
+            }
+          });
+          return;
+        }
+        
+        const res = await api.put(`/requests/${activeRequest._id}`, updatePayload);
+        applyToTab(savingTabId, { updatedAt: res.data.updatedAt, isConflicted: false, isDirty: false });
+        if (!isAutoSave) useToastStore.getState().addToast('success', 'Request saved');
+        import('../../db').then(({ db }) => {
+          if (activeRequest._id) db.requests.update(activeRequest._id, { updatedAt: res.data.updatedAt });
+        });
+      } catch (err) {
+        if (!isAutoSave) reportSaveFailure(err, savingTabId);
+        else markTabDirty(savingTabId);
+      }
+    } else if (!isAutoSave) {
+      setIsSaveModalOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const settings = useSettingsStore.getState().settings;
+
+      const saveShortcut = settings.shortcuts?.save || 'ctrl+s';
+      const sendShortcut = settings.shortcuts?.send || 'ctrl+enter';
+
+      const matchShortcut = (shortcut: string) => matchesShortcut(e, shortcut);
+
+      if (matchShortcut(saveShortcut)) {
+        e.preventDefault();
+        handleSaveClick(false);
+      }
+      if (matchShortcut(sendShortcut)) {
+        e.preventDefault();
+        handleSend();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [activeRequest, handleSaveClick, handleSend]);
+
+  if (!activeRequest) return null;
+
+  const handleTitleDoubleClick = () => {
+    setTitleDraft(activeRequest.name);
+    setIsRenamingTitle(true);
+  };
+
+  const handleTitleSave = () => {
+    if (titleDraft.trim()) {
+      updateActiveRequest({ name: titleDraft.trim() });
+    }
+    setIsRenamingTitle(false);
+  };
+
+  const isUnsaved = !activeRequest.collectionId || isDirty;
+
+  return (
+    <>
+      {/* Request Name + Unsaved Indicator */}
+      <div className="flex items-center gap-2 px-4 pt-2 pb-1 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
+        {isRenamingTitle ? (
+          <input
+            autoFocus
+            className="text-sm font-medium text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-gray-800 border border-primary rounded px-2 py-0.5 outline-none min-w-0 w-48"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={handleTitleSave}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleTitleSave();
+              if (e.key === 'Escape') setIsRenamingTitle(false);
+            }}
+          />
+        ) : (
+          <span
+            className="text-sm font-medium text-gray-700 dark:text-gray-200 cursor-pointer hover:text-gray-900 dark:hover:text-white select-none max-w-xs truncate"
+            onDoubleClick={handleTitleDoubleClick}
+            title="Double-click to rename"
+          >
+            {activeRequest.name}
+            {isUnsaved && <span className="text-orange-500 ml-0.5">●</span>}
+          </span>
+        )}
+        {isUnsaved && !isRenamingTitle && (
+          <span className="text-xs text-gray-400">{activeRequest.collectionId ? 'Unsaved changes' : 'Unsaved'}</span>
+        )}
+      </div>
+
+      {/* URL Bar */}
+      <div className="flex flex-col md:flex-row md:items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex bg-gray-100 dark:bg-gray-900 rounded-md border border-gray-300 dark:border-gray-700 flex-1 overflow-hidden transition-colors focus-within:border-primary">
+          <select
+            data-testid="method-select"
+            aria-label="HTTP method"
+            className="bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-400 border-r border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
+            value={activeRequest.method}
+            onChange={(e) => updateActiveRequest({ method: e.target.value })}
+          >
+            {METHODS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <div className="relative flex-1 flex items-center">
+            <VariableInput
+              className="flex-1"
+              data-testid="request-url-input"
+              multilineOnFocus
+              readOnly={!!activeWorkspace && !['editor', 'owner'].includes(activeWorkspace.myRole) && !useAuthStore.getState().user?.isSuperAdmin}
+              value={activeRequest.url}
+              onChange={(val) => handleUrlChange(val)}
+              onPaste={handleUrlPaste}
+              onEnter={handleSend}
+              placeholder="Enter request URL"
+            />
+          </div>
+        </div>
+
+        {/* Cookie Manager Button */}
+        <button
+          onClick={() => setIsCookieModalOpen(true)}
+          className="flex items-center justify-center p-2 border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+          title="Manage Cookies"
+          aria-label="Manage Cookies"
+        >
+          <Cookie size={16} />
+        </button>
+
+        {/* Code Gen Button */}
+        <button
+          data-testid="codegen-btn"
+          onClick={() => setIsCodeGenOpen(true)}
+          className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+          title="Code Snippet"
+          aria-label="Generate code"
+        >
+          <Code2 size={16} />
+        </button>
+
+        {/* Save Button Group (Only for Editors) */}
+        {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || useAuthStore.getState().user?.isSuperAdmin) && (
+          <div ref={saveMenuRef} className="relative flex flex-1 md:flex-none items-stretch">
+            <div className={`flex flex-1 items-stretch rounded-md border divide-x transition-colors ${isDirty ? 'border-orange-400 divide-orange-400' : 'border-gray-300 dark:border-gray-700 divide-gray-300 dark:divide-gray-700'}`}>
+              <button
+                data-testid="request-save-btn"
+                onClick={() => handleSaveClick(false)}
+                className={`flex flex-1 items-center justify-center gap-2 px-3 py-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-400 rounded-l-md ${
+                  isDirty
+                    ? 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+                title="Save Request"
+              >
+                <Save size={16} />
+                Save{isDirty ? '*' : ''}
+              </button>
+
+              <button
+                data-testid="request-save-menu-btn"
+                onClick={() => setIsSaveMenuOpen(o => !o)}
+                aria-haspopup="menu"
+                aria-expanded={isSaveMenuOpen}
+                aria-label="Save options"
+                className={`px-1.5 flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-400 rounded-r-md ${
+                  isDirty
+                    ? 'text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+                title="Save options"
+              >
+                <ChevronDown size={14} />
+              </button>
+            </div>
+
+            {isSaveMenuOpen && (
+              <div role="menu" className="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-xl py-1">
+                <button
+                  role="menuitem"
+                  data-testid="save-menu-save"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={() => { setIsSaveMenuOpen(false); handleSaveClick(false); }}
+                >
+                  Save
+                </button>
+                <button
+                  role="menuitem"
+                  data-testid="save-menu-save-as"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }}
+                >
+                  Save As...
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Send Button */}
+        <div className="flex gap-1 w-full md:w-auto justify-end">
+          {isLoading ? (
+            <button
+              onClick={() => {
+                if ((window as any).__abortController) {
+                  (window as any).__abortController.abort();
+                  (window as any).__abortController = null;
+                }
+              }}
+              className="flex flex-1 md:flex-none items-center justify-center gap-2 px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+            >
+              <Activity size={16} className="opacity-0" />
+              <span>Cancel</span>
+            </button>
+          ) : (
+            <>
+              <button
+                data-testid="load-test-open-btn"
+                onClick={() => setIsLoadTestModalOpen(true)}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 rounded-md hover:bg-orange-200 dark:hover:bg-orange-900/50 text-sm font-medium transition-colors"
+                title="Load Test"
+                aria-label="Load Test"
+              >
+                <Activity size={16} />
+              </button>
+              <button
+                data-testid="request-send-btn"
+                onClick={handleSend}
+                className="flex flex-1 md:flex-none items-center justify-center gap-2 px-6 py-2 bg-primary-strong text-white rounded-md hover:bg-primary-strong-hover text-sm font-medium transition-colors outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+              >
+                <Play size={16} />
+                Send
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {isSaveModalOpen && (
+        <SaveRequestModal onClose={() => setIsSaveModalOpen(false)} />
+      )}
+      {isLoadTestModalOpen && (
+        <LoadTestModal onClose={() => setIsLoadTestModalOpen(false)} />
+      )}
+      {isCodeGenOpen && (
+        <CodeGenModal onClose={() => setIsCodeGenOpen(false)} />
+      )}
+      {isCookieModalOpen && (
+        <CookieManagerModal
+          isOpen={isCookieModalOpen}
+          onClose={() => setIsCookieModalOpen(false)}
+          initialDomain={(() => {
+            try {
+              return new URL(activeRequest.url).hostname;
+            } catch {
+              return '';
+            }
+          })()}
+        />
+      )}
+      {isViewerForkModalOpen && (
+        <ViewerForkModal
+          onClose={() => setIsViewerForkModalOpen(false)}
+          onCopy={() => {
+            const event = new CustomEvent('copy-to-workspace', { detail: { type: 'request', id: activeRequest._id, name: activeRequest.name } });
+            window.dispatchEvent(event);
+            setIsViewerForkModalOpen(false);
+          }}
+        />
+      )}
+      {confirmConfig.isOpen && (
+        <ConfirmModal
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          confirmLabel={confirmConfig.confirmLabel}
+          onConfirm={confirmConfig.onConfirm}
+          onCancel={confirmConfig.onCancel}
+        >
+          {confirmConfig.details}
+        </ConfirmModal>
+      )}
+    </>
+  );
+}

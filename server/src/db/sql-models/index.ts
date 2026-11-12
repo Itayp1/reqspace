@@ -1,0 +1,462 @@
+import { DataTypes, Model, Optional } from 'sequelize';
+import { getSequelize } from '../sequelize';
+import { v4 as uuidv4 } from 'uuid';
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// USERS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlUser extends Model {
+  declare id: string;
+  declare name: string;
+  declare email: string;
+  declare passwordHash: string | null;
+  declare authType: string;
+  declare isSuperAdmin: boolean;
+  declare status: string;
+  declare avatar: string | null;
+  declare settings: string; // JSON
+  declare clientCertificates: string; // JSON
+  declare historyUsedBytes: number;
+  declare mustChangePassword: boolean;
+  declare lastLoginAt: Date | null;
+  declare tokenVersion: number;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// WORKSPACES
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlWorkspace extends Model {
+  declare id: string;
+  declare name: string;
+  declare description: string;
+  declare ownerId: string;
+  declare members: string; // JSON array
+  declare isPublic: boolean;
+  declare isPersonal: boolean;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// COLLECTIONS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlCollection extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare name: string;
+  declare description: string;
+  declare variables: string; // JSON
+  declare auth: string; // JSON
+  declare preRequestScript: string;
+  declare testScript: string;
+  declare roles: string; // JSON
+  declare order: number;
+  declare createdBy: string;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// FOLDERS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlFolder extends Model {
+  declare id: string;
+  declare collectionId: string;
+  declare parentFolderId: string | null;
+  declare name: string;
+  declare description: string;
+  declare auth: string; // JSON
+  declare preRequestScript: string;
+  declare testScript: string;
+  declare roles: string; // JSON
+  declare order: number;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// REQUESTS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlRequest extends Model {
+  declare id: string;
+  declare collectionId: string;
+  declare folderId: string | null;
+  declare name: string;
+  declare method: string;
+  declare url: string;
+  declare params: string; // JSON
+  declare headers: string; // JSON
+  declare auth: string; // JSON
+  declare body: string; // JSON
+  declare settings: string; // JSON
+  declare preRequestScript: string;
+  declare testScript: string;
+  declare description: string;
+  declare order: number;
+  declare comments: string; // JSON
+  declare createdBy: string;
+  declare updatedBy: string | null;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// ENVIRONMENTS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlEnvironment extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare name: string;
+  declare variables: string; // JSON
+  declare createdBy: string;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+export class SqlGlobalEnvironment extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare variables: string; // JSON
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// HISTORY
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlHistory extends Model {
+  declare id: string;
+  declare userId: string;
+  declare workspaceId: string;
+  declare method: string;
+  declare url: string;
+  declare statusCode: number | null;
+  declare duration: number | null;
+  declare requestData: string; // JSON
+  declare responseData: string; // JSON
+  declare responseSizeBytes: number;
+  declare createdAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// AUDIT LOGS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlAuditLog extends Model {
+  declare id: string;
+  declare userId: string;
+  declare action: string;
+  declare targetType: string | null;
+  declare targetId: string | null;
+  declare ip: string | null;
+  declare details: string | null; // JSON
+  declare createdAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// SYSTEM CONFIG
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlSystemConfig extends Model {
+  declare id: string;
+  declare auth: string; // JSON
+  declare history: string; // JSON
+  declare proxy: string; // JSON
+  declare server: string | null; // JSON
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// SHARED LINKS
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlSharedLink extends Model {
+  declare id: string;
+  declare shortId: string;
+  declare collectionId: string;
+  declare workspaceId: string;
+  declare token: string;
+  declare createdBy: string;
+  declare expiresAt: Date | null;
+  declare createdAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// LOCAL VARIABLES
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+export class SqlLocalVariable extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare userId: string;
+  declare variables: string; // JSON
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+// INIT ג€” define all models
+// ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+
+// -------------------------------------------------
+// USER PROFILE VARIABLES (cross-workspace, per-user)
+// -------------------------------------------------
+export class SqlUserProfileVariable extends Model {
+  declare id: string;
+  declare userId: string;
+  declare variables: string; // JSON
+  declare updatedAt: Date;
+}
+
+// -------------------------------------------------
+// COLLECTION FORKS
+// -------------------------------------------------
+export class SqlCollectionFork extends Model {
+  declare id: string;
+  declare sourceCollectionId: string;
+  declare forkedCollectionId: string;
+  declare forkedByUserId: string;
+  declare forkedAt: Date;
+  declare lastSyncAt: Date | null;
+  declare lastSyncError: string | null;
+}
+
+// -------------------------------------------------
+// FORK ITEM HASHES
+// -------------------------------------------------
+export class SqlForkItemHash extends Model {
+  declare id: string;
+  declare forkId: string;
+  declare itemType: string;
+  declare itemId: string;
+  declare sourceItemId: string;
+  declare baseHash: string;
+}
+// ──────────────────────────────────────────────────────────────────────────────
+// FP ERRORS (client and server faults, reviewed in the admin screen)
+// ──────────────────────────────────────────────────────────────────────────────
+export class SqlFpError extends Model {
+  declare id: string;
+  declare source: string;
+  declare kind: string;
+  declare message: string;
+  declare stack: string | null;
+  declare componentStack: string | null;
+  declare route: string | null;
+  declare method: string | null;
+  declare status: number | null;
+  declare userId: string | null;
+  declare userAgent: string | null;
+  declare fingerprint: string;
+  declare repeats: number;
+  declare createdAt: Date;
+}
+
+export function initSqlModels() {
+  const sq = getSequelize();
+
+  SqlUser.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    email: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+    passwordHash: { type: DataTypes.TEXT, allowNull: true },
+    authType: { type: DataTypes.STRING(20), defaultValue: 'password' },
+    isSuperAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
+    status: { type: DataTypes.STRING(20), defaultValue: 'active' },
+    avatar: { type: DataTypes.STRING(255), allowNull: true },
+    settings: { type: DataTypes.TEXT, defaultValue: '{}' },
+    clientCertificates: { type: DataTypes.TEXT, defaultValue: '[]' },
+    historyUsedBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
+    mustChangePassword: { type: DataTypes.BOOLEAN, defaultValue: false },
+    lastLoginAt: { type: DataTypes.DATE, allowNull: true },
+    tokenVersion: { type: DataTypes.INTEGER, defaultValue: 0, allowNull: false },
+  }, { sequelize: sq, tableName: 'users', timestamps: true });
+
+  SqlWorkspace.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    description: { type: DataTypes.TEXT, defaultValue: '' },
+    ownerId: { type: DataTypes.STRING(36), allowNull: false },
+    members: { type: DataTypes.TEXT, defaultValue: '[]' },
+    isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // The auto-created workspace every user gets on signup (see
+    // createPersonalWorkspace) — the only valid fork *target*, per the fork
+    // restriction in routes/forks.ts. Not user-editable.
+    isPersonal: { type: DataTypes.BOOLEAN, defaultValue: false },
+  }, { sequelize: sq, tableName: 'workspaces', timestamps: true, indexes: [{ fields: ['ownerId'] }] });
+
+  SqlCollection.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    description: { type: DataTypes.TEXT, defaultValue: '' },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+    // Ancestor auth for requests set to `inherit` — see migration 015.
+    auth: { type: DataTypes.TEXT, defaultValue: '{"type":"none"}' },
+    preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
+    testScript: { type: DataTypes.TEXT, defaultValue: '' },
+    roles: { type: DataTypes.TEXT, defaultValue: '[]' },
+    order: { type: DataTypes.INTEGER, defaultValue: 0 },
+    createdBy: { type: DataTypes.STRING(36), allowNull: false },
+  }, {
+    sequelize: sq, tableName: 'collections', timestamps: true,
+    // Index the FK + the field used for ordered listing (Sequelize emits the
+    // dialect-correct CREATE INDEX for each backend on sync).
+    indexes: [{ fields: ['workspaceId'] }, { fields: ['workspaceId', 'order'] }],
+  });
+
+  SqlFolder.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    collectionId: { type: DataTypes.STRING(36), allowNull: false },
+    parentFolderId: { type: DataTypes.STRING(36), allowNull: true },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    description: { type: DataTypes.TEXT, defaultValue: '' },
+    // Pass-through by default so an untouched folder doesn't shadow its
+    // collection's auth — see migration 015.
+    auth: { type: DataTypes.TEXT, defaultValue: '{"type":"inherit"}' },
+    preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
+    testScript: { type: DataTypes.TEXT, defaultValue: '' },
+    roles: { type: DataTypes.TEXT, defaultValue: '[]' },
+    order: { type: DataTypes.INTEGER, defaultValue: 0 },
+  }, {
+    sequelize: sq, tableName: 'folders', timestamps: true,
+    indexes: [{ fields: ['collectionId'] }, { fields: ['collectionId', 'parentFolderId'] }],
+  });
+
+  SqlRequest.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    collectionId: { type: DataTypes.STRING(36), allowNull: false },
+    folderId: { type: DataTypes.STRING(36), allowNull: true },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    method: { type: DataTypes.STRING(10), defaultValue: 'GET' },
+    url: { type: DataTypes.TEXT, defaultValue: '' },
+    params: { type: DataTypes.TEXT, defaultValue: '[]' },
+    headers: { type: DataTypes.TEXT, defaultValue: '[]' },
+    auth: { type: DataTypes.TEXT, defaultValue: '{"type":"none"}' },
+    body: { type: DataTypes.TEXT, defaultValue: '{"mode":"none"}' },
+    settings: { type: DataTypes.TEXT, defaultValue: '{}' },
+    preRequestScript: { type: DataTypes.TEXT, defaultValue: '' },
+    testScript: { type: DataTypes.TEXT, defaultValue: '' },
+    description: { type: DataTypes.TEXT, defaultValue: '' },
+    order: { type: DataTypes.INTEGER, defaultValue: 0 },
+    comments: { type: DataTypes.TEXT, defaultValue: '[]' },
+    createdBy: { type: DataTypes.STRING(36), allowNull: false },
+    updatedBy: { type: DataTypes.STRING(36), allowNull: true },
+  }, {
+    sequelize: sq, tableName: 'requests', timestamps: true,
+    // A 20M-row requests table is unusable without these; the listing queries
+    // filter by collectionId (+ folderId) and sort by order.
+    indexes: [
+      { fields: ['collectionId'] },
+      { fields: ['folderId'] },
+      { fields: ['collectionId', 'folderId', 'order'] },
+    ],
+  });
+
+  SqlEnvironment.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    name: { type: DataTypes.STRING(255), allowNull: false },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+    createdBy: { type: DataTypes.STRING(36), allowNull: false },
+  }, { sequelize: sq, tableName: 'environments', timestamps: true, indexes: [{ fields: ['workspaceId'] }] });
+
+  SqlGlobalEnvironment.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false, unique: true },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+  }, { sequelize: sq, tableName: 'global_environments', timestamps: false, updatedAt: 'updatedAt', createdAt: false });
+
+  SqlHistory.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    userId: { type: DataTypes.STRING(36), allowNull: false },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    method: { type: DataTypes.STRING(10) },
+    url: { type: DataTypes.TEXT },
+    statusCode: { type: DataTypes.INTEGER, allowNull: true },
+    duration: { type: DataTypes.INTEGER, allowNull: true },
+    requestData: { type: DataTypes.TEXT, defaultValue: '{}' },
+    responseData: { type: DataTypes.TEXT, defaultValue: '{}' },
+    responseSizeBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
+  }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false, indexes: [{ fields: ['userId', 'workspaceId'] }, { fields: ['createdAt'] }] });
+
+  SqlAuditLog.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    userId: { type: DataTypes.STRING(36), allowNull: false },
+    action: { type: DataTypes.STRING(50), allowNull: false },
+    targetType: { type: DataTypes.STRING(50), allowNull: true },
+    targetId: { type: DataTypes.STRING(36), allowNull: true },
+    ip: { type: DataTypes.STRING(45), allowNull: true },
+    details: { type: DataTypes.TEXT, allowNull: true },
+  }, { sequelize: sq, tableName: 'audit_logs', timestamps: true, createdAt: 'createdAt', updatedAt: false, indexes: [{ fields: ['userId'] }, { fields: ['targetId'] }] });
+
+  SqlSystemConfig.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    auth: { type: DataTypes.TEXT, allowNull: false },
+    history: { type: DataTypes.TEXT, allowNull: false },
+    proxy: { type: DataTypes.TEXT, allowNull: false },
+    server: { type: DataTypes.TEXT, allowNull: true },
+  }, { sequelize: sq, tableName: 'system_config', timestamps: false, updatedAt: 'updatedAt', createdAt: false });
+
+  SqlSharedLink.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    shortId: { type: DataTypes.STRING(20), allowNull: false, unique: true },
+    collectionId: { type: DataTypes.STRING(36), allowNull: false },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    token: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    createdBy: { type: DataTypes.STRING(36), allowNull: false },
+    expiresAt: { type: DataTypes.DATE, allowNull: true },
+  }, { sequelize: sq, tableName: 'shared_links', timestamps: true, updatedAt: false });
+
+  SqlLocalVariable.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    userId: { type: DataTypes.STRING(36), allowNull: false },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+  }, { sequelize: sq, tableName: 'local_variables', timestamps: true, indexes: [{ fields: ['workspaceId', 'userId'], unique: true }] });
+
+  SqlUserProfileVariable.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    userId: { type: DataTypes.STRING(36), allowNull: false, unique: true },
+    variables: { type: DataTypes.TEXT, defaultValue: '[]' },
+  }, { sequelize: sq, tableName: 'user_profile_variables', timestamps: false, updatedAt: 'updatedAt', createdAt: false });
+
+  SqlCollectionFork.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    sourceCollectionId: { type: DataTypes.STRING(36), allowNull: false },
+    forkedCollectionId: { type: DataTypes.STRING(36), allowNull: false, unique: true },
+    forkedByUserId: { type: DataTypes.STRING(36), allowNull: false },
+    forkedAt: { type: DataTypes.DATE, allowNull: false },
+    lastSyncAt: { type: DataTypes.DATE, allowNull: true },
+    lastSyncError: { type: DataTypes.TEXT, allowNull: true },
+  }, { sequelize: sq, tableName: 'collection_forks', timestamps: false, createdAt: false, updatedAt: false,
+    indexes: [{ fields: ['sourceCollectionId'] }, { fields: ['forkedCollectionId'], unique: true }] });
+
+  SqlForkItemHash.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    forkId: { type: DataTypes.STRING(36), allowNull: false },
+    itemType: { type: DataTypes.STRING(20), allowNull: false },
+    itemId: { type: DataTypes.STRING(36), allowNull: false },
+    sourceItemId: { type: DataTypes.STRING(36), allowNull: false },
+    baseHash: { type: DataTypes.STRING(32), allowNull: false },
+  }, { sequelize: sq, tableName: 'fork_item_hashes', timestamps: false, createdAt: false, updatedAt: false,
+    indexes: [{ fields: ['forkId'] }, { fields: ['itemId'] }, { fields: ['forkId', 'sourceItemId'], unique: true, name: 'uniq_fork_item_hashes_fork_source' }] });
+
+  SqlFpError.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    source: { type: DataTypes.STRING(10), allowNull: false },
+    kind: { type: DataTypes.STRING(40), allowNull: false },
+    message: { type: DataTypes.TEXT, allowNull: false },
+    stack: { type: DataTypes.TEXT, allowNull: true },
+    componentStack: { type: DataTypes.TEXT, allowNull: true },
+    route: { type: DataTypes.STRING(500), allowNull: true },
+    method: { type: DataTypes.STRING(10), allowNull: true },
+    status: { type: DataTypes.INTEGER, allowNull: true },
+    userId: { type: DataTypes.STRING(36), allowNull: true },
+    userAgent: { type: DataTypes.STRING(500), allowNull: true },
+    fingerprint: { type: DataTypes.STRING(64), allowNull: false },
+    // Occurrences swallowed by the dedupe window after this row was stored.
+    repeats: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  }, { sequelize: sq, tableName: 'fperrors', timestamps: true, createdAt: 'createdAt', updatedAt: false,
+    indexes: [{ fields: ['createdAt'] }, { fields: ['fingerprint'] }] });
+}
+
+
+

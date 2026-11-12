@@ -1,0 +1,151 @@
+import { SqlRequest } from '../db/sql-models';
+import { v4 as uuidv4 } from 'uuid';
+import { escapeLike, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
+
+export interface IRequestRecord {
+  _id: string; id: string;
+  collectionId: string;
+  folderId: string | null;
+  name: string;
+  method: string;
+  url: string;
+  params: any[];
+  headers: any[];
+  auth: any;
+  body: any;
+  settings: any;
+  preRequestScript: string;
+  testScript: string;
+  description: string;
+  order: number;
+  comments: any[];
+  createdBy: string;
+  updatedBy?: string | null;
+  updatedByName?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function sqlToRecord(r: SqlRequest): IRequestRecord {
+  return {
+    _id: r.id, id: r.id,
+    collectionId: r.collectionId,
+    folderId: r.folderId,
+    name: r.name, method: r.method, url: r.url,
+    params: typeof r.params === 'string' ? JSON.parse(r.params) : (r.params || []),
+    headers: typeof r.headers === 'string' ? JSON.parse(r.headers) : (r.headers || []),
+    auth: typeof r.auth === 'string' ? JSON.parse(r.auth) : (r.auth || { type: 'none' }),
+    body: typeof r.body === 'string' ? JSON.parse(r.body) : (r.body || { mode: 'none' }),
+    settings: typeof r.settings === 'string' ? (JSON.parse(r.settings || '{}') || {}) : (r.settings || {}),
+    preRequestScript: r.preRequestScript,
+    testScript: r.testScript,
+    description: r.description,
+    order: r.order,
+    comments: typeof r.comments === 'string' ? JSON.parse(r.comments) : (r.comments || []),
+    createdBy: r.createdBy,
+    updatedBy: r.updatedBy ?? null,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+export const RequestRepository = {
+  async findById(id: string): Promise<IRequestRecord | null> {
+    const r = await SqlRequest.findByPk(id); return r ? sqlToRecord(r) : null;
+  },
+
+  async findByCollection(collectionId: string): Promise<IRequestRecord[]> {
+    return (await SqlRequest.findAll({ where: { collectionId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  async findByFolder(folderId: string): Promise<IRequestRecord[]> {
+    return (await SqlRequest.findAll({ where: { folderId }, order: [['order', 'ASC']] })).map(sqlToRecord);
+  },
+
+  /** PERF-6: summaryOnly=true returns minimal fields to reduce wire payload */
+  async findByCollections(collectionIds: string[], opts?: { summaryOnly?: boolean }): Promise<IRequestRecord[]> {
+    if (!collectionIds.length) return [];
+    const { Op } = await import('sequelize');
+    const attrs = opts?.summaryOnly
+      ? ['id', 'collectionId', 'folderId', 'name', 'method', 'url', 'order', 'updatedAt']
+      : undefined;
+    const rows = await SqlRequest.findAll({
+      where: { collectionId: { [Op.in]: collectionIds } },
+      order: [['order', 'ASC']],
+      attributes: attrs as any,
+    });
+    return rows.map(r => opts?.summaryOnly ? ({
+      _id: r.id, id: r.id,
+      collectionId: r.collectionId,
+      folderId: r.folderId,
+      name: r.name,
+      method: r.method || 'GET',
+      url: (r as any).url || '',
+      order: r.order,
+      updatedAt: r.updatedAt,
+      // Stub out fields not fetched
+      params: [], headers: [], auth: { type: 'none' }, body: { mode: 'none' }, settings: {},
+      preRequestScript: '', testScript: '', description: '', comments: [],
+      createdBy: '', createdAt: new Date(),
+    }) as IRequestRecord : sqlToRecord(r));
+  },
+
+  async create(data: Partial<IRequestRecord> & { name: string; collectionId: string; createdBy: string }): Promise<IRequestRecord> {
+    return sqlToRecord(await SqlRequest.create({
+      id: uuidv4(), ...data,
+      folderId: data.folderId ?? null,
+      params: JSON.stringify(data.params || []),
+      headers: JSON.stringify(data.headers || []),
+      auth: JSON.stringify(data.auth || { type: 'none' }),
+      body: JSON.stringify(data.body || { mode: 'none' }),
+      settings: JSON.stringify(data.settings || {}),
+      comments: JSON.stringify(data.comments || []),
+      preRequestScript: data.preRequestScript || '',
+      testScript: data.testScript || '',
+      description: data.description || '',
+      order: data.order ?? 0,
+    }));
+  },
+
+  // `silent` leaves updatedAt alone: a pure move isn't a content change, and bumping it
+  // makes the owner's own open tab look conflicted with the server.
+  async update(id: string, data: Partial<IRequestRecord>, opts?: { silent?: boolean }): Promise<IRequestRecord | null> {
+    const patch: any = { ...data };
+    if (data.params !== undefined) patch.params = JSON.stringify(data.params);
+    if (data.headers !== undefined) patch.headers = JSON.stringify(data.headers);
+    if (data.auth !== undefined) patch.auth = JSON.stringify(data.auth);
+    if (data.body !== undefined) patch.body = JSON.stringify(data.body);
+    if (data.settings !== undefined) patch.settings = JSON.stringify(data.settings);
+    if (data.comments !== undefined) patch.comments = JSON.stringify(data.comments);
+    await SqlRequest.update(patch, { where: { id }, silent: opts?.silent }); return this.findById(id);
+  },
+
+  async delete(id: string): Promise<void> {
+    await SqlRequest.destroy({ where: { id } });
+  },
+
+  async deleteByCollection(collectionId: string): Promise<void> {
+    await SqlRequest.destroy({ where: { collectionId } });
+  },
+
+  async deleteByFolder(folderId: string): Promise<void> {
+    await SqlRequest.destroy({ where: { folderId } });
+  },
+
+  async countInCollection(collectionId: string, folderId: string | null): Promise<number> {
+    return SqlRequest.count({ where: { collectionId, folderId: folderId ?? null } });
+  },
+
+  async searchInWorkspace(term: string, collectionIds: string[]): Promise<IRequestRecord[]> {
+    if (!term || !collectionIds.length) return [];
+    const { Op } = await import('sequelize');
+    term = escapeLike(term.substring(0, MAX_SEARCH_LENGTH));
+    return (await SqlRequest.findAll({
+      where: {
+        collectionId: { [Op.in]: collectionIds },
+        [Op.or]: [{ name: { [Op.like]: `%${term}%` } }, { url: { [Op.like]: `%${term}%` } }],
+      },
+      limit: 200,
+    })).map(sqlToRecord);
+  },
+};

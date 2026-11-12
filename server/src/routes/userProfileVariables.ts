@@ -1,0 +1,63 @@
+import express, { Response } from 'express';
+import { z } from 'zod';
+import { SqlUserProfileVariable } from '../db/sql-models';
+import { authenticate, AuthRequest } from '../middleware/auth';
+import { validate } from '../middleware/validate';
+import { v4 as uuidv4 } from 'uuid';
+import { noteRouteError } from '../utils/errorReporter';
+
+const router = express.Router();
+router.use(authenticate);
+
+const updateSchema = z.object({
+  variables: z.array(z.object({
+    key: z.string(),
+    value: z.string().optional().default(''),
+    enabled: z.boolean().optional().default(true),
+    type: z.enum(['default', 'secret']).optional().default('default'),
+  })),
+});
+
+// GET /api/user-profile-variables
+router.get('/', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const row = await SqlUserProfileVariable.findOne({ where: { userId } });
+    if (!row) return res.json({ variables: [] });
+    const data = row.toJSON() as any;
+    data.variables = JSON.parse(data.variables || '[]');
+    return res.json(data);
+  } catch (err) {
+    noteRouteError(res, err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/user-profile-variables
+router.put('/', validate(updateSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    const { variables } = req.body;
+    const userId = req.user?.id || req.user?._id;
+
+    let row = await SqlUserProfileVariable.findOne({ where: { userId } });
+    if (row) {
+      (row as any).variables = JSON.stringify(variables);
+      await row.save();
+    } else {
+      row = await SqlUserProfileVariable.create({
+        id: uuidv4(),
+        userId,
+        variables: JSON.stringify(variables),
+      });
+    }
+
+    const data = row.toJSON() as any;
+    data.variables = JSON.parse(data.variables || '[]');
+    return res.json(data);
+  } catch (err) {
+    noteRouteError(res, err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+export default router;
