@@ -24,10 +24,13 @@ jobs:
       - name: Decide whether to build
         id: gate
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           v=$(node -p "require('./package.json').version")
-          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.0$ ]] && ! git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.0$ ]] && ! gh release view "v$v" >/dev/null 2>&1; then
             echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "version=$v" >> "$GITHUB_OUTPUT"
           else
             echo "Version $v is a patch bump or already released - skipping."
           fi
@@ -39,6 +42,11 @@ jobs:
           npm ci
           npm ci --prefix server
           npm ci --prefix client
+
+      - name: Create tag
+        if: steps.gate.outputs.build == 'true'
+        shell: bash
+        run: git tag -f "v${{ steps.gate.outputs.version }}" && git push -f origin "v${{ steps.gate.outputs.version }}"
 
       - name: Build and publish
         if: steps.gate.outputs.build == 'true'
