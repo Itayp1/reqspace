@@ -28,7 +28,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           v=$(node -p "require('./package.json').version")
-          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.0$ ]] && ! gh release view "v$v" >/dev/null 2>&1; then
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.0$ ]] && ! gh release view "v$v" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx latest.yml; then
             echo "build=true" >> "$GITHUB_OUTPUT"
             echo "version=$v" >> "$GITHUB_OUTPUT"
           else
@@ -43,10 +43,13 @@ jobs:
           npm ci --prefix server
           npm ci --prefix client
 
-      - name: Create tag
+      # Created up front so electron-builder's parallel uploads do not race to create it (that dropped assets).
+      - name: Ensure release exists
         if: steps.gate.outputs.build == 'true'
         shell: bash
-        run: git tag -f "v${{ steps.gate.outputs.version }}" && git push -f origin "v${{ steps.gate.outputs.version }}"
+        run: gh release view "v${{ steps.gate.outputs.version }}" >/dev/null 2>&1 || gh release create "v${{ steps.gate.outputs.version }}" --target "$GITHUB_SHA" --title "v${{ steps.gate.outputs.version }}" --notes "reqSpace desktop app ${{ steps.gate.outputs.version }}. Auto-updates from new GitHub Releases."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish
         if: steps.gate.outputs.build == 'true'
