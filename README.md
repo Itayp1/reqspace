@@ -161,6 +161,17 @@ missing or wrong, the affected secret is treated as unset and must be re-entered
 
 ## 🖥️ Desktop app (Electron)
 
+Download the latest Windows installer from [Releases](https://github.com/Itayp1/reqspace/releases/latest/download/reqSpace-Setup.exe).
+The installer is not code-signed yet, so Windows SmartScreen may warn: click *More info → Run anyway*, or install from
+PowerShell, which skips the browser download warning:
+
+```powershell
+irm https://github.com/Itayp1/reqspace/releases/latest/download/reqSpace-Setup.exe -OutFile $env:TEMP\reqSpace-Setup.exe; & $env:TEMP\reqSpace-Setup.exe
+```
+
+The app updates itself from new releases. A release is published when `version` in `package.json` becomes a new `X.Y.0`
+(major or minor); patch bumps do not build the desktop app.
+
 A reqSpace server is always online and always requires sign-in. Single-user offline mode exists only in the
 desktop app. On first launch it asks whether to connect to a server:
 

@@ -1,0 +1,48 @@
+name: Electron Release
+
+# Builds and publishes the desktop app only when package.json's version is a major or minor bump
+# (X.Y.0) that has no release yet. Patch bumps (X.Y.Z, Z>0) and ordinary pushes do not build.
+on:
+  push:
+    branches: [master]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Decide whether to build
+        id: gate
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.0$ ]] && ! git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version $v is a patch bump or already released - skipping."
+          fi
+
+      - name: Install dependencies
+        if: steps.gate.outputs.build == 'true'
+        shell: bash
+        run: |
+          npm ci
+          npm ci --prefix server
+          npm ci --prefix client
+
+      - name: Build and publish
+        if: steps.gate.outputs.build == 'true'
+        shell: bash
+        run: npm run dist -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

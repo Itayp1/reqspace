@@ -337,7 +337,11 @@ ipcMain.on('reqspace:abort-request', (_e, requestId) => {
   if (c) c.abort();
 });
 
-app.whenReady().then(() => { buildMenu(); createWindow(); });
+app.whenReady().then(() => {
+  buildMenu(); createWindow();
+  // Packaged builds only; downloads a new GitHub Release in the background and installs it on quit.
+  if (app.isPackaged) require('electron-updater').autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
