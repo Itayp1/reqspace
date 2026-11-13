@@ -410,7 +410,7 @@ for (const provider of OAUTH_PROVIDERS) {
 const ALLOWED_SETTINGS_KEYS = [
   'followRedirects', 'verifySsl', 'sendNoCacheHeader', 'encodeUrl', 'timeout',
   'proxyEnabled', 'proxyUrl', 'noProxy', 'proxyAuthEnabled', 'proxyUsername', 'proxyPassword',
-  'saveHistory', 'sendCookies', 'shortcuts',
+  'saveHistory', 'sendCookies', 'shortcuts', 'collectionSort', 'pinnedCollections',
 ];
 
 router.put('/settings', validate(schemas.updateSettingsSchema), authenticate, async (req: AuthRequest, res: Response) => {

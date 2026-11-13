@@ -7,6 +7,8 @@ import { useRequestStore } from '../../store/requestStore';
 import type { ActiveRequest } from '../../store/requestStore';
 import api from '../../api/axios';
 import { useAuthStore } from '../../store/authStore';
+import { useSettingsStore } from '../../store/settingsStore';
+import type { CollectionSort } from '../../store/settingsStore';
 import { useToastStore } from '../../store/toastStore';
 import { InlineNameInput } from '../common/InlineNameInput';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -19,7 +21,7 @@ import { ShareLinkModal } from './ShareLinkModal';
 import { ForkModal } from './ForkModal';
 import { useContextMenu } from '../common/ContextMenuProvider';
 import {
-  ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X, AlertTriangle
+  ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X, AlertTriangle, Pin
 } from 'lucide-react';
 
 // ג”€ג”€ Shared Types ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
@@ -164,8 +166,7 @@ const InlineCreateRow = ({
 // Actions that write to the workspace; viewers must not be offered them (the
 // server would answer 403 "Requires editor role").
 const EDITOR_ONLY_ACTIONS = new Set([
-  'New Request', 'New Folder', 'Sort A-Z', 'Rename', 'Edit Settings', 'Duplicate',
-  'Duplicate / Fork', 'Move to...', 'Delete',
+  'New Folder', 'Rename', 'Edit Settings', 'Duplicate', 'Move to...', 'Delete',
 ]);
 
 // Ids of the tree items that survive the current filter (null = no filter).
@@ -424,19 +425,8 @@ const FolderNode = ({
     }
   };
 
-  const handleSort = async () => {
-    const childFolders = Array.isArray(foldersByCollection[folder._id]) ? foldersByCollection[folder._id] as Folder[] : [];
-    const childReqs = Array.isArray(requestsByFolder[folder._id]) ? requestsByFolder[folder._id] as ApiRequest[] : [];
-    const reorderFolders = childFolders.sort((a, b) => a.name.localeCompare(b.name)).map((f, i) => ({ id: f._id!, order: i }));
-    const reorderReqs = childReqs.sort((a, b) => a.name.localeCompare(b.name)).map((r, i) => ({ id: r._id!, order: i }));
-    if (reorderFolders.length) await useCollectionStore.getState().reorderItems('folder', reorderFolders);
-    if (reorderReqs.length) await useCollectionStore.getState().reorderItems('request', reorderReqs);
-  };
-
   const menuOptions = forRole(canEdit, [
-    { label: 'New Request', onClick: () => { setIsOpen(true); setCreating('request'); } },
     { label: 'New Folder', onClick: () => { setIsOpen(true); setCreating('folder'); } },
-    { label: 'Sort A-Z', onClick: handleSort },
     { label: 'Rename', onClick: () => setIsRenaming(true), separator: true },
     { label: 'Edit Settings', onClick: () => {
       const event = new CustomEvent('edit-group', { detail: { type: 'folder', id: folder._id, name: folder.name } });
@@ -535,14 +525,16 @@ const FolderNode = ({
             />
           )}
           {/* Quick Add Request */}
-          <div
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 cursor-pointer rounded hover:bg-gray-200 dark:hover:bg-gray-800 mt-0.5"
+          <button
+            type="button"
+            data-testid="add-request-row"
+            className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 cursor-pointer rounded hover:bg-gray-200 dark:hover:bg-gray-800 mt-0.5"
             onClick={() => setCreating('request')}
             style={{ display: isLoading || !canEdit ? 'none' : 'flex' }}
           >
-            <FilePlus size={11} />
+            <FilePlus size={11} aria-hidden="true" />
             <span>Add Request</span>
-          </div>
+          </button>
         </div>
       )}
     </div>
@@ -661,25 +653,25 @@ const CollectionNodeImpl = ({
     }
   };
 
-  const handleSort = async () => {
-    const childFolders = Array.isArray(foldersOfCollection) ? foldersOfCollection as Folder[] : [];
-    const childReqs = Array.isArray(requestsOfCollection) ? requestsOfCollection as ApiRequest[] : [];
-    const reorderFolders = childFolders.sort((a, b) => a.name.localeCompare(b.name)).map((f, i) => ({ id: f._id!, order: i }));
-    const reorderReqs = childReqs.sort((a, b) => a.name.localeCompare(b.name)).map((r, i) => ({ id: r._id!, order: i }));
-    if (reorderFolders.length) await useCollectionStore.getState().reorderItems('folder', reorderFolders);
-    if (reorderReqs.length) await useCollectionStore.getState().reorderItems('request', reorderReqs);
+  // Pins are personal (per user, per workspace), so viewers can pin too.
+  const pinnedMap = useSettingsStore(st => st.settings.pinnedCollections);
+  const pinnedIds = (activeWorkspace && pinnedMap?.[activeWorkspace._id]) || [];
+  const isPinned = pinnedIds.includes(collection._id);
+  const togglePin = () => {
+    if (!activeWorkspace) return;
+    const ids = isPinned ? pinnedIds.filter(id => id !== collection._id) : [...pinnedIds, collection._id];
+    useSettingsStore.getState().updateSettings({ pinnedCollections: { ...pinnedMap, [activeWorkspace._id]: ids } });
   };
 
   const menuOptions = forRole(canEdit, [
-    { label: 'New Request', onClick: () => { if (!isOpen) onToggle(); setCreating('request'); } },
     { label: 'New Folder', onClick: () => { if (!isOpen) onToggle(); setCreating('folder'); } },
-    { label: 'Sort A-Z', onClick: handleSort },
     { label: 'Rename', onClick: () => setIsRenaming(true), separator: true },
+    { label: isPinned ? 'Unpin' : 'Pin to Top', onClick: togglePin },
     { label: 'Edit Settings', onClick: () => {
       const event = new CustomEvent('edit-group', { detail: { type: 'collection', id: collection._id, name: collection.name } });
       window.dispatchEvent(event);
     }},
-    { label: 'Duplicate / Fork', separatorBefore: true, onClick: () => onDuplicate('collection', collection._id) },
+    { label: 'Duplicate', separatorBefore: true, onClick: () => onDuplicate('collection', collection._id) },
     // Smart fork only makes sense from a shared workspace — the server
     // enforces "shared → the fork owner's own personal workspace" (see
     // routes/forks.ts), so offering it from inside the personal workspace
@@ -692,10 +684,6 @@ const CollectionNodeImpl = ({
       const event = new CustomEvent('fork-collection', { detail: { id: collection._id, name: collection.name } });
       window.dispatchEvent(event);
     }}] : []),
-    { label: 'Fork to Workspace', onClick: () => {
-      const event = new CustomEvent('copy-to-workspace', { detail: { type: 'collection', id: collection._id, name: collection.name } });
-      window.dispatchEvent(event);
-    }},
     { label: 'Run Collection', separator: true, onClick: () => {
       const event = new CustomEvent('run-collection', { detail: { id: collection._id, name: collection.name } });
       window.dispatchEvent(event);
@@ -760,6 +748,19 @@ const CollectionNodeImpl = ({
         )}
         {!isRenaming && (
           <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100 flex items-center shrink-0">
+            <button
+              type="button"
+              data-testid={`pin-${collection.name}`}
+              aria-label={isPinned ? `Unpin ${collection.name}` : `Pin ${collection.name} to top`}
+              aria-pressed={isPinned}
+              title={isPinned ? 'Unpin' : 'Pin to Top'}
+              onClick={(e) => { e.stopPropagation(); togglePin(); }}
+              className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${
+                isPinned ? 'text-primary' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Pin size={12} aria-hidden="true" className={isPinned ? 'fill-current' : ''} />
+            </button>
             <ActionMenu options={menuOptions} />
           </div>
         )}
@@ -815,14 +816,16 @@ const CollectionNodeImpl = ({
             />
           )}
           {/* Quick Add Request at bottom of collection */}
-          <div
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 cursor-pointer rounded hover:bg-gray-200 dark:hover:bg-gray-800 mt-0.5"
+          <button
+            type="button"
+            data-testid="add-request-row"
+            className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 cursor-pointer rounded hover:bg-gray-200 dark:hover:bg-gray-800 mt-0.5"
             onClick={() => setCreating('request')}
             style={{ display: isLoading || !canEdit ? 'none' : 'flex' }}
           >
-            <FilePlus size={11} />
+            <FilePlus size={11} aria-hidden="true" />
             <span>Add Request</span>
-          </div>
+          </button>
         </div>
       )}
     </div>
@@ -1098,7 +1101,21 @@ export const CollectionExplorer: React.FC = () => {
     });
     return { filteredCollections: matched, visibleIds: ids };
   }, [filterLower, collections, foldersByCollection, requestsByFolder]);
-  filteredCollections.sort((a, b) => (a.order || 0) - (b.order || 0));
+  const collectionSortMap = useSettingsStore(st => st.settings.collectionSort);
+  const sortMode: CollectionSort = (activeWorkspace && collectionSortMap?.[activeWorkspace._id]) || 'manual';
+  const setSortMode = (mode: CollectionSort) => {
+    if (activeWorkspace) useSettingsStore.getState().updateSettings({ collectionSort: { ...collectionSortMap, [activeWorkspace._id]: mode } });
+  };
+  const time = (d?: string) => (d ? Date.parse(d) : 0);
+  const bySortMode: (a: Collection, b: Collection) => number =
+    sortMode === 'name' ? (a, b) => a.name.localeCompare(b.name)
+    : sortMode === 'created' ? (a, b) => time(b.createdAt) - time(a.createdAt)
+    : sortMode === 'updated' ? (a, b) => time(b.updatedAt) - time(a.updatedAt)
+    : (a, b) => (a.order || 0) - (b.order || 0);
+  const pinnedMap = useSettingsStore(st => st.settings.pinnedCollections);
+  const pinned = new Set((activeWorkspace && pinnedMap?.[activeWorkspace._id]) || []);
+  // Pinned collections first; the chosen sort applies within each group.
+  filteredCollections.sort((a, b) => (Number(pinned.has(b._id)) - Number(pinned.has(a._id))) || bySortMode(a, b));
 
   return (
     <>
@@ -1106,6 +1123,19 @@ export const CollectionExplorer: React.FC = () => {
         {/* Header */}
         <div className="p-3 border-b border-gray-200 dark:border-gray-800 font-semibold text-gray-900 dark:text-gray-100 flex justify-between items-center">
           <span>Collections</span>
+          <select
+            data-testid="collection-sort-select"
+            aria-label="Sort collections"
+            title="Sort collections"
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as CollectionSort)}
+            className="ml-auto mr-2 bg-transparent text-xs font-normal text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          >
+            <option value="manual">Manual</option>
+            <option value="created">Created</option>
+            <option value="updated">Last updated</option>
+            <option value="name">Name</option>
+          </select>
           {canEdit && <button
             data-testid="new-collection-btn"
             className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"

@@ -24,7 +24,11 @@ export interface GlobalSettings {
     save: string;
     send: string;
   };
+  collectionSort?: Record<string, CollectionSort>; // per workspace id
+  pinnedCollections?: Record<string, string[]>; // collection ids per workspace id
 }
+
+export type CollectionSort = 'manual' | 'created' | 'updated' | 'name';
 
 interface SettingsStore {
   settings: GlobalSettings;

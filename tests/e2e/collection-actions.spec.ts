@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 /**
  * Three collection context-menu actions that had no coverage: View
@@ -63,8 +64,7 @@ test.describe('Collection Actions', () => {
 
     // One request at the collection root, with a header and a raw body so the
     // generated docs have something to render beyond the URL.
-    await openMenu(page, COLLECTION);
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, COLLECTION);
     await page.getByTestId('prompt-input').fill('Root Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Root Request').click();
@@ -77,8 +77,7 @@ test.describe('Collection Actions', () => {
     await expect(page.getByTestId('dirty-indicator')).toBeHidden();
 
     // And one inside the folder, to prove the docs walk nested levels.
-    await openMenu(page, 'Nested Folder');
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, 'Nested Folder');
     await page.getByTestId('prompt-input').fill('Nested Request');
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('prompt-input')).toBeHidden();

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures';
+import { startNewRequest } from './helpers';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/console\.error: Network Error/] });
@@ -77,15 +78,13 @@ test.describe('Auth types', () => {
     await expect(page.getByTestId(`node-${FOLDER}`)).toBeVisible();
 
     for (const name of ['ApiKey Header Req', 'ApiKey Query Req', 'OAuth Req']) {
-      await openMenu(page, COLLECTION);
-      await page.getByTestId('action-menu-new-request').click();
+      await startNewRequest(page, COLLECTION);
       await page.getByTestId('prompt-input').fill(name);
       await page.getByTestId('prompt-input').press('Enter');
       await expect(page.getByTestId(`node-${name}`)).toBeVisible();
     }
 
-    await openMenu(page, FOLDER);
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, FOLDER);
     await page.getByTestId('prompt-input').fill('Inherit Req');
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('prompt-input')).toBeHidden();

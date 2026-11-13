@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 test.describe('Scripts Scope', () => {
   test('Pre-request scripts run at Collection and Folder levels', async ({ page }) => {
@@ -62,8 +63,7 @@ test.describe('Scripts Scope', () => {
 
     // Create Request inside Folder (custom in-app modal, not a native dialog)
     await page.getByTestId('node-Scope Folder').hover();
-    await page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Scope Folder') }).getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Scope Folder') }));
     await page.getByTestId('prompt-input').fill('Scope Request');
     await page.getByTestId('prompt-input').press('Enter');
 

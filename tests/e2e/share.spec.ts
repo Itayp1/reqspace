@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 test.describe('Share Links', () => {
   test('should generate a link, strip sensitive data for anonymous view, and handle revocation', async ({ page, context, request }) => {
@@ -20,8 +21,7 @@ test.describe('Share Links', () => {
     const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Test Collection Share ' + ts) });
     await expect(colNode).toBeVisible();
     await colNode.hover();
-    await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, colNode);
     await page.getByTestId('prompt-input').fill('Share Request');
     await page.getByTestId('prompt-input').press('Enter');
 

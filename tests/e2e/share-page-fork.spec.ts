@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures';
+import { startNewRequest } from './helpers';
 
 /**
  * The last three uncovered surfaces:
@@ -38,8 +39,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
     await expect(col).toBeVisible();
 
     await col.hover();
-    await col.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, col);
     await page.getByTestId('prompt-input').fill('Public Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Public Request').click();
@@ -88,8 +88,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
 
     const col = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Public Collection') });
     await col.hover();
-    await col.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, col);
     await page.getByTestId('prompt-input').fill('Second Public Request');
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('node-Second Public Request')).toBeVisible();
@@ -171,8 +170,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
     const col = owner.locator('[data-testid="node-container"]', { has: owner.getByTestId('node-Viewer Collection') });
     await expect(col).toBeVisible();
     await col.hover();
-    await col.getByTestId('action-menu-btn').click();
-    await owner.getByTestId('action-menu-new-request').click();
+    await startNewRequest(owner, col);
     await owner.getByTestId('prompt-input').fill('Viewer Request');
     await owner.getByTestId('prompt-input').press('Enter');
     await expect(owner.getByTestId('node-Viewer Request')).toBeVisible();

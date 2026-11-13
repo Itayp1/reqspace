@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 /**
  * Variable scopes below the environment level had no e2e coverage:
@@ -70,8 +71,7 @@ test.describe('Variable Scopes', () => {
 
     const colNode = page.locator('[data-testid="node-container"]', { has: page.getByTestId(`node-${COLLECTION}`) });
     await colNode.hover();
-    await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, colNode);
     await page.getByTestId('prompt-input').fill('Scoped Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Scoped Request').click();

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures';
+import { startNewRequest } from './helpers';
 
 /**
  * Request comments had no coverage, and Delete never worked: the server
@@ -39,8 +40,7 @@ test.describe('Request comments', () => {
     const col = page.locator('[data-testid="node-container"]', { has: page.getByTestId(`node-${COLLECTION}`) });
     await expect(col).toBeVisible();
     await col.hover();
-    await col.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, col);
     await page.getByTestId('prompt-input').fill('Commented Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Commented Request').click();

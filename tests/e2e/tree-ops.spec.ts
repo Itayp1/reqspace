@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, expectToast, apiAs } from './helpers';
+import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, expectToast, apiAs, startNewRequest } from './helpers';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/Failed to update request .*status code 400/] });
@@ -26,8 +26,7 @@ test.describe('Tree operations', () => {
     await createCollectionUi(page, 'Tree Col');
     await addViaMenu(page, 'Tree Col', 'new-folder', 'Box');
     await treeNode(page, 'Box').click();
-    await openNodeMenu(page, 'Box');
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, 'Box');
     await page.getByTestId('prompt-input').fill('Inside Box');
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('node-Inside Box')).toBeVisible();
@@ -58,8 +57,7 @@ test.describe('Tree operations', () => {
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('node-Inner')).toBeVisible();
     await treeNode(page, 'Inner').click();
-    await openNodeMenu(page, 'Inner');
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, 'Inner');
     await page.getByTestId('prompt-input').fill('Deep Req');
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('node-Deep Req')).toBeVisible();
@@ -81,23 +79,6 @@ test.describe('Tree operations', () => {
     expect(tree.folders).toEqual([]);
     expect(tree.requests.map((r: any) => r.name)).toEqual(['Root Req']);
     await api.dispose();
-  });
-
-  test('Sort A-Z orders a collection\'s requests by name and the order survives a reload', async ({ page }) => {
-    await createCollectionUi(page, 'Sort Col');
-    for (const n of ['zeta', 'alpha', 'mid']) await addViaMenu(page, 'Sort Col', 'new-request', n);
-    const names = () => page.locator('[data-testid="node-zeta"], [data-testid="node-alpha"], [data-testid="node-mid"]').allTextContents();
-    expect(await names()).toEqual(['zeta', 'alpha', 'mid']);
-
-    const reorder = page.waitForResponse(r => r.url().includes('/collections/reorder'));
-    await openNodeMenu(page, 'Sort Col');
-    await page.getByTestId('action-menu-sort-a-z').click();
-    await reorder;
-    await expect.poll(names).toEqual(['alpha', 'mid', 'zeta']);
-
-    await page.reload();
-    await treeNode(page, 'Sort Col').click();
-    await expect.poll(names).toEqual(['alpha', 'mid', 'zeta']);
   });
 
   test('the sidebar filter narrows collections by request name', async ({ page }) => {
@@ -164,5 +145,49 @@ test.describe('Tree operations', () => {
     await expect(page.getByTestId('node-Mover')).toHaveCount(0); // nested, Target is collapsed
     await treeNode(page, 'Target').click();
     await expect(page.getByTestId('node-Mover')).toBeVisible();
+  });
+
+  test('a folder dragged onto another collection moves there and stays after a reload', async ({ page }) => {
+    await createCollectionUi(page, 'Src Col');
+    await createCollectionUi(page, 'Dst Col');
+    await addViaMenu(page, 'Src Col', 'new-folder', 'Traveler');
+
+    const put = page.waitForResponse(r => /\/api\/folders\//.test(r.url()) && r.request().method() === 'PUT');
+    await page.dragAndDrop('[data-testid="node-Traveler"]', '[data-testid="node-Dst Col"]');
+    expect((await put).status()).toBe(200);
+
+    await page.reload();
+    await treeNode(page, 'Dst Col').click();
+    await expect(page.getByTestId('node-Traveler')).toBeVisible();
+    await treeNode(page, 'Src Col').click();
+    await expect(page.getByTestId('node-Traveler')).toHaveCount(1);
+  });
+
+  test('a folder with a subfolder and a request keeps them when dragged to another collection', async ({ page }) => {
+    await createCollectionUi(page, 'Src2');
+    await createCollectionUi(page, 'Dst2');
+    await addViaMenu(page, 'Src2', 'new-folder', 'Parent');
+    await treeNode(page, 'Parent').click();
+    await openNodeMenu(page, 'Parent');
+    await page.getByTestId('action-menu-new-folder').click();
+    await page.getByTestId('prompt-input').fill('Child');
+    await page.getByTestId('prompt-input').press('Enter');
+    await treeNode(page, 'Child').click();
+    await startNewRequest(page, 'Child');
+    await page.getByTestId('prompt-input').fill('Deep Req');
+    await page.getByTestId('prompt-input').press('Enter');
+    await expect(page.getByTestId('node-Deep Req')).toBeVisible();
+
+    const put = page.waitForResponse(r => /\/api\/folders\//.test(r.url()) && r.request().method() === 'PUT');
+    await page.dragAndDrop('[data-testid="node-Parent"]', '[data-testid="node-Dst2"]');
+    expect((await put).status()).toBe(200);
+
+    await page.reload();
+    await treeNode(page, 'Src2').click();
+    await expect(page.getByTestId('node-Parent')).toHaveCount(0);
+    await treeNode(page, 'Dst2').click();
+    await treeNode(page, 'Parent').click();
+    await treeNode(page, 'Child').click();
+    await expect(page.getByTestId('node-Deep Req')).toBeVisible();
   });
 });

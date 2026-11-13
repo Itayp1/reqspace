@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 const uuidv4 = () => require('crypto').randomUUID();
 
 test.describe('Full CRUD / Rename Matrix', () => {
@@ -95,8 +96,7 @@ test.describe('Full CRUD / Rename Matrix', () => {
 
     // Create Request inside Collection (custom in-app modal, not a native dialog)
     await renamedColNode.hover();
-    await renamedColNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, renamedColNode);
     await page.getByTestId('prompt-input').fill('Initial Request');
     await page.getByTestId('prompt-input').press('Enter');
 

@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures';
+import { startNewRequest } from '../helpers';
 
 // QA-36: Passed/Failed counts for responses without tests are unexplained.
 test('QA-36: runner Passed/Failed boxes explain how a request is counted', async ({ page }) => {
@@ -15,8 +16,7 @@ test('QA-36: runner Passed/Failed boxes explain how a request is counted', async
 
   const node = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Run Col') });
   await node.hover();
-  await node.getByTestId('action-menu-btn').click();
-  await page.getByTestId('action-menu-new-request').click();
+  await startNewRequest(page, node);
   await page.getByTestId('prompt-input').fill('R1');
   await page.getByTestId('prompt-submit').click();
 

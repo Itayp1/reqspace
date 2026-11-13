@@ -57,6 +57,10 @@ export const updateSettingsSchema = z.object({
   saveHistory: z.boolean().optional(),
   sendCookies: z.boolean().optional(),
   shortcuts: z.record(z.string().max(64)).optional(),
+  // Sidebar collection order per workspace id.
+  collectionSort: z.record(z.string().max(36), z.enum(['manual', 'created', 'updated', 'name'])).optional(),
+  // Pinned sidebar collection ids per workspace id.
+  pinnedCollections: z.record(z.string().max(36), z.array(z.string().max(36)).max(500)).optional(),
 }).passthrough();
 
 export const addCertificateSchema = z.object({

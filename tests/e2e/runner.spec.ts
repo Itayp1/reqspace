@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 test.describe('Collection Runner', () => {
   test('should open CollectionRunnerModal, configure and run', async ({ page }) => {
@@ -61,8 +62,7 @@ test.describe('Collection Runner', () => {
     // Create the request (custom in-app modal, not a native dialog), then
     // open it to set its URL — the "New Request" prompt only asks for a name.
     await colNode.hover();
-    await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, colNode);
     await page.getByTestId('prompt-input').fill('Echo Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Echo Request').click();
@@ -113,8 +113,7 @@ test.describe('Collection Runner', () => {
     await expect(colNode).toBeVisible();
 
     await colNode.hover();
-    await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, colNode);
     await page.getByTestId('prompt-input').fill('Echo Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Echo Request').click();
@@ -165,8 +164,7 @@ test.describe('Collection Runner', () => {
     await expect(colNode).toBeVisible();
 
     await colNode.hover();
-    await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, colNode);
     await page.getByTestId('prompt-input').fill('Slow Request');
     await page.getByTestId('prompt-input').press('Enter');
     await page.getByTestId('node-Slow Request').click();

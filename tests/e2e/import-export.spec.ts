@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 test.describe('Import / Export', () => {
   test('should export workspace data and import it successfully', async ({ page }) => {
@@ -34,8 +35,7 @@ test.describe('Import / Export', () => {
 
     // Create a request in it
     await colNode.hover();
-    await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, colNode);
     await page.getByTestId('prompt-input').fill('Export Request');
     await page.getByTestId('prompt-input').press('Enter');
 

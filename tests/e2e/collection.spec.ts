@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 test.describe('Collection Operations', () => {
   // Run serially to reuse state
@@ -138,14 +139,12 @@ test.describe('Collection Operations', () => {
     // it, so it has to be expanded explicitly before its requests appear.
     const folderANode = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Folder A') });
     await page.getByTestId('node-Folder A').click();
-    await folderANode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, folderANode);
     await page.getByTestId('prompt-input').fill('Request Z');
     await page.getByTestId('prompt-input').press('Enter');
 
     // Create Request A in Folder A
-    await folderANode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, folderANode);
     await page.getByTestId('prompt-input').fill('Request A');
     await page.getByTestId('prompt-input').press('Enter');
 
@@ -169,19 +168,8 @@ test.describe('Collection Operations', () => {
     // Duplicate Collection (collections are prefixed "Copy of X", unlike
     // requests/folders which are suffixed "X (Copy)")
     await colNode.getByTestId('action-menu-btn').click();
-    await page.getByTestId('action-menu-duplicate-/-fork').click();
+    await page.getByTestId('action-menu-duplicate').click();
     await expect(page.getByTestId('node-Copy of Sort Collection')).toBeVisible();
-
-    // Reorder Folder A (Sort A-Z). The click only dispatches the DOM event —
-    // it doesn't wait for the async reorder to reach the server — so wait
-    // for that PUT to complete before reloading, or the reload can race it
-    // and come back with the pre-sort order.
-    await folderANode.getByTestId('action-menu-btn').click();
-    const reorderResponse = page.waitForResponse(resp =>
-      resp.url().includes('/collections/reorder') && resp.request().method() === 'PUT'
-    );
-    await page.getByTestId('action-menu-sort-a-z').click();
-    await reorderResponse;
 
     // Reload
     await page.reload();
@@ -192,11 +180,5 @@ test.describe('Collection Operations', () => {
 
     await expect(page.getByTestId('node-Request A')).toBeVisible();
     await expect(page.getByTestId('node-Request Z')).toBeVisible();
-
-    // Verify Reorder
-    const requestNames = await page.locator('[data-testid^="node-Request"]').allTextContents();
-    const idxA = requestNames.indexOf('Request A');
-    const idxZ = requestNames.indexOf('Request Z');
-    expect(idxA).toBeLessThan(idxZ);
   });
 });

@@ -32,6 +32,8 @@ export interface Collection extends CollectionItem {
   preRequestScript?: string;
   testScript?: string;
   auth?: any; // Inherit Auth Support
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Folder extends CollectionItem {

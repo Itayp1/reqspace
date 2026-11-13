@@ -1,4 +1,4 @@
-import { expect, type Page, type APIRequestContext, request as playwrightRequest } from '@playwright/test';
+import { expect, type Page, type Locator, type APIRequestContext, request as playwrightRequest } from '@playwright/test';
 import { API_URL } from './fixtures';
 
 /** Registers a fresh account through the UI and lands on the app with its personal workspace. */
@@ -46,9 +46,21 @@ export async function createCollectionUi(page: Page, name: string) {
   await expect(page.getByTestId(`node-${name}`)).toBeVisible();
 }
 
+/** Opens the inline "new request" row of a collection/folder through its "Add Request" row (expanding it if needed). */
+export async function startNewRequest(page: Page, parent: string | Locator) {
+  const node = typeof parent === 'string' ? treeNode(page, parent) : parent;
+  // The parent's own row is the last one in its subtree (nested folders render theirs above it).
+  const row = node.locator('xpath=..').getByTestId('add-request-row').last();
+  if (await row.count() === 0) await node.click();
+  await row.click();
+}
+
 export async function addViaMenu(page: Page, parent: string, kind: 'new-request' | 'new-folder', name: string) {
-  await openNodeMenu(page, parent);
-  await page.getByTestId(`action-menu-${kind}`).click();
+  if (kind === 'new-request') await startNewRequest(page, parent);
+  else {
+    await openNodeMenu(page, parent);
+    await page.getByTestId(`action-menu-${kind}`).click();
+  }
   await page.getByTestId('prompt-input').fill(name);
   await page.getByTestId('prompt-input').press('Enter');
   await expect(page.getByTestId(`node-${name}`)).toBeVisible();

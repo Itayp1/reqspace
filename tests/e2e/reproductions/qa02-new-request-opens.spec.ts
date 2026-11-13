@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { registerUser, createCollectionUi, openNodeMenu } from '../helpers';
+import { registerUser, createCollectionUi, openNodeMenu, startNewRequest } from '../helpers';
 
 // QA-02: a request created from the collection menu was not opened, so the editor kept the previous draft.
 test('QA-02: a request created from the collection menu opens in the editor', async ({ page }) => {
@@ -7,8 +7,7 @@ test('QA-02: a request created from the collection menu opens in the editor', as
   await createCollectionUi(page, 'Col');
   await page.getByTestId('new-tab-btn').click(); // an unrelated draft is on screen
 
-  await openNodeMenu(page, 'Col');
-  await page.getByTestId('action-menu-new-request').click();
+  await startNewRequest(page, 'Col');
   await page.getByTestId('prompt-input').fill('Get Users');
   const created = page.waitForResponse((r) => r.request().method() === 'POST' && /\/collections\/[^/]+\/requests$/.test(r.url()));
   await page.getByTestId('prompt-input').press('Enter');

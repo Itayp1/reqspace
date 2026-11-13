@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 /**
  * Global search (Ctrl+K) had no coverage at all. The modal is built on real
@@ -54,8 +55,7 @@ test.describe('Global Search', () => {
 
     for (const name of [REQUEST, OTHER_REQUEST]) {
       await colNode.hover();
-      await colNode.getByTestId('action-menu-btn').click();
-      await page.getByTestId('action-menu-new-request').click();
+      await startNewRequest(page, colNode);
       await page.getByTestId('prompt-input').fill(name);
       await page.getByTestId('prompt-input').press('Enter');
       await expect(page.getByTestId(`node-${name}`)).toBeVisible();

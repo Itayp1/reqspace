@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { startNewRequest } from './helpers';
 
 /**
  * Two leftovers from the audit:
@@ -76,8 +77,7 @@ test.describe('Group test scripts & workspace activity', () => {
 
     // A request in the folder, with its own test script plus one deliberate
     // failure so the pass/fail split is visible.
-    await openMenu(page, 'Group Folder');
-    await page.getByTestId('action-menu-new-request').click();
+    await startNewRequest(page, 'Group Folder');
     await page.getByTestId('prompt-input').fill('Group Request');
     await page.getByTestId('prompt-input').press('Enter');
     await expect(page.getByTestId('prompt-input')).toBeHidden();
