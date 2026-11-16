@@ -5,6 +5,7 @@
 - **Single Test**: `pnpm exec playwright test <path-to-test>`
 - **Database**: SQLite, a fresh unique file per run in the OS temp dir (`playwright.config.ts` sets `DB_STORAGE_PATH`). Do NOT use `:memory:` — Sequelize's connection pool gives each connection a private empty DB, which breaks login. Never write SQLite files into the repo.
 - **Ports**: The API port is `process.env.PORT` (default 3005) and the Vite client port is `process.env.CLIENT_PORT` (default 5173), both injected by the orchestrator. Never hardcode ports; use `API_URL` from `tests/e2e/fixtures.ts` or `baseURL`.
+- **Full suite only for bigger-than-minor changes**: run the full suite (`pnpm exec playwright test`) only when the change is larger than a minor one (new/changed architecture, shared code, many files, a major or minor version bump). For a minor change or patch, run only the specs of the areas the work touched.
 - Headless only. Every test fails if it leaves new rows in the `fperrors` table (see `tests/e2e/fixtures.ts`).
 
 ## Mandatory Fail-to-Pass (F2P) Bug-Fixing Cycle

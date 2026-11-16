@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState, useRef } from 'react';
-import { Search, Eye, EyeOff, X, Settings, Cookie, Sun, Moon, SlidersHorizontal } from 'lucide-react';
+import { Search, Eye, EyeOff, X, Settings, Cookie, Sun, Moon, SlidersHorizontal, Copy, Pencil, Check, Download } from 'lucide-react';
 import { matchesShortcut } from '../../utils/shortcuts';
-import { useEnvironmentStore } from '../../store/environmentStore';
+import { useEnvironmentStore, type Environment, type EnvironmentVariable } from '../../store/environmentStore';
+import { useExtensionStore } from '../../store/extensionStore';
+import { useToastStore } from '../../store/toastStore';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import api from '../../api/axios';
@@ -10,6 +12,40 @@ import { CookieManagerModal } from '../common/CookieManagerModal';
 
 import GlobalSettingsModal from '../common/GlobalSettingsModal';
 import GlobalSearchModal from '../common/GlobalSearchModal';
+
+function QuickVarRow({ v, shown, hidden, canWrite, onSave }: {
+  v: EnvironmentVariable; shown: string | undefined; hidden: boolean; canWrite: boolean; onSave: (val: string) => Promise<void>;
+}) {
+  const real = v.currentValue || v.initialValue || '';
+  const [draft, setDraft] = useState<string | null>(null);
+  const icon = 'p-0.5 text-text-muted hover:text-text shrink-0';
+  const save = async () => { const d = draft!; setDraft(null); if (d !== real) await onSave(d); };
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-text-muted font-mono truncate w-1/3" title={v.key}>{v.key}</span>
+      {draft === null ? (
+        <span className="text-text font-mono truncate flex-1 text-right" title={hidden ? 'Secret value hidden' : real}>{shown}</span>
+      ) : (
+        <input autoFocus aria-label={`Value of ${v.key}`} value={draft} onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setDraft(null); }}
+          className="flex-1 min-w-0 p-0.5 border border-border rounded bg-surface font-mono text-right" />
+      )}
+      <button type="button" className={icon} title="Copy value" aria-label={`Copy ${v.key} value`}
+        onClick={() => navigator.clipboard?.writeText(real).then(() => useToastStore.getState().addToast('success', 'Copied'))}>
+        <Copy className="w-3 h-3" aria-hidden="true" />
+      </button>
+      {canWrite && (draft === null ? (
+        <button type="button" className={icon} title="Edit value" aria-label={`Edit ${v.key} value`} onClick={() => setDraft(real)}>
+          <Pencil className="w-3 h-3" aria-hidden="true" />
+        </button>
+      ) : (
+        <button type="button" className={icon} title="Save" aria-label={`Save ${v.key} value`} onClick={save}>
+          <Check className="w-3 h-3" aria-hidden="true" />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function TopBar() {
   const { activeWorkspace } = useAuthStore();
@@ -27,6 +63,25 @@ export default function TopBar() {
   const [isQuickLookOpen, setIsQuickLookOpen] = useState(false);
   const [revealSecrets, setRevealSecrets] = useState(false);
   const eyeRef = useRef<HTMLDivElement>(null);
+  const canWrite = ['editor', 'owner'].includes(activeWorkspace?.myRole || '');
+  const { setShowDownloadModal } = useExtensionStore();
+
+  // Persists one variable's new value; the global env has its own endpoint.
+  const saveVar = async (env: Environment, key: string, value: string) => {
+    const variables = env.variables.map(v => (v.key === key ? { ...v, initialValue: value, currentValue: value } : v));
+    try {
+      if (env.isGlobal) {
+        const res = await api.put(`/workspaces/${activeWorkspace!._id}/global-environment`, { variables });
+        setGlobalEnvironment({ ...res.data, isGlobal: true });
+      } else {
+        const res = await api.put(`/environments/${env._id}`, { name: env.name, variables });
+        setEnvironments(environments.map(e => (e._id === env._id ? res.data : e)));
+      }
+      useToastStore.getState().addToast('success', `${key} updated`);
+    } catch {
+      useToastStore.getState().addToast('error', `Failed to update ${key}`);
+    }
+  };
 
   // Close Quick Look on outside click
   useEffect(() => {
@@ -126,6 +181,20 @@ export default function TopBar() {
           <span className="hidden sm:inline" aria-hidden="true">Cookies</span>
         </button>
 
+        {/* Always-available download of the browser extension / desktop app (not shown inside the desktop app). */}
+        {!(window as any).electron && (
+          <button
+            onClick={() => setShowDownloadModal(true)}
+            className="p-1.5 hover:bg-border rounded text-text-muted hover:text-text transition-colors flex items-center gap-1 text-xs"
+            title="Download desktop app / browser extension"
+            aria-label="Download desktop app or browser extension"
+            data-testid="get-app-btn"
+          >
+            <Download className="w-4 h-4 text-primary" aria-hidden="true" />
+            <span className="hidden sm:inline" aria-hidden="true">Get app</span>
+          </button>
+        )}
+
         <div className="h-4 w-px bg-border my-auto mx-1" aria-hidden="true" />
 
         {/* Unified Environment Selector & Quick Look */}
@@ -216,10 +285,8 @@ export default function TopBar() {
                     ) : (
                       <div className="space-y-1.5">
                         {activeVars.map(v => (
-                          <div key={v.key} className="flex justify-between items-center gap-2 group">
-                            <span className="text-text-muted font-mono truncate w-1/3" title={v.key}>{v.key}</span>
-                            <span className="text-text font-mono truncate w-2/3 text-right" title={v.isSecret && !revealSecrets ? 'Secret value hidden' : (v.currentValue || v.initialValue)}>{shown(v)}</span>
-                          </div>
+                          <QuickVarRow key={v.key} v={v} shown={shown(v)} hidden={!!v.isSecret && !revealSecrets} canWrite={!!activeEnv && canWrite}
+                            onSave={val => saveVar(activeEnv!, v.key, val)} />
                         ))}
                       </div>
                     )}
@@ -245,10 +312,8 @@ export default function TopBar() {
                     ) : (
                       <div className="space-y-1.5">
                         {globalVars.map(v => (
-                          <div key={v.key} className="flex justify-between items-center gap-2 group">
-                            <span className="text-text-muted font-mono truncate w-1/3" title={v.key}>{v.key}</span>
-                            <span className="text-text font-mono truncate w-2/3 text-right" title={v.isSecret && !revealSecrets ? 'Secret value hidden' : (v.currentValue || v.initialValue)}>{shown(v)}</span>
-                          </div>
+                          <QuickVarRow key={v.key} v={v} shown={shown(v)} hidden={!!v.isSecret && !revealSecrets} canWrite={canWrite}
+                            onSave={val => saveVar(globalEnvironment!, v.key, val)} />
                         ))}
                       </div>
                     )}
