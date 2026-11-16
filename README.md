@@ -56,11 +56,11 @@ If you want to contribute or run the project locally:
    ```bash
    # Install Server dependencies
    cd server
-   npm install
+   pnpm install
 
    # Install Client dependencies
    cd ../client
-   npm install
+   pnpm install
    ```
 
 3. **Configure Environment Variables:**
@@ -75,11 +75,11 @@ If you want to contribute or run the project locally:
    ```bash
    # In one terminal window (Start Server)
    cd server
-   npm run dev
+   pnpm run dev
 
    # In another terminal window (Start Client)
    cd client
-   npm run dev
+   pnpm run dev
    ```
 
 ## 📦 Build & Deploy
@@ -103,8 +103,8 @@ pm2 list               # what's running
 ### Manual build
 
 ```bash
-cd client && npm install && npm run build     # → client/dist
-cd ../server && npm install && npm run build  # → server/dist  (TypeScript)
+cd client && pnpm install && pnpm run build     # → client/dist
+cd ../server && pnpm install && pnpm run build  # → server/dist  (TypeScript)
 
 # Run it (server/.env must be configured)
 NODE_ENV=production node dist/index.js

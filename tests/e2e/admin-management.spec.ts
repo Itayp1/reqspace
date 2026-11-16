@@ -1,4 +1,4 @@
-import { test, expect, request as pwRequest } from './fixtures';
+import { expandAdminSections, test, expect, request as pwRequest } from './fixtures';
 import { loginAdminUi, apiAs, apiAsAdmin, expectToast } from './helpers';
 import { API_URL } from './fixtures';
 
@@ -147,6 +147,7 @@ test.describe('Admin management', () => {
 
   test('SMTP and Google OAuth settings are saved; Test Connection reports a failure', async ({ page }) => {
     await openAdmin(page, 'settings');
+    await expandAdminSections(page);
     await expect(page.getByTestId('admin-settings-title')).toBeVisible();
 
     const smtp = page.getByTestId('admin-smtp-enabled');
@@ -169,6 +170,7 @@ test.describe('Admin management', () => {
 
     await page.reload();
     await page.getByTestId('admin-tab-settings').click();
+    await expandAdminSections(page);
     await expect(page.getByTestId('admin-smtp-host')).toHaveValue('127.0.0.1');
     await expect(page.getByTestId('admin-smtp-from')).toHaveValue(`noreply-${ts}@example.test`);
     await expect(page.getByTestId('admin-google-client-id')).toHaveValue(`client-${ts}.apps.example`);

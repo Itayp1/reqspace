@@ -17,7 +17,7 @@ function Section({ title, testId, children }: { title: string; testId?: string; 
   const [open, setOpen] = useState(false);
   return (
     <div className="pt-6 border-t border-border first:border-t-0 first:pt-0" data-testid={testId}>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)} className={`flex w-full items-center justify-between text-lg font-bold text-left ${FOCUS}`}>
+      <button type="button" data-testid="admin-section-toggle" aria-expanded={open} onClick={() => setOpen(o => !o)} className={`flex w-full items-center justify-between text-lg font-bold text-left ${FOCUS}`}>
         <span>{title}</span>
         <ChevronDown size={20} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -455,7 +455,7 @@ export default function AdminPage() {
                       {(oauthHosts || []).length > 0 && (
                         <div className="mt-2 space-y-1" data-testid="admin-redirect-uri-list">
                           <p className="text-xs text-text-muted">Register these redirect URLs with each provider:</p>
-                          {(oauthHosts as string[]).flatMap((h: string) => OAUTH_PROVIDERS.map(p => redirectUrlFor(h, p))).filter(Boolean).map((u: string) => (
+                          {Array.from(new Set((oauthHosts as string[]).flatMap((h: string) => OAUTH_PROVIDERS.map(p => redirectUrlFor(h, p))).filter(Boolean))).map((u: string) => (
                             <div key={u} className="flex items-center gap-2 text-xs">
                               <code className="flex-1 truncate">{u}</code>
                               <button type="button" className="px-2 py-0.5 border border-border rounded hover:bg-surface-hover" onClick={() => navigator.clipboard?.writeText(u)}>Copy</button>

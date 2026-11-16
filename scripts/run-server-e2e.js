@@ -75,7 +75,7 @@ async function main() {
   });
 
   console.log(`Starting server on port ${PORT}...`);
-  const server = spawn('npm', ['run', 'dev', '--prefix', 'server'], {
+  const server = spawn('pnpm', ['--dir', 'server', 'run', 'dev'], {
     cwd: ROOT,
     env: SERVER_ENV,
     shell: true,
@@ -98,7 +98,7 @@ async function main() {
     console.log('Server healthy — running jest e2e suite...');
 
     exitCode = await new Promise((resolve) => {
-      const jest = spawn('npm', ['test', '--prefix', 'server'], {
+      const jest = spawn('pnpm', ['--dir', 'server', 'test'], {
         cwd: ROOT,
         env: { ...SERVER_ENV, TEST_PORT: PORT },
         shell: true,

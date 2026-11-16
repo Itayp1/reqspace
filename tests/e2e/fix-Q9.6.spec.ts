@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { expandAdminSections, test, expect } from './fixtures';
 import { loginAdminUi } from './helpers';
 
 test.describe('Q9.6 SMTP test connection double click', () => {
@@ -12,6 +12,7 @@ test.describe('Q9.6 SMTP test connection double click', () => {
     await loginAdminUi(page);
     await page.goto('/admin');
     await page.getByTestId('admin-tab-settings').click();
+    await expandAdminSections(page);
     const smtp = page.getByTestId('admin-smtp-enabled');
     if (!(await smtp.isChecked())) await smtp.check();
     await page.getByTestId('admin-smtp-host').fill('smtp.example.test');
