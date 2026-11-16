@@ -147,3 +147,10 @@ const webTest = base.extend<TestFixtures, WorkerFixtures>({
 export const test: typeof webTest = process.env.REQSPACE_TARGET === 'electron' ? withElectron(webTest) : webTest;
 
 export { expect };
+
+/** Admin → Settings groups start collapsed; open them all so their fields can be used. */
+export async function expandAdminSections(page: import('@playwright/test').Page) {
+  const closed = page.locator('[data-testid="admin-section-toggle"][aria-expanded="false"]');
+  await page.getByTestId('admin-section-toggle').first().waitFor();
+  while (await closed.count()) await closed.first().click();
+}

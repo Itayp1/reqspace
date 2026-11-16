@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { expandAdminSections, test, expect } from './fixtures';
 
 test.describe('Admin Features', () => {
   test('Admin login and dashboard', async ({ page }) => {
@@ -43,6 +43,7 @@ test.describe('Admin Features', () => {
     // 6. Go to Settings tab
     await page.click('[data-testid="admin-tab-settings"]');
     await expect(page.getByTestId('admin-settings-title')).toBeVisible();
+    await expandAdminSections(page);
   });
 
   test('login + dashboard render only system config update', async ({ page }) => {
@@ -83,6 +84,7 @@ test.describe('Admin Features', () => {
     // 4. Go to Settings tab
     await page.click('[data-testid="admin-tab-settings"]');
     await expect(page.getByTestId('admin-settings-title')).toBeVisible();
+    await expandAdminSections(page);
 
     // 5. Update configuration
     const historyInput = page.locator('label:has-text("Max Total History per User MB") + input');
@@ -101,6 +103,7 @@ test.describe('Admin Features', () => {
     await page.reload();
     await page.click('[data-testid="admin-tab-settings"]');
     await expect(page.getByTestId('admin-settings-title')).toBeVisible();
+    await expandAdminSections(page);
     await expect(historyInput).toHaveValue('25');
 
     // Revert

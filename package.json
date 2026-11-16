@@ -1,12 +1,12 @@
 {
   "name": "reqspace",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "reqSpace Desktop App",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:client": "cd client && npm run build",
-    "build:server": "cd server && npm run build && cd .. && node scripts/build-extension-zip.js",
+    "build:client": "cd client && pnpm run build",
+    "build:server": "cd server && pnpm run build && cd .. && node scripts/build-extension-zip.js",
     "build:extension": "powershell -File scripts/build-extension.ps1",
     "pack": "npm run build:client && npm run build:server && electron-builder --dir",
     "dist": "npm run build:client && npm run build:server && electron-builder",
@@ -76,5 +76,12 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.11"
+  },
+  "packageManager": "pnpm@10.34.9",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
   }
 }

@@ -5,7 +5,7 @@ const { spawnSync } = require('child_process');
 
 function run(label, args, env) {
   console.log(`\n=== ${label} ===`);
-  const r = spawnSync('npx', ['playwright', 'test', ...args], {
+  const r = spawnSync('pnpm', ['exec', 'playwright', 'test', ...args], {
     stdio: 'inherit', shell: true, env: { ...process.env, ...env },
   });
   return r.status ?? 1;

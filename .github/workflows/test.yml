@@ -42,18 +42,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Install & build server
         run: |
-          npm ci --prefix server
+          pnpm --dir server install --frozen-lockfile
           npm run build --prefix server
 
       - name: Install & build client
         run: |
-          npm ci --prefix client
+          pnpm --dir client install --frozen-lockfile
           npm run build --prefix client
 
       - name: Start server (${{ matrix.db }} backend)
@@ -71,7 +72,7 @@ jobs:
           curl -sf http://localhost:3005/api/health || (echo "server failed to start"; cat /tmp/server.log; exit 1)
 
       - name: Server tests (jest — unit + ssrf + live auth e2e)
-        run: npm test --prefix server
+        run: pnpm --dir server test
         env:
           PORT: 3005
           TEST_PORT: 3005
@@ -84,13 +85,16 @@ jobs:
       - name: Core smoke (crosses the auth boundary, ${{ matrix.db }})
         run: bash scripts/smoke-core.sh http://localhost:3005
 
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Install Playwright & dependencies
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright E2E tests
         run: |
-          npx playwright test --project=${{ matrix.db }}
-          if [ "${{ matrix.db }}" = "sqlite" ]; then npx playwright test --project=extension; fi
+          pnpm exec playwright test --project=${{ matrix.db }}
+          if [ "${{ matrix.db }}" = "sqlite" ]; then pnpm exec playwright test --project=extension; fi
         env:
           DB_TYPE: ${{ matrix.db }}
           DB_HOST: 127.0.0.1

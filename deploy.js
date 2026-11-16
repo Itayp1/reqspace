@@ -5,10 +5,10 @@ console.log("Starting PM2 deployment script...");
 
 try {
   console.log("Building Client...");
-  execSync('npm run build', { cwd: path.join(__dirname, 'client'), stdio: 'inherit' });
+  execSync('pnpm run build', { cwd: path.join(__dirname, 'client'), stdio: 'inherit' });
 
   console.log("Building Server...");
-  execSync('npm run build', { cwd: path.join(__dirname, 'server'), stdio: 'inherit' });
+  execSync('pnpm run build', { cwd: path.join(__dirname, 'server'), stdio: 'inherit' });
 
   console.log("Starting Server...");
   process.chdir(path.join(__dirname, 'server'));

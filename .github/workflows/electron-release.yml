@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -39,9 +40,9 @@ jobs:
         if: steps.gate.outputs.build == 'true'
         shell: bash
         run: |
-          npm ci
-          npm ci --prefix server
-          npm ci --prefix client
+          pnpm install --frozen-lockfile
+          pnpm --dir server install --frozen-lockfile
+          pnpm --dir client install --frozen-lockfile
 
       # Created up front so electron-builder's parallel uploads do not race to create it (that dropped assets).
       - name: Ensure release exists
@@ -54,6 +55,6 @@ jobs:
       - name: Build and publish
         if: steps.gate.outputs.build == 'true'
         shell: bash
-        run: npm run dist -- --publish always
+        run: pnpm run dist -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

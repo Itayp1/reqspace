@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures';
+import { expandAdminSections, test, expect } from '../fixtures';
 import { loginAdminUi } from '../helpers';
 
 async function openTab(page: import('@playwright/test').Page, tab: string) {
@@ -17,6 +17,7 @@ test('Logs and Errors date filters show visible From / To labels', async ({ page
 
 test('clicking a Settings checkbox label toggles it', async ({ page }) => {
   await openTab(page, 'settings');
+  await expandAdminSections(page);
   const box = page.getByTestId('admin-self-registration');
   const before = await box.isChecked();
   await page.getByText('2. Self Registration (Local DB Users)').click();

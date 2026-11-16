@@ -103,7 +103,7 @@ async function runTarget(name, label, suffix, { shard, files } = {}) {
   const pwArgs = files
     ? ['--workers=1', '--retries=0', ...files]
     : [...extra, ...(shard ? [`--shard=${shard.i}/${shard.n}`] : [])];
-  const child = spawn('npx', ['playwright', 'test', '--reporter=list,json,html', ...pwArgs], { shell: true, env });
+  const child = spawn('pnpm', ['exec', 'playwright', 'test', '--reporter=list,json,html', ...pwArgs], { shell: true, env });
   prefixLines(child.stdout, label, process.stdout);
   prefixLines(child.stderr, label, process.stderr);
   const code = await new Promise((resolve) => child.on('close', resolve));

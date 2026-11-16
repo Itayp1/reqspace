@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { expandAdminSections, test, expect } from './fixtures';
 import { registerUser, loginAdminUi, apiAs, apiAsAdmin, treeNode, openNodeMenu, createCollectionUi } from './helpers';
 
 /**
@@ -65,6 +65,7 @@ test.describe('Manual-pass bugs (regressions of bugs found by hand)', () => {
     await loginAdminUi(page);
     await page.goto('/admin');
     await page.getByTestId('admin-tab-settings').click();
+    await expandAdminSections(page);
     const smtp = page.getByTestId('admin-smtp-enabled');
     if (!(await smtp.isChecked())) await smtp.check();
     await page.getByTestId('admin-smtp-host').fill('');

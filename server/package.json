@@ -99,5 +99,15 @@
     "better-sqlite3@13.0.3": true,
     "@parcel/watcher@2.6.0": true,
     "unrs-resolver@1.12.2": true
+  },
+  "packageManager": "pnpm@10.34.9",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sqlite3",
+      "better-sqlite3",
+      "@parcel/watcher",
+      "unrs-resolver",
+      "esbuild"
+    ]
   }
 }
