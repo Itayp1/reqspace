@@ -25,6 +25,9 @@ import { stripJsonComments } from '../../utils/jsonComments';
 import { toRequestPayload } from '../../utils/requestPayload';
 import { useToastStore } from '../../store/toastStore';
 import { notifyHistoryUpdated } from '../../utils/historySync';
+import { useEnvironmentStore } from '../../store/environmentStore';
+import { findMissingVariables, type MissingVariable } from '../../utils/missingVariables';
+import { MissingVariablesModal } from '../collection/MissingVariablesModal';
 
 function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () => void }) {
   return (
@@ -44,6 +47,8 @@ function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () 
     </div>
   );
 }
+
+const IGNORED_MISSING = new Set<string>();
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
 
@@ -208,7 +213,27 @@ export function UrlBar() {
   // Expose handleParamsChange via window so KeyValueEditor can call it when in Params tab
   (window as any).__onParamsChange = handleParamsChange;
 
-  const handleSend = async () => {
+  // Ask once about names no scope defines; "Run Anyway" is remembered for the session.
+  const [missing, setMissing] = useState<MissingVariable[] | null>(null);
+  const handleSend = () => {
+    if (!activeRequest) return;
+    const env = useEnvironmentStore.getState();
+    const col = useCollectionStore.getState().collections.find(c => c._id === activeRequest.collectionId);
+    const keys = [
+      ...(env.globalEnvironment?.variables || []),
+      ...(env.environments.find(e => e._id === env.activeEnvironmentId)?.variables || []),
+      ...(col?.variables || []),
+      ...env.userProfileVariables,
+    ].map(v => v.key);
+    const r: any = activeRequest;
+    const found = findMissingVariables(
+      [{ label: r.name || 'Request', fields: { url: r.url, params: r.params, headers: r.headers, auth: r.auth, body: r.body, preRequestScript: r.preRequestScript, testScript: r.testScript } }],
+      keys,
+    ).filter(m => !IGNORED_MISSING.has(m.name));
+    if (found.length) setMissing(found); else doSend();
+  };
+
+  const doSend = async () => {
     if (!activeRequest) return;
     // Captured now, not re-read from the store later — the user may switch
     // tabs while this request is in flight, and the response still has to
@@ -894,6 +919,15 @@ export function UrlBar() {
 
       {isSaveModalOpen && (
         <SaveRequestModal onClose={() => setIsSaveModalOpen(false)} />
+      )}
+      {missing && (
+        <MissingVariablesModal
+          missing={missing}
+          collectionId={activeRequest.collectionId || ''}
+          onCreated={() => { setMissing(null); doSend(); }}
+          onRunAnyway={() => { missing.forEach(m => IGNORED_MISSING.add(m.name)); setMissing(null); doSend(); }}
+          onCancel={() => setMissing(null)}
+        />
       )}
       {isLoadTestModalOpen && (
         <LoadTestModal onClose={() => setIsLoadTestModalOpen(false)} />

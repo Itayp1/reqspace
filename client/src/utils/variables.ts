@@ -1,6 +1,19 @@
 ﻿import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
 
+export const DYNAMIC_VARS = ['$guid', '$randomUUID', '$timestamp', '$isoTimestamp', '$randomInt', '$randomBoolean', '$randomFirstName', '$randomLastName', '$randomEmail', '$randomColor', '$randomWord'];
+
+/** Names offered by `{{` completion and "Add ENV": enabled global, active-environment and profile variables, then the dynamic ones. */
+export function listVariableNames(): { env: string[]; dynamic: string[] } {
+  const { environments, activeEnvironmentId, globalEnvironment, userProfileVariables } = useEnvironmentStore.getState();
+  const vars = [
+    ...(globalEnvironment?.variables || []),
+    ...(environments.find(e => e._id === activeEnvironmentId)?.variables || []),
+    ...(userProfileVariables || []),
+  ].filter(v => v.enabled && v.key);
+  return { env: Array.from(new Set(vars.map(v => v.key))), dynamic: DYNAMIC_VARS };
+}
+
 export function resolveDynamicVars(text: string): string {
   if (!text) return '';
   return text.replace(/\{\{(\$[^}]+)\}\}/g, (_, varName) => {
