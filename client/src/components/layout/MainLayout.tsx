@@ -1,15 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import { ConsoleDrawer } from './ConsoleDrawer';
 import { ExtensionInstallPrompt } from '../common/ExtensionInstallPrompt';
 import { useConsoleStore } from '../../store/consoleStore';
-import { Terminal, Menu, X } from 'lucide-react';
+import { Terminal, Menu, X, ChevronsRight } from 'lucide-react';
 
 export default function MainLayout() {
   const { isOpen, toggleIsOpen, logs } = useConsoleStore();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1');
+  const [width, setWidth] = useState(() => Number(localStorage.getItem('sidebarWidth')) || 256);
+
+  useEffect(() => { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); }, [collapsed]);
+  useEffect(() => { localStorage.setItem('sidebarWidth', String(width)); }, [width]);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const move = (ev: MouseEvent) => setWidth(Math.min(700, Math.max(200, startW + ev.clientX - startX)));
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-background text-text overflow-hidden relative">
@@ -39,14 +54,37 @@ export default function MainLayout() {
       {/* Sidebar with mobile overlay */}
       <div
         id="sidebar-nav"
+        style={{ width }}
         className={`
-          fixed md:relative top-0 bottom-0 left-0 z-40 transform transition-transform duration-300 ease-in-out md:transform-none bg-surface flex
+          fixed md:relative top-0 bottom-0 left-0 z-40 transform transition-transform duration-300 ease-in-out md:transform-none bg-surface flex shrink-0 max-w-[90vw]
           ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${collapsed ? 'md:hidden' : ''}
         `}
         aria-hidden={!isSidebarOpen && undefined}
       >
-        <Sidebar />
+        <Sidebar onCollapse={() => setCollapsed(true)} />
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          data-testid="sidebar-resize"
+          onMouseDown={startResize}
+          className="hidden md:block absolute top-0 bottom-0 -right-1 w-2 cursor-col-resize hover:bg-primary/40 z-10"
+        />
       </div>
+      {collapsed && (
+        <div className="hidden md:flex shrink-0 w-8 bg-surface border-r border-border items-start justify-center pt-4">
+          <button
+            data-testid="sidebar-expand"
+            onClick={() => setCollapsed(false)}
+            className="p-1 text-text-muted hover:text-text"
+            title="Open sidebar"
+            aria-label="Open sidebar"
+          >
+            <ChevronsRight size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main id="main-content" className="flex-1 flex flex-col min-w-0 h-full relative z-0" tabIndex={-1}>
