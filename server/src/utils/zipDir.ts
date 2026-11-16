@@ -29,7 +29,7 @@ export function zipDirectory(dir: string, transform?: (rel: string, data: Buffer
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const rel of listFiles(dir)) {
-    let data = fs.readFileSync(path.join(dir, rel));
+    let data: Buffer = fs.readFileSync(path.join(dir, rel));
     if (transform) data = transform(rel, data);
     const comp = zlib.deflateRawSync(data);
     const name = Buffer.from(rel, 'utf8');
