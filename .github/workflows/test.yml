@@ -100,6 +100,7 @@ jobs:
           if [ "${{ matrix.db }}" = "sqlite" ]; then pnpm exec playwright test --project=extension; fi
         env:
           DB_TYPE: ${{ matrix.db }}
+          REQSPACE_E2E_DB_PATH: /tmp/ci.sqlite  # the server started above uses this file
           DB_HOST: 127.0.0.1
           DB_USER: root
           DB_PASSWORD: ""
