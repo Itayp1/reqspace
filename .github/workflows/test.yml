@@ -71,6 +71,9 @@ jobs:
           done
           curl -sf http://localhost:3005/api/health || (echo "server failed to start"; cat /tmp/server.log; exit 1)
 
+      - name: Apply test server settings (admin, trust proxy, rate-limit ceilings)
+        run: node scripts/apply-test-settings.js http://localhost:3005
+
       - name: Server tests (jest — unit + ssrf + live auth e2e)
         run: pnpm --dir server test
         env:
