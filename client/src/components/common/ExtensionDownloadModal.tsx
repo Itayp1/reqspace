@@ -110,6 +110,15 @@ export function ExtensionDownloadModal() {
           <p className="text-xs text-text-muted text-center">
             After installing, refresh this page. The extension is detected automatically.
           </p>
+
+          {/* The desktop (Electron) app needs no extension: it sends requests without CORS limits. */}
+          <a
+            href="https://github.com/Itayp1/reqspace/releases/latest/download/reqSpace-Setup.exe"
+            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-border text-text font-medium rounded hover:bg-border transition-colors text-sm focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <Download size={16} aria-hidden="true" />
+            Or download the Desktop app (Windows)
+          </a>
         </div>
 
         {/* Footer */}
