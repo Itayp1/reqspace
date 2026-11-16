@@ -488,7 +488,7 @@ export default function AdminPage() {
                       {(oauthHosts || []).length > 0 && (
                         <div className="mt-2 space-y-1" data-testid="admin-redirect-uri-list">
                           <p className="text-xs text-text-muted">Register these redirect URLs with each provider:</p>
-                          {(oauthHosts as string[]).flatMap((h: string) => OAUTH_PROVIDERS.map(p => redirectUrlFor(h, p))).filter(Boolean).map((u: string) => (
+                          {Array.from(new Set((oauthHosts as string[]).flatMap((h: string) => OAUTH_PROVIDERS.map(p => redirectUrlFor(h, p))).filter(Boolean))).map((u: string) => (
                             <div key={u} className="flex items-center gap-2 text-xs">
                               <code className="flex-1 truncate">{u}</code>
                               <button type="button" className="px-2 py-0.5 border border-border rounded hover:bg-surface-hover" onClick={() => navigator.clipboard?.writeText(u)}>Copy</button>
