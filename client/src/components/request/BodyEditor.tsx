@@ -6,6 +6,7 @@ import { Wand2 } from 'lucide-react';
 import { useMonacoTheme } from '../../utils/useMonacoTheme';
 import { stripJsonComments } from '../../utils/jsonComments';
 import { useToastStore } from '../../store/toastStore';
+import { setupVariableCompletion } from '../../utils/monacoVariables';
 
 const CONTENT_TYPE_MAP: Record<string, string> = {
   json: 'application/json',
@@ -147,6 +148,7 @@ export function BodyEditor() {
               placeholder="Enter request body"
               value={body.raw || ''}
               onChange={(value) => updateActiveRequest({ body: { ...body, raw: value || '' } })}
+              onMount={setupVariableCompletion}
               options={{
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,

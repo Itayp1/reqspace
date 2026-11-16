@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
 import { Shield, ShieldOff, Trash2, Ban, X, ChevronDown } from 'lucide-react';
@@ -31,7 +32,17 @@ export default function AdminPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfigRaw] = useState<any>(null);
+  const navigate = useNavigate();
+  // Undo history of unsaved settings edits (Ctrl+Z); cleared whenever config is reloaded from the server.
+  const undoStack = useRef<any[]>([]);
+  const configRef = useRef<any>(null);
+  const [undoTick, setUndoTick] = useState(0); // remounts the uncontrolled textareas after an undo
+  configRef.current = config;
+  const setConfig = (next: any) => {
+    if (configRef.current) undoStack.current.push(configRef.current);
+    setConfigRaw(next);
+  };
   const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings' | 'errors'>('users');
   const [loading, setLoading] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
@@ -89,7 +100,7 @@ export default function AdminPage() {
   };
   const fetchConfig = async () => {
     setLoading(true);
-    try { const res = await api.get('/admin/config'); setConfig(res.data || null); } catch (e) { console.error(e); }
+    try { const res = await api.get('/admin/config'); undoStack.current = []; setConfigRaw(res.data || null); } catch (e) { console.error(e); }
     setLoading(false);
   };
 
@@ -136,10 +147,31 @@ export default function AdminPage() {
     }
   };
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (activeTab !== 'settings' || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = (e.key ?? '').toLowerCase();
+      if (k === 's') { e.preventDefault(); saveConfig(); return; }
+      // In a text field Ctrl+Z is the browser's own text undo.
+      const t = e.target as HTMLElement;
+      if (k === 'z' && !e.shiftKey && !(t?.matches?.('textarea, input:not([type=checkbox]):not([type=radio])') || t?.isContentEditable)) {
+        const prev = undoStack.current.pop();
+        if (prev) { e.preventDefault(); setConfigRaw(prev); setUndoTick(n => n + 1); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="flex-1 flex flex-col bg-surface p-8">
-      <h1 data-testid="admin-dashboard-title" className="text-3xl font-bold mb-6">Super Admin Dashboard</h1>
-      
+      <div className="flex items-start justify-between mb-6">
+        <h1 data-testid="admin-dashboard-title" className="text-3xl font-bold">Super Admin Dashboard</h1>
+        <button type="button" data-testid="admin-close" onClick={() => navigate('/')} aria-label="Close admin and go back" title="Back to app" className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-text-muted hover:text-text hover:bg-border ${FOCUS}`}>
+          <X size={18} aria-hidden="true" /><span className="text-sm">Close</span>
+        </button>
+      </div>
+
       <div role="tablist" aria-label="Admin sections" className="flex border-b border-border mb-6">
         {['users', 'workspaces', 'logs', 'settings', 'errors'].map(tab => (
           <button 
@@ -445,6 +477,7 @@ export default function AdminPage() {
                     <div className="p-4 border border-border rounded-lg bg-surface">
                       <label className="block text-sm font-medium mb-1">OAuth hostnames (one per line; empty = localhost defaults)</label>
                       <textarea
+                        key={undoTick}
                         data-testid="admin-server-redirect-uris"
                         rows={3}
                         defaultValue={(oauthHosts || []).join('\n')}
@@ -635,6 +668,7 @@ export default function AdminPage() {
                     <div>
                       <label htmlFor="admin-server-allowed-origins" className="block text-sm font-medium mb-1">Extra allowed browser origins (one per line; ignored in production)</label>
                       <textarea
+                        key={undoTick}
                         id="admin-server-allowed-origins"
                         data-testid="admin-server-allowed-origins"
                         spellCheck={false}
@@ -669,6 +703,7 @@ export default function AdminPage() {
                     <div>
                       <label className="block text-sm font-medium mb-1">Browser extension: allowed site origins (one per line; empty = localhost defaults)</label>
                       <textarea
+                        key={undoTick}
                         data-testid="admin-server-extension-origins"
                         rows={2}
                         defaultValue={(server.extensionOrigins || []).join('\n')}

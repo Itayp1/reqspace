@@ -1,5 +1,7 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { useEnvironmentStore } from '../../store/environmentStore';
+import { DYNAMIC_VARS } from '../../utils/variables';
+import { ContextMenu } from './ContextMenu';
 
 interface VariableInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
   value: string;
@@ -51,7 +53,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     return parts.map((part, i) => {
       if (part.startsWith('{{') && part.endsWith('}}')) {
         const varName = part.slice(2, -2);
-        const exists = allVars.some(v => v.key === varName) || ['guid', 'timestamp', 'randomInt'].some(v => v === varName);
+        const exists = allVars.some(v => v.key === varName) || DYNAMIC_VARS.includes(varName);
         return (
           <span key={i} className={exists ? "text-orange-500" : "text-amber-700 dark:text-amber-400 underline decoration-dashed decoration-1 underline-offset-2"}>
             {part}
@@ -130,8 +132,18 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     }
   };
 
-  const filteredVars = Array.from(new Set(allVars.map(v => v.key)))
+  const filteredVars = Array.from(new Set([...allVars.map(v => v.key), ...DYNAMIC_VARS]))
     .filter(k => k.toLowerCase().includes(varFilter.toLowerCase()));
+
+  // Right-click > "Add ENV": insert {{name}} at the caret (or over the selection).
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const addEnv = (name: string) => {
+    const el = inputRef.current;
+    const s = el?.selectionStart ?? value.length;
+    const end = el?.selectionEnd ?? s;
+    onChange(value.slice(0, s) + `{{${name}}}` + value.slice(end));
+    setTimeout(() => { el?.focus(); const c = s + name.length + 4; el?.setSelectionRange(c, c); }, 0);
+  };
 
   // Determine if caret is inside a variable to show its value
   let activeVarVal = null;
@@ -150,7 +162,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
   }
 
   const unresolvedNames = Array.from(value.matchAll(/\{\{([^{}]+)\}\}/g), (m) => m[1])
-    .filter((n) => !allVars.some((v) => v.key === n) && !['guid', 'timestamp', 'randomInt'].includes(n));
+    .filter((n) => !allVars.some((v) => v.key === n) && !DYNAMIC_VARS.includes(n));
   const wrapped = !!multilineOnFocus && focused && overflowing;
   const Field: any = multilineOnFocus ? 'textarea' : 'input';
 
@@ -177,6 +189,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         onKeyDown={handleKeyDown}
         onClick={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
         onKeyUp={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
+        onContextMenu={(e: React.MouseEvent) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
         onScroll={syncScroll}
         onSelect={syncScrollSoon}
         onFocus={() => { setFocused(true); syncScrollSoon(); }}
@@ -198,6 +211,15 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
             Copy to clipboard
           </button>
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[...Array.from(new Set(allVars.map(v => v.key))), ...DYNAMIC_VARS].map((k, i) => ({ label: `Add ENV: ${k}`, onClick: () => addEnv(k), separator: i === 0 }))}
+        />
       )}
 
       {showSuggestions && filteredVars.length > 0 && (

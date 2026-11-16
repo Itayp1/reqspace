@@ -27,6 +27,7 @@ export function MissingVariablesModal({ missing, collectionId, onCreated, onRunA
   const disabledReason = (s: Scope): string | null => {
     if (s === 'profile') return null;
     if (!canWrite) return 'view-only access';
+    if (s === 'collection' && !collectionId) return 'request is not in a collection';
     if (s === 'environment' && !activeEnvironmentId) return 'no environment selected';
     return null;
   };
