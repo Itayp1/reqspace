@@ -331,7 +331,7 @@ const RequestNodeImpl = ({
           onCancel={() => setIsRenaming(false)}
         />
       ) : (
-        <span data-testid={`node-${request.name}`} title={request.name} className="flex-1 truncate text-sm">{request.name}</span>
+        <span data-testid={`node-${request.name}`} title={request.name} className="flex-1 min-w-0 break-all text-sm">{request.name}</span>
       )}
       {!isRenaming && (
         <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100 flex items-center shrink-0">
@@ -474,7 +474,7 @@ const FolderNode = ({
             onCancel={() => setIsRenaming(false)}
           />
         ) : (
-          <span data-testid={`node-${folder.name}`} title={folder.name} className="flex-1 truncate text-sm">{folder.name}</span>
+          <span data-testid={`node-${folder.name}`} title={folder.name} className="flex-1 min-w-0 break-all text-sm">{folder.name}</span>
         )}
         {!isRenaming && (
           <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100 flex items-center shrink-0">
@@ -735,7 +735,7 @@ const CollectionNodeImpl = ({
             onCancel={() => setIsRenaming(false)}
           />
         ) : (
-          <span data-testid={`node-${collection.name}`} title={collection.name} className="flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-200">{collection.name}</span>
+          <span data-testid={`node-${collection.name}`} title={collection.name} className="flex-1 min-w-0 break-all text-sm font-medium text-gray-800 dark:text-gray-200">{collection.name}</span>
         )}
         {!isRenaming && forkSyncError && (
           <span title={`Fork sync is failing: ${forkSyncError}`} className="shrink-0 mx-1 inline-flex">

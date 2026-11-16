@@ -183,6 +183,35 @@ test.describe('Import', () => {
     await expect(page.getByTestId('env-var-key-0')).toHaveValue('apiHost');
   });
 
+  test('dropping a JSON file anywhere opens Import with it, environments included', async ({ page }) => {
+    await registerUser(page, 'import_drop');
+    const env = { name: 'Dropped Env', values: [{ key: 'host', value: 'x', enabled: true }], _postman_variable_scope: 'environment' };
+    const dt = await page.evaluateHandle((json) => {
+      const d = new DataTransfer();
+      d.items.add(new File([json], 'env.json', { type: 'application/json' }));
+      return d;
+    }, JSON.stringify(env));
+    await page.dispatchEvent('main', 'drop', { dataTransfer: dt });
+    await expect(page.getByTestId('import-detected-format')).toHaveText('ReqSpace Environment');
+    await page.getByTestId('import-submit').click();
+    await page.getByTestId('tab-environments').click();
+    await expect(page.getByTestId('env-node-Dropped Env')).toHaveCount(1);
+  });
+
+  test('import shows the detected name and imports under the edited one', async ({ page }) => {
+    await registerUser(page, 'import_rename');
+    await openImport(page);
+    await page.getByTestId('import-file-input').setInputFiles({
+      name: 'c.json', mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({ info: { name: 'Original Name', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' }, item: [] })),
+    });
+    await expect(page.getByTestId('import-name-0')).toHaveValue('Original Name');
+    await page.getByTestId('import-name-0').fill('Renamed On Import');
+    await page.getByTestId('import-submit').click();
+    await expect(page.getByTestId('node-Renamed On Import')).toBeVisible();
+    await expect(page.getByTestId('node-Original Name')).toHaveCount(0);
+  });
+
   test('cURL import rejects input that is clearly not a cURL command', async ({ page }) => {
     await registerUser(page, 'import_curl_bad');
     await openImport(page);

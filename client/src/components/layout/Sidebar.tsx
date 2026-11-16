@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { Settings, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal, LogOut } from 'lucide-react';
+import { Settings, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal, LogOut, ChevronsLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import CollectionExplorer from '../collection/CollectionExplorer';
 import WorkspaceSettingsModal from '../workspace/WorkspaceSettingsModal';
@@ -11,12 +11,37 @@ import api, { beginSignOut } from '../../api/axios';
 import { InlineNameInput } from '../common/InlineNameInput';
 import { useToastStore } from '../../store/toastStore';
 
-export default function Sidebar() {
+export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const { activeWorkspace, workspaces, setActiveWorkspace, user } = useAuthStore();
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [creatingWs, setCreatingWs] = useState(false);
   const [activeTab, setActiveTab] = useState<'collections' | 'history' | 'environments'>('collections');
+
+  const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>();
+  const canImport = !activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || !!user?.isSuperAdmin;
+  const canImportRef = useRef(canImport);
+  canImportRef.current = canImport;
+
+  // Dropping .json/.yaml files anywhere on the window opens Import with them.
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+    // Drops on a file input are left alone: the input handles them itself.
+    const onInput = (e: DragEvent) => (e.target as HTMLElement | null)?.tagName === 'INPUT';
+    const over = (e: DragEvent) => { if (hasFiles(e) && !onInput(e)) e.preventDefault(); };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e) || onInput(e)) return;
+      e.preventDefault();
+      const files = Array.from(e.dataTransfer?.files ?? []).filter(f => /\.(json|ya?ml)$/i.test(f.name));
+      if (files.length === 0 || !canImportRef.current) return;
+      setShowImportModal(false);
+      setDroppedFiles(files);
+      setTimeout(() => setShowImportModal(true), 0); // remount so a second drop reloads the files
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    return () => { window.removeEventListener('dragover', over); window.removeEventListener('drop', drop); };
+  }, []);
 
   const handleLogout = async () => {
     beginSignOut();
@@ -43,21 +68,32 @@ export default function Sidebar() {
   };
 
   return (
-    <nav aria-label="Application sidebar" className="flex flex-col w-64 bg-surface border-r border-border h-full text-sm select-none">
+    <nav aria-label="Application sidebar" className="flex flex-col w-full bg-surface border-r border-border h-full text-sm select-none">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <Link to="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity" aria-label="Reqspace home" title="Reqspace home">
           <img src="/reqspace-logo.jpg" alt="Reqspace Logo" className="h-8 w-8 rounded-md object-cover border border-border" />
           <span className="font-bold text-lg" aria-hidden="true">Reqspace</span>
         </Link>
-        {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || user?.isSuperAdmin) && <button 
+        <div className="flex items-center">
+        {(!activeWorkspace || ['editor', 'owner'].includes(activeWorkspace.myRole) || user?.isSuperAdmin) && <button
           data-testid="import-btn"
-          className="text-text-muted hover:text-text p-1" 
+          className="text-text-muted hover:text-text p-1"
           title="Import"
           aria-label="Import collection"
           onClick={() => setShowImportModal(true)}
         >
           <DownloadCloud className="w-4 h-4" aria-hidden="true" />
         </button>}
+        {onCollapse && <button
+          data-testid="sidebar-collapse"
+          className="hidden md:block text-text-muted hover:text-text p-1"
+          title="Close sidebar"
+          aria-label="Close sidebar"
+          onClick={onCollapse}
+        >
+          <ChevronsLeft className="w-4 h-4" aria-hidden="true" />
+        </button>}
+        </div>
       </div>
 
       <div className="p-2 border-b border-border flex gap-1">
@@ -186,7 +222,7 @@ export default function Sidebar() {
       </div>
 
       {showWorkspaceModal && <WorkspaceSettingsModal onClose={() => setShowWorkspaceModal(false)} />}
-      {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} />}
+      {showImportModal && <ImportModal initialFiles={droppedFiles} onClose={() => { setShowImportModal(false); setDroppedFiles(undefined); }} />}
     </nav>
   );
 }

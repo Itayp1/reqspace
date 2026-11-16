@@ -1,5 +1,5 @@
 import { useEscape } from '../../hooks/useEscape';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, UploadCloud, FileUp, Braces, Terminal, FileText, FileCode } from 'lucide-react';
 import * as yaml from 'js-yaml';
@@ -113,13 +113,29 @@ function curlProblem(text: string): string {
   return quote ? `Unclosed ${quote === '"' ? 'double' : 'single'} quote.` : '';
 }
 
+// The collection / environment name a file will be created with, and the same
+// file with a different name (the user can rename before confirming).
+function wrapped(p: any) { return !p.info && !p.item && p.collection && typeof p.collection === 'object'; }
+function defaultTitle(p: any, format: string): string {
+  if (format === 'environment') return p.name || 'Imported Environment';
+  if (format === 'openapi') return p.info?.title || 'OpenAPI Import';
+  const c = wrapped(p) ? p.collection : p;
+  return c.info?.name || 'Imported Collection';
+}
+function withTitle(p: any, format: string, title: string): any {
+  if (format === 'environment') return { ...p, name: title };
+  if (format === 'openapi') return { ...p, info: { ...p.info, title } };
+  if (wrapped(p)) return { ...p, collection: { ...p.collection, info: { ...p.collection.info, name: title } } };
+  return { ...p, info: { ...p.info, name: title } };
+}
+
 function isEnvironmentFile(parsed: any): boolean {
   if (parsed._postman_variable_scope === 'environment' || parsed._reqSpace_variable_scope === 'environment') return true;
   if (parsed.info || Array.isArray(parsed.item)) return false;
   return Array.isArray(parsed.values) || Array.isArray(parsed.variables);
 }
 
-export default function ImportModal({ onClose }: { onClose: () => void }) {
+export default function ImportModal({ onClose, initialFiles }: { onClose: () => void; initialFiles?: File[] }) {
   useEscape(onClose);
   const { activeWorkspace } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'file' | 'openapi' | 'curl' | 'raw' | 'wsdl'>('file');
@@ -131,15 +147,19 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
   const [wsdlText, setWsdlText] = useState('');
   type ImportFormat = 'reqSpace' | 'openapi' | 'environment';
   // Every file picked or dropped, imported one after the other.
-  const [fileQueue, setFileQueue] = useState<{ name: string; parsed: any; format: ImportFormat }[]>([]);
+  const [fileQueue, setFileQueue] = useState<{ name: string; title: string; parsed: any; format: ImportFormat }[]>([]);
   const fileParsed = fileQueue[0]?.parsed ?? null;
   const fileName = fileQueue.length > 1 ? `${fileQueue.length} files` : (fileQueue[0]?.name ?? '');
   const importFormat: ImportFormat = fileQueue[0]?.format ?? 'reqSpace';
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  // Files dropped anywhere on the app are handed over by the sidebar.
+  useEffect(() => { if (initialFiles?.length) void loadFiles(initialFiles); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => loadFiles(Array.from(e.target.files ?? []));
+
+  const loadFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    const queue: { name: string; parsed: any; format: ImportFormat }[] = [];
+    const queue: { name: string; title: string; parsed: any; format: ImportFormat }[] = [];
     const failed: string[] = [];
     for (const file of files) {
       try {
@@ -152,7 +172,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
         }
         if (!parsed || typeof parsed !== 'object') throw new Error('not an object');
         const format: ImportFormat = (parsed.openapi || parsed.swagger) ? 'openapi' : isEnvironmentFile(parsed) ? 'environment' : 'reqSpace';
-        queue.push({ name: file.name, parsed, format });
+        queue.push({ name: file.name, title: defaultTitle(parsed, format), parsed, format });
       } catch {
         failed.push(file.name);
       }
@@ -330,9 +350,11 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
         if (fileQueue.length === 0) { setError('Please select a file first.'); setLoading(false); return; }
         for (const f of fileQueue) {
           try {
-            if (f.format === 'openapi') await importOpenApiSpec(f.parsed);
-            else if (f.format === 'environment') await importReqSpaceEnvironment(f.parsed);
-            else await importReqSpaceCollection(f.parsed);
+            // Untouched names are left out so an invalid file still gets the server's own error.
+            const doc = f.title.trim() === defaultTitle(f.parsed, f.format) ? f.parsed : withTitle(f.parsed, f.format, f.title.trim());
+            if (f.format === 'openapi') await importOpenApiSpec(doc);
+            else if (f.format === 'environment') await importReqSpaceEnvironment(doc);
+            else await importReqSpaceCollection(doc);
           } catch (err: any) {
             if (fileQueue.length > 1 && err?.response?.data?.message) err.response.data.message = `${f.name}: ${err.response.data.message}`;
             throw err;
@@ -463,7 +485,6 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
                     <div className="text-xs text-text-muted">
                       Format: <span data-testid="import-detected-format" className="text-primary font-semibold">{importFormat === 'openapi' ? 'OpenAPI / Swagger' : importFormat === 'environment' ? 'ReqSpace Environment' : 'ReqSpace Collection'}</span>
                       {fileQueue.length > 1 ? ` (+${fileQueue.length - 1} more)` : ''}
-                      {fileQueue.length > 1 ? '' : fileParsed.name ? ` ("${fileParsed.name}")` : fileParsed.info?.name ? ` ("${fileParsed.info.name}")` : (fileParsed.info?.title ? ` ("${fileParsed.info.title}")` : '')}
                     </div>
                     <div className="text-xs text-text-muted mt-1">Click to choose different files</div>
                   </>
@@ -476,6 +497,23 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
                   </>
                 )}
               </label>
+              {fileQueue.length > 0 && (
+                <div className="mt-3 flex flex-col gap-2 max-h-40 overflow-y-auto" data-testid="import-names">
+                  {fileQueue.map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="shrink-0 w-32 text-text-muted">{f.format === 'environment' ? 'Environment name' : 'Collection name'}</span>
+                      <input
+                        data-testid={`import-name-${i}`}
+                        aria-label={`Name for ${f.name}`}
+                        value={f.title}
+                        maxLength={255}
+                        onChange={(e) => setFileQueue(q => q.map((x, j) => j === i ? { ...x, title: e.target.value } : x))}
+                        className={`flex-1 min-w-0 ${inputClass} p-2`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -576,7 +614,7 @@ export default function ImportModal({ onClose }: { onClose: () => void }) {
             data-testid="import-submit"
             onClick={handleImport}
             disabled={
-              loading || !!curlError ||
+              loading || !!curlError || (activeTab === 'file' && fileQueue.some(f => !f.title.trim())) ||
               (activeTab === 'file' ? fileQueue.length === 0 : activeTab === 'openapi' ? !openApiRaw.trim() : (activeTab === 'curl' || activeTab === 'raw') ? !rawData.trim() : !wsdlUrl.trim() && !wsdlText.trim())
             }
             className="px-4 py-1.5 bg-primary-strong hover:bg-primary/90 text-white rounded font-medium disabled:opacity-50 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background outline-none"
