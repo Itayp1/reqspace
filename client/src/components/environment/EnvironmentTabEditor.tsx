@@ -9,7 +9,7 @@ import type { EnvironmentVariable } from '../../store/environmentStore';
 
 export function EnvironmentTabEditor() {
   const { activeRequest, updateActiveRequest, markSaved } = useRequestStore();
-  const { environments, globalEnvironment, setEnvironments, setGlobalEnvironment } = useEnvironmentStore();
+  const { environments, globalEnvironment, setEnvironments, setGlobalEnvironment, activeEnvironmentId, setActiveEnvironmentId } = useEnvironmentStore();
   const { workspaces, activeWorkspace } = useAuthStore();
   
   const envId = activeRequest?.environmentId;
@@ -175,6 +175,18 @@ export function EnvironmentTabEditor() {
           readOnly={isGlobal}
         />
         <div className="flex items-center gap-2 shrink-0">
+          <label className="flex items-center gap-2 border-r border-border pr-3 text-sm text-text-muted">
+            Active environment
+            <select
+              data-testid="env-active-select"
+              value={activeEnvironmentId || ''}
+              onChange={e => setActiveEnvironmentId(e.target.value || null)}
+              className="px-2 py-1.5 border border-border rounded bg-surface text-sm text-text"
+            >
+              <option value="">No environment</option>
+              {environments.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}
+            </select>
+          </label>
           {!isGlobal && workspaces.length > 1 && (
             <div className="flex items-center gap-2 border-r border-border pr-3">
               <select
