@@ -2,16 +2,29 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
-import { Shield, ShieldOff, Trash2, Ban, X } from 'lucide-react';
+import { Shield, ShieldOff, Trash2, Ban, X, ChevronDown } from 'lucide-react';
 import { AddUserModal } from '../components/admin/AddUserModal';
 import { ErrorsPanel } from '../components/admin/ErrorsPanel';
 import { customConfirm } from '../utils/dialog';
 import { useEscape } from '../hooks/useEscape';
 import { useToastStore } from '../store/toastStore';
-import { OAUTH_LABELS, OAUTH_PROVIDERS, oauthRedirectUri } from '../utils/oauth';
+import { OAUTH_LABELS, OAUTH_PROVIDERS, oauthRedirectUri, redirectUrlFor } from '../utils/oauth';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
+
+function Section({ title, testId, children }: { title: string; testId?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="pt-6 border-t border-border first:border-t-0 first:pt-0" data-testid={testId}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(o => !o)} className={`flex w-full items-center justify-between text-lg font-bold text-left ${FOCUS}`}>
+        <span>{title}</span>
+        <ChevronDown size={20} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <div hidden={!open} className="mt-4">{children}</div>
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const { user } = useAuthStore();
@@ -21,6 +34,7 @@ export default function AdminPage() {
   const [config, setConfig] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'workspaces' | 'logs' | 'settings' | 'errors'>('users');
   const [loading, setLoading] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [userSearch, setUserSearch] = useState('');
@@ -232,6 +246,25 @@ export default function AdminPage() {
 
         {!loading && activeTab === 'workspaces' && (
           <div className="overflow-x-auto">
+            <form
+              className="flex gap-2 p-4 border-b border-border"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const name = newWorkspaceName.trim();
+                if (!name) return;
+                try {
+                  const res = await api.post('/workspaces', { name });
+                  setNewWorkspaceName('');
+                  fetchWorkspaces();
+                  setSelectedWorkspaceId(res.data._id); // opens the members dialog to add users
+                } catch (err: any) {
+                  useToastStore.getState().addToast('error', err.response?.data?.message || 'Failed to create workspace');
+                }
+              }}
+            >
+              <input data-testid="admin-new-workspace-name" value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} placeholder="New workspace name" className="flex-1 p-2 border border-border rounded bg-surface text-sm" />
+              <button data-testid="admin-new-workspace-btn" type="submit" disabled={!newWorkspaceName.trim()} className="bg-primary-strong text-white px-4 py-2 rounded hover:bg-primary-strong-hover transition text-sm disabled:opacity-50">Create workspace</button>
+            </form>
             <table className="w-full text-left text-sm">
               <thead className="bg-surface border-b border-border">
                 <tr>
@@ -317,8 +350,7 @@ export default function AdminPage() {
 
         {!loading && activeTab === 'settings' && config && (
           <div className="p-8 max-w-2xl space-y-6">
-            <div data-testid="admin-settings-title">
-              <h3 className="text-lg font-bold mb-4">User Registration & Authentication</h3>
+            <Section title="User Registration & Authentication" testId="admin-settings-title">
               <div className="space-y-6">
                 
                 {/* 1. Email (SMTP) */}
@@ -352,11 +384,11 @@ export default function AdminPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">User</label>
-                          <input data-testid="admin-smtp-user" type="text" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input data-testid="admin-smtp-user" type="text" autoComplete="off" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">Password</label>
-                          <input data-testid="admin-smtp-pass" type="password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input data-testid="admin-smtp-pass" type="password" autoComplete="new-password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                       </div>
                       <button 
@@ -407,6 +439,33 @@ export default function AdminPage() {
                   )}
                 </div>
 
+                {(() => {
+                const oauthHosts: string[] = config.server?.oauthAllowedRedirectUris || [];
+                return (
+                    <div className="p-4 border border-border rounded-lg bg-surface">
+                      <label className="block text-sm font-medium mb-1">OAuth hostnames (one per line; empty = localhost defaults)</label>
+                      <textarea
+                        data-testid="admin-server-redirect-uris"
+                        rows={3}
+                        defaultValue={(oauthHosts || []).join('\n')}
+                        onBlur={e => setConfig({ ...config, server: { ...(config.server || {}), oauthAllowedRedirectUris: e.target.value.split('\n').map((x: string) => x.trim()).filter(Boolean) } })}
+                        className="w-full p-2 border border-border rounded bg-surface text-sm font-mono"
+                        placeholder="app.example.com"
+                      />
+                      {(oauthHosts || []).length > 0 && (
+                        <div className="mt-2 space-y-1" data-testid="admin-redirect-uri-list">
+                          <p className="text-xs text-text-muted">Register these redirect URLs with each provider:</p>
+                          {(oauthHosts as string[]).flatMap((h: string) => OAUTH_PROVIDERS.map(p => redirectUrlFor(h, p))).filter(Boolean).map((u: string) => (
+                            <div key={u} className="flex items-center gap-2 text-xs">
+                              <code className="flex-1 truncate">{u}</code>
+                              <button type="button" className="px-2 py-0.5 border border-border rounded hover:bg-surface-hover" onClick={() => navigator.clipboard?.writeText(u)}>Copy</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                );
+                })()}
                 {/* 3-5. OAuth sign-in providers */}
                 {OAUTH_PROVIDERS.map((provider, i) => {
                   const key = `${provider}OAuth`;
@@ -437,7 +496,7 @@ export default function AdminPage() {
                                 )}
                                 {allowed && !allowed.includes(uri) && (
                                   <div data-testid={`admin-${provider}-redirect-warning`} className="text-xs text-red-500">
-                                    The server will refuse this Redirect URI. Add <code>{uri}</code> to "OAuth redirect URIs" in the Server & Security section below.
+                                    The server will refuse this Redirect URI. Add <code>{uri}</code> to "OAuth hostnames" at the top of the OAuth providers.
                                   </div>
                                 )}
                               </>
@@ -445,11 +504,11 @@ export default function AdminPage() {
                           })()}
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">{provider === 'microsoft' ? 'Application (client) ID' : 'Client ID'}</label>
-                            <input data-testid={`admin-${provider}-client-id`} type="text" value={p.clientId || ''} onChange={e => setP({ clientId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                            <input data-testid={`admin-${provider}-client-id`} type="text" autoComplete="off" value={p.clientId || ''} onChange={e => setP({ clientId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">Client Secret</label>
-                            <input data-testid={`admin-${provider}-client-secret`} type="password" value={p.clientSecret || ''} onChange={e => setP({ clientSecret: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                            <input data-testid={`admin-${provider}-client-secret`} type="password" autoComplete="new-password" value={p.clientSecret || ''} onChange={e => setP({ clientSecret: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">Proxy URL (optional, for the server's calls to the provider)</label>
@@ -484,10 +543,9 @@ export default function AdminPage() {
                 })}
 
               </div>
-            </div>
+            </Section>
 
-            <div className="pt-6 border-t border-border" data-testid="admin-server-settings">
-              <h3 className="text-lg font-bold mb-4">Server & Security</h3>
+            <Section title="Server & Security" testId="admin-server-settings">
               {(() => {
                 const server = config.server || {};
                 const rateLimit = server.rateLimit || {};
@@ -620,27 +678,15 @@ export default function AdminPage() {
                       />
                       <p className="text-xs text-text-muted mt-1">Baked into the downloaded .crx, so users don't have to configure it.</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">OAuth redirect URIs (one per line; empty = localhost defaults)</label>
-                      <textarea
-                        data-testid="admin-server-redirect-uris"
-                        rows={3}
-                        defaultValue={(server.oauthAllowedRedirectUris || []).join('\n')}
-                        onBlur={e => setServer({ oauthAllowedRedirectUris: e.target.value.split('\n').map((x: string) => x.trim()).filter(Boolean) })}
-                        className="w-full p-2 border border-border rounded bg-surface text-sm font-mono"
-                        placeholder="https://app.example.com/auth/google/callback"
-                      />
-                    </div>
                     <p className="text-xs text-text-muted">
                       The database connection, Redis URL and admin password are the only settings that stay in the server's environment.
                     </p>
                   </div>
                 );
               })()}
-            </div>
+            </Section>
 
-            <div className="pt-6 border-t border-border">
-              <h3 className="text-lg font-bold mb-4">History Limits</h3>
+            <Section title="History Limits">
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Max Request Body KB (before truncate)</label>
@@ -683,10 +729,9 @@ export default function AdminPage() {
                   />
                 </div>
               </div>
-            </div>
+            </Section>
 
-            <div className="pt-6 border-t border-border">
-              <h3 className="text-lg font-bold mb-4">Export / Import System Data</h3>
+            <Section title="Export / Import System Data">
               <p className="text-sm text-text-muted mb-4">
                 Exporting data will download a full JSON dump of the current workspace, environments, collections, globals, and system configuration.
                 You can use this file to import the exact state into another Reqspace instance.
@@ -747,7 +792,7 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
-            </div>
+            </Section>
 
             <div className="pt-6 mt-6 border-t border-border">
               <button data-testid="admin-save-config" onClick={saveConfig} className="bg-primary-strong text-white px-6 py-2 rounded hover:bg-primary-strong-hover transition">

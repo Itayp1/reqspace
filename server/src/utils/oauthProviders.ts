@@ -52,7 +52,13 @@ export function missingOAuthFields(id: OAuthProviderId, cfg: Partial<OAuthProvid
 
 /** Redirect URIs the server accepts: the admin's list (Settings > Server), else the local dev / desktop defaults. */
 export function allowedRedirectUris(provider: OAuthProviderId, configured: string[] = []): string[] {
-  const custom = configured.map((x) => x.trim()).filter(Boolean);
+  // Admins enter a hostname (or origin); the callback path is added here.
+  // Full callback URLs saved by older versions are kept as they are.
+  const custom = configured.map((x) => x.trim()).filter(Boolean).map((x) => {
+    if (/\/auth\/\w+\/callback\/?$/.test(x)) return x;
+    const u = new URL(/^https?:\/\//i.test(x) ? x : `https://${x}`);
+    return `${u.origin}/auth/${provider}/callback`;
+  });
   if (custom.length) return custom;
   return ['5173', '3005', process.env.PORT]
     .filter(Boolean)

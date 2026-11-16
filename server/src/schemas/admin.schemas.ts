@@ -60,8 +60,8 @@ export const updateConfigSchema = z.object({
     trustProxy: z.string().max(500).regex(/^(|false|\d{1,2}|[A-Za-z0-9.:/_, -]+)$/, 'Invalid trust proxy value').optional(),
     captureAuthFailures: z.boolean().optional(),
     errorDedupeMs: z.number().int().min(0).max(86_400_000).optional(),
-    // Every entry must be an absolute http(s) URL: these are OAuth redirect targets.
-    oauthAllowedRedirectUris: z.array(z.string().refine((v) => /^https?:\/\//i.test(v) && URL.canParse(v), 'Must be an http(s) URL')).max(100).optional(),
+    // A hostname or http(s) origin: the server adds /auth/<provider>/callback. These are OAuth redirect targets.
+    oauthAllowedRedirectUris: z.array(z.string().refine((v) => !/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? URL.canParse(`https://${v}`) : /^https?:\/\//i.test(v) && URL.canParse(v), 'Must be a hostname or http(s) URL')).max(100).optional(),
   }).optional(),
   proxy: z.object({
     allowPrivateTargets: z.boolean().optional()

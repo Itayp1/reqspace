@@ -34,18 +34,18 @@ test.describe('Global Settings', () => {
     const timeout = page.locator('#requestTimeout');
 
     await expect(followRedirects).toBeChecked();
-    await expect(verifySsl).toBeChecked();
+    await expect(verifySsl).not.toBeChecked();
     await expect(timeout).toHaveValue('0');
 
     await followRedirects.uncheck();
     expect((await savePromise).status()).toBe(200);
-    await verifySsl.uncheck();
+    await verifySsl.check();
     await timeout.fill('7500');
 
     await page.reload();
     await page.getByTestId('settings-btn').click();
     await expect(page.locator('#followRedirects')).not.toBeChecked();
-    await expect(page.locator('#verifySsl')).not.toBeChecked();
+    await expect(page.locator('#verifySsl')).toBeChecked();
     await expect(page.locator('#requestTimeout')).toHaveValue('7500');
   });
 
