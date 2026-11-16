@@ -609,6 +609,18 @@ export default function AdminPage() {
                       />
                     </div>
                     <div>
+                      <label className="block text-sm font-medium mb-1">Browser extension: allowed site origins (one per line; empty = localhost defaults)</label>
+                      <textarea
+                        data-testid="admin-server-extension-origins"
+                        rows={2}
+                        defaultValue={(server.extensionOrigins || []).join('\n')}
+                        onBlur={e => setServer({ extensionOrigins: Array.from(new Set(e.target.value.split('\n').map((x: string) => x.trim().replace(/\/+$/, '')).filter(Boolean))) })}
+                        className="w-full p-2 border border-border rounded bg-surface text-sm font-mono"
+                        placeholder="https://reqspace.example.com"
+                      />
+                      <p className="text-xs text-text-muted mt-1">Baked into the downloaded .crx, so users don't have to configure it.</p>
+                    </div>
+                    <div>
                       <label className="block text-sm font-medium mb-1">OAuth redirect URIs (one per line; empty = localhost defaults)</label>
                       <textarea
                         data-testid="admin-server-redirect-uris"

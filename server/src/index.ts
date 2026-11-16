@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import path from 'path';
 import { zipDirectory } from './utils/zipDir';
+import { loadOrCreateKey, zipToCrx } from './utils/crx';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 
@@ -381,6 +382,27 @@ app.get('/extension/reqspace-transport.zip', (_req, res) => {
     return res.send(zipDirectory(extensionDirPath));
   }
   return res.status(404).json({ error: 'The browser extension package is not available on this server' });
+});
+
+// Signed CRX3 built from the same zip; the key persists next to the DB so the extension ID stays stable.
+app.get('/extension/reqspace-transport.crx', async (_req, res) => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('fs');
+  const hasDir = fs.existsSync(path.join(extensionDirPath, 'manifest.json'));
+  if (!hasDir && !fs.existsSync(extensionZipPath)) {
+    return res.status(404).json({ error: 'The browser extension package is not available on this server' });
+  }
+  // The admin's extension origins replace the extension's built-in localhost defaults (needs the source folder).
+  const origins = (await SystemConfigRepository.getConfig())?.server?.extensionOrigins ?? [];
+  const zip: Buffer = hasDir
+    ? zipDirectory(extensionDirPath, (rel, data) => !origins.length || !/^(background|content|options|popup)\.js$/.test(rel)
+      ? data
+      : Buffer.from(data.toString('utf8').replace(/const DEFAULT_ALLOWLIST = \[[\s\S]*?\];/, `const DEFAULT_ALLOWLIST = ${JSON.stringify(origins)};`)))
+    : fs.readFileSync(extensionZipPath);
+  const keyDir = process.env.DB_STORAGE_PATH ? path.dirname(process.env.DB_STORAGE_PATH) : path.resolve(__dirname, '../..');
+  const key = loadOrCreateKey(process.env.EXTENSION_KEY_PATH || path.join(keyDir, 'extension.pem'));
+  res.set({ 'Content-Type': 'application/x-chrome-extension', 'Content-Disposition': 'attachment; filename="reqspace-transport.crx"' });
+  return res.send(zipToCrx(zip, key));
 });
 
 // Catch unmatched /api/* routes before the SPA fallback to return a JSON 404

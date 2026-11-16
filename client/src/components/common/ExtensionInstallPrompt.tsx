@@ -47,8 +47,8 @@ export function ExtensionInstallPrompt() {
         How to install
       </button>
       <a
-        href="/extension/reqspace-transport.zip"
-        download="reqspace-transport.zip"
+        href="/extension/reqspace-transport.crx"
+        download="reqspace-transport.crx"
         className="inline-flex items-center gap-1 px-3 py-1 rounded-md border border-border text-text hover:bg-border font-medium focus-visible:ring-2 focus-visible:ring-primary"
       >
         <Download size={14} aria-hidden="true" />

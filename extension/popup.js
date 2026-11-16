@@ -5,31 +5,63 @@ const DEFAULT_ALLOWLIST = [
   'http://127.0.0.1:3005',
 ];
 
-async function init() {
-  // Load allowlist
-  const { originAllowlist = DEFAULT_ALLOWLIST } = await chrome.storage.local.get({ originAllowlist: DEFAULT_ALLOWLIST });
+async function getList() {
+  const { originAllowlist } = await chrome.storage.local.get({ originAllowlist: DEFAULT_ALLOWLIST });
+  return originAllowlist;
+}
 
-  // Load request counter (session-scoped so it resets on browser restart)
+async function init() {
+  const originAllowlist = await getList();
+
+  // Request counter is session-scoped so it resets on browser restart
   const { reqCount = 0 } = await chrome.storage.session.get({ reqCount: 0 }).catch(() => ({ reqCount: 0 }));
 
-  // Render origin count + list
   document.getElementById('originCount').textContent = originAllowlist.length;
   document.getElementById('reqCount').textContent = reqCount;
 
   const originsEl = document.getElementById('allowedOrigins');
-  originsEl.innerHTML = '';
+  originsEl.replaceChildren();
   if (originAllowlist.length === 0) {
     originsEl.innerHTML = '<span style="font-size:11px;color:#64748b;">No origins allowed yet</span>';
-  } else {
-    originAllowlist.forEach((origin) => {
-      const pill = document.createElement('div');
-      pill.className = 'origin-pill';
-      pill.textContent = origin;
-      pill.title = origin;
-      originsEl.appendChild(pill);
-    });
   }
+  originAllowlist.forEach((origin) => {
+    const pill = document.createElement('div');
+    pill.className = 'origin-pill';
+    const label = document.createElement('span');
+    label.textContent = origin;
+    label.title = origin;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', `Remove ${origin}`);
+    remove.addEventListener('click', async () => {
+      await chrome.storage.local.set({ originAllowlist: (await getList()).filter((o) => o !== origin) });
+      init();
+    });
+    pill.append(label, remove);
+    originsEl.appendChild(pill);
+  });
 }
+
+document.getElementById('originForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('originInput');
+  const errEl = document.getElementById('originError');
+  let origin;
+  try {
+    const url = new URL(input.value.trim());
+    if (!/^https?:$/.test(url.protocol)) throw new Error();
+    origin = url.origin;
+  } catch {
+    errEl.textContent = 'Enter a full address, e.g. https://host:port';
+    return;
+  }
+  errEl.textContent = '';
+  const list = await getList();
+  if (!list.includes(origin)) await chrome.storage.local.set({ originAllowlist: [...list, origin] });
+  input.value = '';
+  init();
+});
 
 // ── Test button ───────────────────────────────────────────────────────────────
 document.getElementById('testBtn').addEventListener('click', async () => {

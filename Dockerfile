@@ -42,6 +42,8 @@ COPY --from=builder /app/server/node_modules ./server/node_modules
 COPY --from=builder /app/server/dist ./server/dist
 COPY --from=builder /app/client/dist ./client/dist
 COPY --from=builder /app/reqspace-transport.zip ./reqspace-transport.zip
+# Source folder: the .crx is rebuilt per request with the admin's allowed origins.
+COPY --from=builder /app/extension ./extension
 
 # Run as the non-root user that ships with the base image.
 RUN chown -R node:node /app && mkdir -p /data && chown node:node /data

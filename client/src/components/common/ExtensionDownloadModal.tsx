@@ -1,17 +1,18 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useExtensionStore } from '../../store/extensionStore';
-import { X, Download, Puzzle } from 'lucide-react';
+import { X, Download, Puzzle, Copy, Check } from 'lucide-react';
 
 /**
  * Modal that appears when the user tries to send a request but the
  * Reqspace Transport extension is not installed.
  *
- * The modal provides a download of the packaged extension (zip)
+ * The modal provides a download of the packaged extension (crx)
  * and step-by-step install instructions.
  */
 export function ExtensionDownloadModal() {
   const { showDownloadModal, setShowDownloadModal } = useExtensionStore();
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!showDownloadModal) return;
@@ -70,22 +71,32 @@ export function ExtensionDownloadModal() {
 
           {/* Download button */}
           <a
-            href="/extension/reqspace-transport.zip"
-            download="reqspace-transport.zip"
+            href="/extension/reqspace-transport.crx"
+            download="reqspace-transport.crx"
             className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded transition-colors text-sm focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             <Download size={16} aria-hidden="true" />
-            Download Extension (.zip)
+            Download Extension (.crx)
           </a>
 
           {/* Install instructions */}
           <div className="bg-background border border-border rounded-lg p-4 space-y-3">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-widest">Install Steps</p>
             {[
-              { n: '1', text: 'Download the .zip file above and extract it to a folder' },
-              { n: '2', text: <>Open <code className="text-text bg-border px-1.5 py-0.5 rounded text-[11px]">chrome://extensions</code> in a new tab</> },
+              { n: '1', text: 'Download the .crx file above' },
+              { n: '2', text: <>Open a new tab and paste{' '}
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard?.writeText('chrome://extensions'); setCopied(true); }}
+                  title="Copy link (browsers block opening chrome:// links from web pages)"
+                  className="inline-flex items-center gap-1 text-text bg-border px-1.5 py-0.5 rounded text-[11px] font-mono hover:bg-border/70 focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  chrome://extensions {copied ? <Check size={11} aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
+                </button>
+                {copied && <span className="text-xs text-text-muted"> copied</span>}</> },
               { n: '3', text: 'Enable Developer Mode (toggle top-right)' },
-              { n: '4', text: 'Click "Load unpacked" and select the extracted folder' },
+              { n: '4', text: 'Drag the .crx file into the page and confirm' },
+              { n: '5', text: <>Open the extension's Options and add this site's address to the allowed origins: <code className="text-text bg-border px-1.5 py-0.5 rounded text-[11px]">{window.location.origin}</code></> },
             ].map(({ n, text }) => (
               <div key={n} className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-5 h-5 bg-primary text-white text-[11px] font-bold rounded-full flex items-center justify-center mt-0.5">
