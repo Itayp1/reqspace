@@ -385,15 +385,17 @@ app.get('/extension/reqspace-transport.zip', (_req, res) => {
 });
 
 // Signed CRX3 built from the same zip; the key persists next to the DB so the extension ID stays stable.
-app.get('/extension/reqspace-transport.crx', async (_req, res) => {
+app.get('/extension/reqspace-transport.crx', async (req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const fs = require('fs');
   const hasDir = fs.existsSync(path.join(extensionDirPath, 'manifest.json'));
   if (!hasDir && !fs.existsSync(extensionZipPath)) {
     return res.status(404).json({ error: 'The browser extension package is not available on this server' });
   }
-  // The admin's extension origins replace the extension's built-in localhost defaults (needs the source folder).
-  const origins = (await SystemConfigRepository.getConfig())?.server?.extensionOrigins ?? [];
+  // The site the user downloads from becomes the extension's default allowed origin (needs the source folder).
+  let origin = '';
+  try { const u = new URL(String(req.query.origin || `${req.protocol}://${req.get('host')}`)); if (/^https?:$/.test(u.protocol)) origin = u.origin; } catch { /* no default origin */ }
+  const origins = origin ? [origin] : [];
   const zip: Buffer = hasDir
     ? zipDirectory(extensionDirPath, (rel, data) => !origins.length || !/^(background|content|options|popup)\.js$/.test(rel)
       ? data

@@ -55,7 +55,6 @@ export const updateConfigSchema = z.object({
       errorReportMax: z.number().int().min(1).max(10_000_000).optional(),
     }).optional(),
     allowedOrigins: z.array(z.string().refine((v) => /^https?:\/\//i.test(v) && URL.canParse(v), 'Must be an http(s) origin')).max(100).optional(),
-    extensionOrigins: z.array(z.string().refine((v) => /^https?:\/\//i.test(v) && URL.canParse(v) && new URL(v).origin === v, 'Must be an origin like https://host[:port]')).max(100).optional(),
     // Off, a hop count, or a comma-separated list of IPs/CIDRs/keywords (loopback, linklocal, uniquelocal).
     trustProxy: z.string().max(500).regex(/^(|false|\d{1,2}|[A-Za-z0-9.:/_, -]+)$/, 'Invalid trust proxy value').optional(),
     captureAuthFailures: z.boolean().optional(),

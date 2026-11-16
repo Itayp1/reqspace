@@ -140,6 +140,7 @@ export default function AdminPage() {
       delete (payload as any).createdAt;
       delete (payload as any).updatedAt;
       delete (payload as any).oauthRedirectAllowlist; // read-only, computed by the server
+      if (payload.server?.oauthAllowedRedirectUris) payload.server = { ...payload.server, oauthAllowedRedirectUris: payload.server.oauthAllowedRedirectUris.map((x: string) => x.trim()).filter(Boolean) };
       await api.put('/admin/config', payload);
       useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
@@ -477,11 +478,11 @@ export default function AdminPage() {
                     <div className="p-4 border border-border rounded-lg bg-surface">
                       <label className="block text-sm font-medium mb-1">OAuth hostnames (one per line; empty = localhost defaults)</label>
                       <textarea
-                        key={undoTick}
                         data-testid="admin-server-redirect-uris"
+                        spellCheck={false}
                         rows={3}
-                        defaultValue={(oauthHosts || []).join('\n')}
-                        onBlur={e => setConfig({ ...config, server: { ...(config.server || {}), oauthAllowedRedirectUris: e.target.value.split('\n').map((x: string) => x.trim()).filter(Boolean) } })}
+                        value={oauthHosts.join('\n')}
+                        onChange={e => setConfig({ ...config, server: { ...(config.server || {}), oauthAllowedRedirectUris: e.target.value.split('\n') } })}
                         className="w-full p-2 border border-border rounded bg-surface text-sm font-mono"
                         placeholder="app.example.com"
                       />
@@ -699,19 +700,6 @@ export default function AdminPage() {
                         onChange={e => setServer({ errorDedupeMs: +e.target.value })}
                         className="w-full p-2 border border-border rounded bg-surface"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Browser extension: allowed site origins (one per line; empty = localhost defaults)</label>
-                      <textarea
-                        key={undoTick}
-                        data-testid="admin-server-extension-origins"
-                        rows={2}
-                        defaultValue={(server.extensionOrigins || []).join('\n')}
-                        onBlur={e => setServer({ extensionOrigins: Array.from(new Set(e.target.value.split('\n').map((x: string) => x.trim().replace(/\/+$/, '')).filter(Boolean))) })}
-                        className="w-full p-2 border border-border rounded bg-surface text-sm font-mono"
-                        placeholder="https://reqspace.example.com"
-                      />
-                      <p className="text-xs text-text-muted mt-1">Baked into the downloaded .crx, so users don't have to configure it.</p>
                     </div>
                     <p className="text-xs text-text-muted">
                       The database connection, Redis URL and admin password are the only settings that stay in the server's environment.

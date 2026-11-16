@@ -71,7 +71,7 @@ export function ExtensionDownloadModal() {
 
           {/* Download button */}
           <a
-            href="/extension/reqspace-transport.crx"
+            href={`/extension/reqspace-transport.crx?origin=${encodeURIComponent(window.location.origin)}`}
             download="reqspace-transport.crx"
             className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded transition-colors text-sm focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >

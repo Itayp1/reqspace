@@ -4,6 +4,14 @@ import type { Transport, TransportRequest, TransportResponse } from './types';
 export const EXTENSION_NOT_INSTALLED_ERROR = 'EXTENSION_NOT_INSTALLED';
 
 let extensionVersion: string | null = null;
+let extensionBlocked = false;
+const listeners = new Set<() => void>();
+/** Re-renders subscribers when the extension reports installed / not allowed for this origin. */
+export function onExtensionStatus(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
+/** The extension is installed but this site's origin is not in its allowlist. */
+export function isExtensionBlocked(): boolean { return extensionBlocked && extensionVersion === null; }
+/** Asks the extension to add this origin (it shows its own confirmation). */
+export function requestExtensionOrigin() { window.postMessage({ source: 'reqspace-client', type: 'REQSPACE_ADD_ORIGIN' }, '*'); }
 let pendingRequests: Map<string, (res: TransportResponse) => void> = new Map();
 
 // Listen for messages from the extension's content script
@@ -13,6 +21,10 @@ window.addEventListener('message', (event) => {
 
   if (event.data.type === 'REQSPACE_PONG') {
     extensionVersion = event.data.version;
+    listeners.forEach((fn) => fn());
+  } else if (event.data.type === 'REQSPACE_NOT_ALLOWED') {
+    extensionBlocked = true;
+    listeners.forEach((fn) => fn());
   } else if (event.data.type === 'REQSPACE_RESPONSE') {
     const resolve = pendingRequests.get(event.data.id);
     if (resolve) {

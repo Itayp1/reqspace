@@ -69,8 +69,6 @@ export interface IServerSettings {
   oauthAllowedRedirectUris: string[];
   /** Extra browser origins allowed by CORS / the CSRF origin check. Ignored in production (same-origin only). */
   allowedOrigins: string[];
-  /** Site origins the downloadable browser extension answers to by default; empty = its localhost defaults. */
-  extensionOrigins: string[];
   /** Express "trust proxy": '' or 'false' = off, a hop count ('1'), or a comma-separated CIDR/IP list. */
   trustProxy: string;
   /** Record 401/403 responses (other than login/me/logout) in the error log. */
@@ -91,7 +89,6 @@ const DEFAULT_SERVER_SETTINGS: IServerSettings = {
   errorDedupeMs: 60_000,
   oauthAllowedRedirectUris: [],
   allowedOrigins: [],
-  extensionOrigins: [],
   trustProxy: '',
   captureAuthFailures: true,
 };
