@@ -8,6 +8,16 @@
 - **Full suite only for bigger-than-minor changes**: run the full suite (`pnpm exec playwright test`) only when the change is larger than a minor one (new/changed architecture, shared code, many files, a major or minor version bump). For a minor change or patch, run only the specs of the areas the work touched.
 - Headless only. Every test fails if it leaves new rows in the `fperrors` table (see `tests/e2e/fixtures.ts`).
 
+## Worktrees: share `node_modules` with the parent checkout
+- A worktree (`.claude/worktrees/<name>`) has no `node_modules`. Never run `pnpm install` in it (native `better-sqlite3` fails to build). Instead, junction the three folders to the parent checkout `C:\projects\reqspace` (PowerShell, from the worktree root):
+  ```powershell
+  foreach ($d in 'node_modules','server\node_modules','client\node_modules') {
+    if (-not (Test-Path $d)) { cmd /c mklink /J $d "C:\projects\reqspace\$d" }
+  }
+  ```
+- Remove a junction with `cmd /c rmdir <path>` (never `rm -rf` / `Remove-Item -Recurse`, which would delete the parent's packages). They are git-ignored, so they are never committed.
+- Do this once, right after entering a new worktree, before any `tsc` or test run.
+
 ## Mandatory Fail-to-Pass (F2P) Bug-Fixing Cycle
 For every assigned bug, you MUST adhere to the following sequence:
 
