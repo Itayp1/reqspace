@@ -5,7 +5,7 @@ FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 
 # Build dependencies for native modules (better-sqlite3, sqlite3, bcrypt).
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ zip \n && rm -rf /var/lib/apt/lists/* && corepack enable
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ zip && rm -rf /var/lib/apt/lists/* && corepack enable
 
 # Install with the lockfile (reproducible) before copying source, so the
 # dependency layers cache independently of code changes.
