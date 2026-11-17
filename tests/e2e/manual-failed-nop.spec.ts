@@ -353,11 +353,10 @@ test.describe('O — connections (real servers)', () => {
     } finally { http.closeAllConnections(); http.close(); }
   });
 
-  test('[O4.1] Kafka tab says it is a stub and never fakes a connection', async ({ page }) => {
+  test('[O4.1] Kafka tab is desktop-only in the browser and never fakes a connection', async ({ page }) => {
     await openConnectionTab(page, 'KAFKA');
-    await page.getByTestId('connection-url-input').fill('kafka://localhost:9092');
-    await expect(page.getByTestId('connection-kafka-stub-banner')).toContainText(/stub/i);
-    await expect(page.getByTestId('connection-connect-btn')).toBeHidden();
+    await page.getByTestId('connection-url-input').fill('localhost:9092');
+    await expect(page.getByTestId('connection-kafka-desktop-banner')).toContainText(/electron/i);
     await expect(page.getByTestId('connection-disconnect-btn')).toBeHidden();
   });
 });

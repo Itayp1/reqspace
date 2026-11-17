@@ -127,17 +127,51 @@ test.describe('Connection Tabs', () => {
     await expect(page.getByTestId('connection-send-btn')).toBeDisabled();
   });
 
-  test('Kafka: the stub reports itself rather than pretending to connect', async ({ page }) => {
+  test('Kafka: browser says it is desktop-only and never fakes a connection', async ({ page }) => {
     await page.getByTestId('new-connection-btn').click();
     await page.getByTestId('connection-protocol-select').selectOption('KAFKA');
-    await page.getByTestId('connection-url-input').fill('kafka://localhost:9092');
+    await page.getByTestId('connection-url-input').fill('localhost:9092');
 
-    // Kafka has no browser client: the editor says so explicitly and offers no
-    // Connect button, so it can never show a fake "connected" state. If real
-    // Kafka support lands, update this test, don't delete it.
-    await expect(page.getByTestId('connection-kafka-stub-banner')).toContainText('stub');
-    await expect(page.getByTestId('connection-connect-btn')).toBeHidden();
+    await expect(page.getByTestId('connection-kafka-desktop-banner')).toContainText('Electron');
+    await page.getByTestId('connection-kafka-topic').fill('orders');
+    await page.getByTestId('connection-kafka-sasl').check();
+    await page.getByTestId('connection-kafka-ssl').check();
+    await expect(page.getByTestId('connection-kafka-mechanism')).toBeVisible();
+    await expect(page.getByTestId('connection-kafka-verify-ssl')).toBeChecked();
+    await expect(page.getByTestId('connection-kafka-load-lists')).toBeDisabled();
+
+    await page.getByTestId('connection-connect-btn').click();
+    await expect(page.getByTestId('connection-msg-error').first()).toContainText('Electron');
+    await expect(page.getByTestId('connection-connect-btn')).toBeVisible();
     await expect(page.getByTestId('connection-send-btn')).toBeDisabled();
+  });
+
+  test('WebSocket: received messages can be marked read / unread', async ({ page }) => {
+    await page.getByTestId('new-connection-btn').click();
+    await page.getByTestId('connection-url-input').fill('ws://localhost:9999/echo');
+    await page.getByTestId('connection-connect-btn').click();
+    await expect(page.getByTestId('connection-disconnect-btn')).toBeVisible();
+    for (const m of ['one', 'two']) {
+      await page.getByTestId('connection-message-input').fill(m);
+      await page.getByTestId('connection-send-btn').click();
+    }
+    await expect(page.getByTestId('connection-msg-received')).toHaveCount(2);
+    await expect(page.getByTestId('connection-unread-count')).toHaveText('Unread: 2');
+
+    await page.getByTestId('connection-msg-read-toggle').first().click();
+    await expect(page.getByTestId('connection-unread-count')).toHaveText('Unread: 1');
+    await expect(page.getByTestId('connection-msg-received').first()).toHaveAttribute('data-read', 'true');
+    await page.getByTestId('connection-msg-read-toggle').first().click();
+    await expect(page.getByTestId('connection-unread-count')).toHaveText('Unread: 2');
+
+    await page.getByTestId('connection-mark-all-read').click();
+    await expect(page.getByTestId('connection-unread-count')).toHaveText('Unread: 0');
+  });
+
+  test('WebSocket: auth / SSL options are desktop-only in the browser', async ({ page }) => {
+    await page.getByTestId('new-connection-btn').click();
+    await expect(page.getByTestId('connection-ws-desktop-note')).toContainText('Electron');
+    await expect(page.getByTestId('connection-ws-auth-type')).toBeDisabled();
   });
 
   test('connect failures are reported for both WS and SSE, not swallowed', async ({ page }) => {
