@@ -62,6 +62,9 @@ test.describe('Action latency under load', () => {
     const wrap = (n: string) => `[...document.querySelectorAll('[data-testid="node-container"]')].filter(e => e.querySelector('[data-testid="node-${n}"]')).pop()?.parentElement`;
     await armStopwatch(page, 'drop', `[data-testid="node-container"]`,
       `return !!(${wrap(dst)})?.querySelector('[data-testid="node-${moved}"]') && !(${wrap(src)})?.querySelector('[data-testid="node-${moved}"]');`);
+    // Put the source folder at the top of the tree's scroller so the request and the target are both on screen:
+    // dragTo scrolls the target into view mid-drag, which moves the source and starts the drag on the wrong row.
+    await page.getByTestId(`node-${src}`).evaluate(e => e.scrollIntoView({ block: 'start' }));
     await page.getByTestId(`node-${moved}`).dragTo(page.getByTestId(`node-${dst}`));
     const elapsed = await stopwatch(page);
     expect(elapsed, 'the request never showed up in the target folder').toBeGreaterThan(0);
