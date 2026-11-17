@@ -1,10 +1,11 @@
 # ── Builder ───────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+# glibc (Debian) builder so native addons match the distroless runtime below (Alpine/musl would not).
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
 # Build dependencies for native modules (better-sqlite3, sqlite3, bcrypt).
-RUN apk add --no-cache python3 make g++ zip && corepack enable
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ zip \n && rm -rf /var/lib/apt/lists/* && corepack enable
 
 # Install with the lockfile (reproducible) before copying source, so the
 # dependency layers cache independently of code changes.
@@ -27,8 +28,12 @@ RUN cd server && pnpm run build
 # while the build toolchain is still available, so the runtime image needs none.
 RUN cd server && pnpm install --frozen-lockfile --prod
 
+# Writable data dir for the runtime (distroless has no shell to mkdir/chown).
+RUN mkdir -p /data
+
 # ── Runtime ───────────────────────────────────────────────────────────────────
-FROM node:22-alpine
+# Distroless: no shell, no package manager, no BusyBox - minimal CVE surface. Its ENTRYPOINT is `node`.
+FROM gcr.io/distroless/nodejs22-debian12
 
 WORKDIR /app
 
@@ -38,20 +43,20 @@ ENV PORT=3005
 
 # Copy prebuilt artifacts and production node_modules only — no python/g++ in
 # the final image.
-COPY --from=builder /app/server/package.json ./server/package.json
-COPY --from=builder /app/server/node_modules ./server/node_modules
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/client/dist ./client/dist
-COPY --from=builder /app/reqspace-transport.zip ./reqspace-transport.zip
+COPY --from=builder --chown=1000:1000 /app/server/package.json ./server/package.json
+COPY --from=builder --chown=1000:1000 /app/server/node_modules ./server/node_modules
+COPY --from=builder --chown=1000:1000 /app/server/dist ./server/dist
+COPY --from=builder --chown=1000:1000 /app/client/dist ./client/dist
+COPY --from=builder --chown=1000:1000 /app/reqspace-transport.zip ./reqspace-transport.zip
 # Source folder: the .crx is rebuilt per request with the downloading site's origin as its default allowed origin.
-COPY --from=builder /app/extension ./extension
+COPY --from=builder --chown=1000:1000 /app/extension ./extension
 
-# Run as the non-root user that ships with the base image.
-RUN chown -R node:node /app && mkdir -p /data && chown node:node /data
-USER node
+COPY --from=builder --chown=1000:1000 /data /data
+# UID 1000 = the old `node` user, so an existing /data volume stays writable.
+USER 1000:1000
 
 WORKDIR /app/server
 
 EXPOSE 3005
 
-CMD ["node", "dist/index.js"]
+CMD ["dist/index.js"]
