@@ -23,6 +23,10 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Compute version
+        id: ver
+        run: echo "v=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -33,10 +37,6 @@ jobs:
             type=ref,event=branch
             type=sha,format=short
             type=raw,value=${{ steps.ver.outputs.v }}
-
-      - name: Compute version
-        id: ver
-        run: echo "v=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker Image
         uses: docker/build-push-action@v5
