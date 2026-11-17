@@ -466,7 +466,7 @@ export function UrlBar() {
       if (getTransport() instanceof BrowserTransport) {
         const warnings = getBrowserTransportWarnings(reqPayload);
         warnings.forEach((message) => useConsoleStore.getState().addLog({ type: 'warn', message }));
-        if (warnings.length) useToastStore.getState().addToast('info', warnings[0]);
+        warnings.forEach((message) => useToastStore.getState().addToast('info', message));
       }
 
       const res = await sendRequest(reqPayload);
