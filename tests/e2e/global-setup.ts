@@ -22,6 +22,10 @@ async function applyTestServerSettings(apiUrl: string): Promise<void> {
     if (!loggedIn) throw new Error('global-setup: could not log in as the seeded admin to apply test server settings');
     const res = await ctx.put('/api/admin/config', {
       data: {
+        // OAuth redirects go back to the client port the suite runs on (CLIENT_PORT, default 5173).
+        auth: Object.fromEntries(['google', 'github', 'microsoft', 'custom'].map(
+          (p) => [`${p}OAuth`, { redirectHost: `http://localhost:${process.env.CLIENT_PORT || '5173'}` }],
+        )),
         server: {
           rateLimit: {
             enabled: process.env.DISABLE_RATE_LIMIT === 'false',
@@ -29,10 +33,6 @@ async function applyTestServerSettings(apiUrl: string): Promise<void> {
             readMax: 2000,
           },
           errorDedupeMs: 0,
-          // OAuth redirects go back to the client port the suite runs on (CLIENT_PORT, default 5173).
-          oauthAllowedRedirectUris: ['google', 'github', 'microsoft', 'custom'].map(
-            (provider) => `http://localhost:${process.env.CLIENT_PORT || '5173'}/auth/${provider}/callback`,
-          ),
           // The suite sends X-Forwarded-For for per-test rate-limit buckets and drives the
           // API from the Vite client's origin (R5.5: neither is trusted by default).
           trustProxy: '1',

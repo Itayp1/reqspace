@@ -12,6 +12,8 @@ export interface OAuthProviderConfig {
   clientSecret: string;
   /** Optional outbound HTTP(S) proxy (http://[user:pass@]host:port) for the server's calls to this provider. */
   proxyUrl?: string;
+  /** Hostname (or origin) this provider redirects back to; the /auth/<id>/callback path is added by the server. */
+  redirectHost?: string;
   /** Microsoft only: tenant GUID/domain, or common | organizations | consumers. */
   tenantId?: string;
   /** Custom only: any standard OAuth2 / OIDC authorization-code provider (Keycloak, Okta, Authentik, ...). */
@@ -37,11 +39,14 @@ export function configKey(id: OAuthProviderId): 'googleOAuth' | 'githubOAuth' | 
   return `${id}OAuth` as 'googleOAuth' | 'githubOAuth' | 'microsoftOAuth' | 'customOAuth';
 }
 
+export const OAUTH_HOST_FIELD = 'OAuth URL hostname';
+
 /** Required settings that are still empty, as the names the admin sees. Empty list = the provider can sign people in. */
 export function missingOAuthFields(id: OAuthProviderId, cfg: Partial<OAuthProviderConfig> | undefined): string[] {
   const missing: string[] = [];
   if (!cfg?.clientId) missing.push('Client ID');
   if (!cfg?.clientSecret) missing.push('Client Secret');
+  if (!cfg?.redirectHost?.trim()) missing.push(OAUTH_HOST_FIELD);
   if (id === 'custom') {
     if (!cfg?.authorizeUrl) missing.push('Authorize URL');
     if (!cfg?.tokenUrl) missing.push('Token URL');
@@ -50,19 +55,12 @@ export function missingOAuthFields(id: OAuthProviderId, cfg: Partial<OAuthProvid
   return missing;
 }
 
-/** Redirect URIs the server accepts: the admin's list (Settings > Server), else the local dev / desktop defaults. */
-export function allowedRedirectUris(provider: OAuthProviderId, configured: string[] = []): string[] {
-  // Admins enter a hostname (or origin); the callback path is added here.
-  // Full callback URLs saved by older versions are kept as they are.
-  const custom = configured.map((x) => x.trim()).filter(Boolean).map((x) => {
-    if (/\/auth\/\w+\/callback\/?$/.test(x)) return x;
-    const u = new URL(/^https?:\/\//i.test(x) ? x : `https://${x}`);
-    return `${u.origin}/auth/${provider}/callback`;
-  });
-  if (custom.length) return custom;
-  return ['5173', '3005', process.env.PORT]
-    .filter(Boolean)
-    .map((port) => `http://localhost:${port}/auth/${provider}/callback`);
+/** The one redirect URI the server accepts for a provider: its configured hostname plus the callback path. */
+export function allowedRedirectUris(provider: OAuthProviderId, redirectHost = ''): string[] {
+  const x = redirectHost.trim();
+  if (!x) return [];
+  const u = new URL(/^https?:\/\//i.test(x) ? x : `https://${x}`);
+  return [`${u.origin}/auth/${provider}/callback`];
 }
 
 /** Tenant is interpolated into a URL path, so it must be a plain identifier. */

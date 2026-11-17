@@ -9,7 +9,7 @@ import { ErrorsPanel } from '../components/admin/ErrorsPanel';
 import { customConfirm } from '../utils/dialog';
 import { useEscape } from '../hooks/useEscape';
 import { useToastStore } from '../store/toastStore';
-import { OAUTH_LABELS, OAUTH_PROVIDERS, oauthRedirectUri, redirectUrlFor } from '../utils/oauth';
+import { OAUTH_LABELS, OAUTH_PROVIDERS, redirectUrlFor } from '../utils/oauth';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
@@ -139,8 +139,11 @@ export default function AdminPage() {
       delete (payload as any).id;
       delete (payload as any).createdAt;
       delete (payload as any).updatedAt;
-      delete (payload as any).oauthRedirectAllowlist; // read-only, computed by the server
-      if (payload.server?.oauthAllowedRedirectUris) payload.server = { ...payload.server, oauthAllowedRedirectUris: payload.server.oauthAllowedRedirectUris.map((x: string) => x.trim()).filter(Boolean) };
+      const noHost = OAUTH_PROVIDERS.filter(id => payload.auth?.[`${id}OAuth`]?.enabled && !String(payload.auth[`${id}OAuth`].redirectHost ?? '').trim());
+      if (noHost.length) {
+        useToastStore.getState().addToast('error', `Set the OAuth URL hostname for: ${noHost.map(id => OAUTH_LABELS[id]).join(', ')}`);
+        return;
+      }
       await api.put('/admin/config', payload);
       useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
@@ -472,35 +475,7 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {(() => {
-                const oauthHosts: string[] = config.server?.oauthAllowedRedirectUris || [];
-                return (
-                    <div className="p-4 border border-border rounded-lg bg-surface">
-                      <label className="block text-sm font-medium mb-1">OAuth hostnames (one per line; empty = localhost defaults)</label>
-                      <textarea
-                        data-testid="admin-server-redirect-uris"
-                        spellCheck={false}
-                        rows={3}
-                        value={oauthHosts.join('\n')}
-                        onChange={e => setConfig({ ...config, server: { ...(config.server || {}), oauthAllowedRedirectUris: e.target.value.split('\n') } })}
-                        className="w-full p-2 border border-border rounded bg-surface text-sm font-mono"
-                        placeholder="app.example.com"
-                      />
-                      {(oauthHosts || []).length > 0 && (
-                        <div className="mt-2 space-y-1" data-testid="admin-redirect-uri-list">
-                          <p className="text-xs text-text-muted">Register these redirect URLs with each provider:</p>
-                          {Array.from(new Set((oauthHosts as string[]).flatMap((h: string) => OAUTH_PROVIDERS.map(p => redirectUrlFor(h, p))).filter(Boolean))).map((u: string) => (
-                            <div key={u} className="flex items-center gap-2 text-xs">
-                              <code className="flex-1 truncate">{u}</code>
-                              <button type="button" className="px-2 py-0.5 border border-border rounded hover:bg-surface-hover" onClick={() => navigator.clipboard?.writeText(u)}>Copy</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                );
-                })()}
-                {/* 3-5. OAuth sign-in providers */}
+                {/* 3-6. OAuth sign-in providers (each with its own redirect hostname) */}
                 {OAUTH_PROVIDERS.map((provider, i) => {
                   const key = `${provider}OAuth`;
                   const label = OAUTH_LABELS[provider];
@@ -514,23 +489,29 @@ export default function AdminPage() {
                       </div>
                       {p.enabled && (
                         <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
-                          <div className="text-xs text-text-muted">Redirect URI: <code>{oauthRedirectUri(provider)}</code></div>
+                          <div>
+                            <label className="block text-xs mb-1 text-text-muted">OAuth URL hostname (hostname only, required)</label>
+                            <input data-testid={`admin-${provider}-redirect-host`} type="text" spellCheck={false} value={p.redirectHost || ''} onChange={e => setP({ redirectHost: e.target.value.trim() })} className="w-full p-2 border border-border rounded bg-background text-sm font-mono" placeholder="app.example.com" />
+                            {p.redirectHost && /^(https?:\/\/)?[^/]+\/./.test(p.redirectHost) && (
+                              <div data-testid={`admin-${provider}-redirect-host-error`} className="text-xs text-red-500 mt-1">Enter only the hostname, without a path; the system adds /auth/{provider}/callback itself.</div>
+                            )}
+                            {p.redirectHost && redirectUrlFor(p.redirectHost, provider) && (
+                              <div className="flex items-center gap-2 text-xs mt-1" data-testid={`admin-${provider}-redirect-url`}>
+                                <span className="text-text-muted">Register with the provider:</span>
+                                <code className="flex-1 truncate">{redirectUrlFor(p.redirectHost, provider)}</code>
+                                <button type="button" className="px-2 py-0.5 border border-border rounded hover:bg-surface-hover" onClick={() => navigator.clipboard?.writeText(redirectUrlFor(p.redirectHost, provider))}>Copy</button>
+                              </div>
+                            )}
+                          </div>
                           {(() => {
-                            const required: [string, unknown][] = [['Client ID', p.clientId], ['Client Secret', p.clientSecret],
+                            const required: [string, unknown][] = [['Client ID', p.clientId], ['Client Secret', p.clientSecret], ['OAuth URL hostname', p.redirectHost],
                               ...(provider === 'custom' ? [['Authorize URL', p.authorizeUrl], ['Token URL', p.tokenUrl], ['UserInfo URL', p.userinfoUrl]] as [string, unknown][] : [])];
                             const missing = required.filter(([, v]) => !String(v ?? '').trim()).map(([n]) => n);
-                            const allowed: string[] | undefined = config.oauthRedirectAllowlist?.[provider];
-                            const uri = oauthRedirectUri(provider);
                             return (
                               <>
                                 {missing.length > 0 && (
                                   <div data-testid={`admin-${provider}-missing`} className="text-xs text-red-500">
                                     Not ready: missing {missing.join(', ')}. Until it is set, people cannot sign in with {label}.
-                                  </div>
-                                )}
-                                {allowed && !allowed.includes(uri) && (
-                                  <div data-testid={`admin-${provider}-redirect-warning`} className="text-xs text-red-500">
-                                    The server will refuse this Redirect URI. Add <code>{uri}</code> to "OAuth hostnames" at the top of the OAuth providers.
                                   </div>
                                 )}
                               </>

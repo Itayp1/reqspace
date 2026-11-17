@@ -325,13 +325,12 @@ const oauthLogin = (provider: OAuthProviderId) => async (req: Request, res: Resp
   }
 
   // Hard-allowlist redirect URIs server-side — a client-supplied redirect_uri
-  // is a code-interception vector (CR#4). Configured in Admin > Settings > Server;
-  // the defaults cover local dev and the desktop app's embedded server.
-  const allowedRedirects = allowedRedirectUris(provider, config?.server.oauthAllowedRedirectUris);
+  // is a code-interception vector (CR#4). Configured per provider in Admin > Settings.
+  const allowedRedirects = allowedRedirectUris(provider, oauthConfig.redirectHost);
   const chosenRedirect = redirectUri || allowedRedirects[0];
   if (!allowedRedirects.includes(chosenRedirect)) {
     console.error(`${label} OAuth: redirect_uri ${chosenRedirect} is not in the allowed redirect URIs`);
-    return res.status(400).json({ message: `redirect_uri not allowed. An administrator must add ${chosenRedirect} to the OAuth redirect URIs in Admin > Settings.` });
+    return res.status(400).json({ message: `redirect_uri not allowed. An administrator must add ${chosenRedirect} as the provider's OAuth URL hostname in Admin > Settings.` });
   }
 
   try {

@@ -65,8 +65,6 @@ export interface IServerSettings {
   };
   /** Identical errors inside this window are counted on one row; 0 records every occurrence. */
   errorDedupeMs: number;
-  /** Extra OAuth redirect URIs (all providers); empty = the local dev / desktop defaults. */
-  oauthAllowedRedirectUris: string[];
   /** Extra browser origins allowed by CORS / the CSRF origin check. Ignored in production (same-origin only). */
   allowedOrigins: string[];
   /** Express "trust proxy": '' or 'false' = off, a hop count ('1'), or a comma-separated CIDR/IP list. */
@@ -87,7 +85,6 @@ const DEFAULT_SERVER_SETTINGS: IServerSettings = {
     errorReportMax: 30,
   },
   errorDedupeMs: 60_000,
-  oauthAllowedRedirectUris: [],
   allowedOrigins: [],
   trustProxy: '',
   captureAuthFailures: true,
