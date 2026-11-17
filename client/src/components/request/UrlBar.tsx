@@ -19,7 +19,7 @@ import type { KeyValueItem, ActiveRequest } from '../../store/requestStore';
 
 import { fileToBase64 } from '../../utils/fileToBase64';
 import { resolveAllVariables } from '../../utils/variables';
-import { applyRequestAuth, resolveInheritedAuth } from '../../utils/requestAuth';
+import { applyRequestAuth, folderChainClosestFirst, resolveInheritedAuth } from '../../utils/requestAuth';
 import { runPreRequestScript, runTestScript, diffRequestMods } from '../../utils/scripts';
 import { stripJsonComments } from '../../utils/jsonComments';
 import { toRequestPayload } from '../../utils/requestPayload';
@@ -226,8 +226,13 @@ export function UrlBar() {
       ...env.userProfileVariables,
     ].map(v => v.key);
     const r: any = activeRequest;
+    // Collection and folder scripts run before the request and may define variables it uses.
+    const { foldersByCollection } = useCollectionStore.getState();
+    const folders = (foldersByCollection[activeRequest.collectionId] ?? []) as Folder[];
+    const scripts = [col, ...folderChainClosestFirst(activeRequest.folderId, folders)]
+      .map(g => ({ label: 'Parent', fields: { preRequestScript: g?.preRequestScript, testScript: g?.testScript } }));
     const found = findMissingVariables(
-      [{ label: r.name || 'Request', fields: { url: r.url, params: r.params, headers: r.headers, auth: r.auth, body: r.body, preRequestScript: r.preRequestScript, testScript: r.testScript } }],
+      [...scripts, { label: r.name || 'Request', fields: { url: r.url, params: r.params, headers: r.headers, auth: r.auth, body: r.body, preRequestScript: r.preRequestScript, testScript: r.testScript } }],
       keys,
     ).filter(m => !IGNORED_MISSING.has(m.name));
     if (found.length) setMissing(found); else doSend();

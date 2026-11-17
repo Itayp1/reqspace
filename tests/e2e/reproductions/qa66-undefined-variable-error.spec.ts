@@ -7,6 +7,7 @@ test.use({ allowFpErrors: [/Network Error|Failed to fetch/] });
 test('QA-109: the response pane names the undefined variable', async ({ page }) => {
   await scene(page, { url: '{{nohost}}/get' });
   await page.getByTestId('request-send-btn').click();
+  await page.getByRole('button', { name: 'Run Anyway' }).click();
   await expect(page.getByTestId('response-status')).toContainText('0');
   await expect(page.getByTestId('response-body-viewer')).toContainText('nohost');
   await expect(page.getByTestId('response-body-viewer')).toContainText('not defined') // string match: the viewer renders spaces as nbsp, which a regex would not match;
