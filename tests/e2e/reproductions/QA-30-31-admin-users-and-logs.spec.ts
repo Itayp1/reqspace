@@ -11,6 +11,9 @@ async function openAdminTab(page: import('@playwright/test').Page, tab: string) 
 // QA-30: "Revoke Admin" was offered on the logged-in admin's own row (the server always refuses it).
 test('QA-30: no Revoke Admin button on the signed-in admin\'s own row', async ({ page }) => {
   await openAdminTab(page, 'users');
+  // The list is paginated (50), so on a database shared with the whole suite the admin may not be on page 1.
+  await page.getByTestId('admin-user-search').fill('admin');
+  await page.getByTestId('admin-user-search-btn').click();
   const me = page.locator('tr[data-testid^="user-row-"]').filter({ has: page.getByRole('cell', { name: 'admin', exact: true }) });
   await expect(me).toBeVisible();
   await expect(me.getByRole('button', { name: /Revoke Admin/ })).toHaveCount(0);

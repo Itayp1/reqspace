@@ -12,7 +12,7 @@ test('history restore keeps {{baseUrl}} and names the tab after the request', as
   await registerUser(page, 'hist_raw');
   await page.route('http://qa-host.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
 
-  const ws = (await (await page.request.get('/api/workspaces')).json())[0]._id;
+  const ws = (await (await page.request.get('/api/workspaces')).json()).find((w: any) => w.isPersonal)._id;
   const col = await (await page.request.post(`/api/workspaces/${ws}/collections`, {
     data: { name: 'Raw Col', variables: [{ key: 'baseUrl', value: 'http://qa-host.example.test', enabled: true }] },
   })).json();
