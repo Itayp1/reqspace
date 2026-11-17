@@ -11,7 +11,8 @@ RUN apk add --no-cache python3 make g++ zip && corepack enable
 COPY client/package.json client/pnpm-lock.yaml client/.npmrc ./client/
 RUN cd client && pnpm install --frozen-lockfile
 COPY client ./client
-RUN cd client && pnpm run build
+ARG APP_VERSION=dev
+RUN cd client && APP_VERSION=$APP_VERSION pnpm run build
 
 # Package the browser extension so the web app can serve it for "Load unpacked".
 COPY extension ./extension

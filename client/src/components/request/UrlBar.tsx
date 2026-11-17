@@ -28,6 +28,7 @@ import { notifyHistoryUpdated } from '../../utils/historySync';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { findMissingVariables, type MissingVariable } from '../../utils/missingVariables';
 import { MissingVariablesModal } from '../collection/MissingVariablesModal';
+import { isExtensionInstalled } from '../../transport/extension';
 
 function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () => void }) {
   return (
@@ -125,7 +126,16 @@ function conflictDiff(remote: any, local: any): React.ReactNode {
   );
 }
 
-function describeNetworkError(url: string): string {
+// An opaque no-cors request resolves iff the server answered, so if the real request failed
+// but this one resolves, the server is reachable and the browser's CORS check is what blocked it.
+async function isCorsBlocked(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { mode: 'no-cors', method: 'GET', signal: AbortSignal.timeout(5000) });
+    return true;
+  } catch { return false; }
+}
+
+function describeNetworkError(url: string, corsBlocked = false): string {
   // An undefined {{variable}} is the cause, not the network: name it instead of listing CORS/SSL guesses.
   const undefinedVars = [...new Set([...url.matchAll(/\{\{\s*([^}$]+?)\s*\}\}/g)].map((m) => m[1]))];
   if (undefinedVars.length) {
@@ -133,6 +143,12 @@ function describeNetworkError(url: string): string {
   }
   const mixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(url);
   const isHttps = /^https:\/\//i.test(url);
+  if (corsBlocked) {
+    const extension = (window as any).electron || isExtensionInstalled()
+      ? 'The request was sent through the Desktop App / extension, so check the extension is allowed for this site.'
+      : 'Extension not installed.\nInstall the Reqspace Transport extension (Get App button) to send requests to servers that block CORS.';
+    return [`Blocked by CORS: ${url}`, '', `The server is reachable, but it does not allow requests from this web page (${window.location.origin}), so the browser blocked the response.`, '', extension, 'Alternatively, make the server send an Access-Control-Allow-Origin header for this origin.'].join('\n');
+  }
   const out = [`Could not reach ${url}`, '', 'The request never left the browser.'];
   if (mixedContent) {
     out.push('', 'Mixed content: this app is served over HTTPS and the browser blocks requests to plain HTTP URLs. Use an HTTPS URL, or send the request with the Desktop App or Browser Extension.');
@@ -555,10 +571,11 @@ export function UrlBar() {
         && /failed to fetch|networkerror|load failed/i.test(err.message);
       // Input the user must fix (e.g. empty URL) is not a server failure.
       const isClientError = err?.code === 'EMPTY_URL';
+      const corsBlocked = isNetworkError && !/\{\{/.test(sentUrl) && await isCorsBlocked(sentUrl);
       const errorBody = err.response?.data
         ? JSON.stringify(err.response.data, null, 2)
         : isNetworkError
-          ? describeNetworkError(sentUrl)
+          ? describeNetworkError(sentUrl, corsBlocked)
           : err.message;
       setResponseForTab(tabId, {
         status: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),

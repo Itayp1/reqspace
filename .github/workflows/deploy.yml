@@ -25,8 +25,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Unique, readable version per image: <package.json major.minor>.<run number>, e.g. 1.4.87.
+      - name: Compute version
+        id: ver
+        run: echo "v=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
+          build-args: APP_VERSION=${{ steps.ver.outputs.v }}
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
@@ -35,6 +41,7 @@ jobs:
           tags: |
             ghcr.io/itayp1/reqspace:latest
             ghcr.io/itayp1/reqspace:${{ github.sha }}
+            ghcr.io/itayp1/reqspace:${{ steps.ver.outputs.v }}
 
       # Coolify's API is only reachable over Tailscale, so join the tailnet
       # as tag:ci (needs TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET).
