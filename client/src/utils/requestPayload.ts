@@ -84,8 +84,8 @@ export function cleanSettings(req: RequestLike): Record<string, unknown> {
   if (typeof s.encodeUrl === 'boolean') out.encodeUrl = s.encodeUrl;
   if (typeof s.timeout === 'number' && Number.isFinite(s.timeout) && s.timeout >= 0) out.timeout = Math.trunc(s.timeout);
   if (req.tabType === 'connection' || s.connection) {
-    // sioAuth may hold a token - never stored with the request.
-    const { sioAuth: _omit, ...conn } = (req.connection ?? s.connection ?? {}) as Record<string, any>;
+    // Passwords / tokens are saved with the request, like request auth; only localStorage drops them.
+    const conn = req.connection ?? s.connection ?? {};
     out.connection = conn;
   }
   return out;

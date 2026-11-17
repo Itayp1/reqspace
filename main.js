@@ -337,6 +337,18 @@ ipcMain.on('reqspace:abort-request', (_e, requestId) => {
   if (c) c.abort();
 });
 
+// Live connections (Kafka, authenticated WebSocket) live in the main process; see electron/connections.js.
+const conns = require('./electron/connections');
+const wrap = (fn) => async (_e, ...args) => {
+  try { return { ok: true, data: await fn(...args) }; } catch (err) { return { ok: false, error: err && err.message ? err.message : String(err) }; }
+};
+ipcMain.handle('reqspace:conn-open', async (e, id, kind, cfg) =>
+  wrap(() => conns.open(id, kind, cfg, (cid, ev) => { if (!e.sender.isDestroyed()) e.sender.send('reqspace:conn-event', cid, ev); }))(e));
+ipcMain.handle('reqspace:conn-close', wrap((id) => conns.close(id)));
+ipcMain.handle('reqspace:conn-send', wrap((id, payload) => conns.send(id, payload)));
+ipcMain.handle('reqspace:conn-commit', wrap((id, m) => conns.commit(id, m)));
+ipcMain.handle('reqspace:kafka-list', wrap((cfg) => conns.kafkaList(cfg)));
+
 app.whenReady().then(() => {
   buildMenu(); createWindow();
   // Packaged builds only; downloads a new GitHub Release in the background and installs it on quit.

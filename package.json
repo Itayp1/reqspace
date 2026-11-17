@@ -75,7 +75,9 @@
     "wait-on": "^9.1.0"
   },
   "dependencies": {
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "kafkajs": "^2.2.4",
+    "ws": "^8.23.0"
   },
   "packageManager": "pnpm@10.34.9",
   "pnpm": {

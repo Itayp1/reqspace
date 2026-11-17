@@ -80,6 +80,29 @@ export interface ConnectionSettings {
   listen?: string[];
   /** WebSocket sub-protocols, comma separated. */
   wsProtocols?: string;
+  /** WebSocket auth (desktop app only): none | bearer | basic | headers (request headers). */
+  wsAuthType?: 'none' | 'bearer' | 'basic' | 'headers';
+  wsUsername?: string;
+  /** false = accept self-signed / invalid certificates (wss://). Desktop app only. */
+  wsVerifySsl?: boolean;
+  /** Kafka (desktop app only). Brokers live in the request URL. */
+  kafkaTopic?: string;
+  kafkaGroup?: string;
+  kafkaClientId?: string;
+  kafkaFromBeginning?: boolean;
+  /** Empty = all partitions. */
+  kafkaPartition?: string;
+  kafkaSasl?: boolean;
+  kafkaMechanism?: 'plain' | 'scram-sha-256' | 'scram-sha-512';
+  kafkaUsername?: string;
+  kafkaSsl?: boolean;
+  kafkaVerifySsl?: boolean;
+  /** Manual offset commit: marking a message read commits its offset on the broker. */
+  kafkaCommitOnRead?: boolean;
+  kafkaKey?: string;
+  kafkaHeaders?: string;
+  /** Passwords / tokens / private keys. Never persisted (stripped before save and persist). */
+  secrets?: { wsToken?: string; wsPassword?: string; kafkaPassword?: string; kafkaCa?: string; kafkaCert?: string; kafkaKey?: string };
 }
 
 export interface ResponseData {
@@ -153,7 +176,7 @@ function stripSecrets(tab: ActiveRequest): ActiveRequest {
   return {
     ...tab,
     auth: tab.auth ? { type: tab.auth.type } : tab.auth,
-    connection: tab.connection ? { ...tab.connection, sioAuth: undefined } : tab.connection,
+    connection: tab.connection ? { ...tab.connection, sioAuth: undefined, secrets: undefined } : tab.connection,
     headers: (tab.headers ?? []).map(h =>
       SENSITIVE_HEADER_KEYS.test(h.key) ? { ...h, value: '' } : h
     ),
