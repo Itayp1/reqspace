@@ -296,6 +296,7 @@ test.describe('I — response viewer', () => {
     await scene(page, { request: { url: 'https://mock.test/x/{{nope_undefined}}' } });
     await page.getByTestId('console-toggle-btn').click();
     await send(page);
+    await page.getByRole('button', { name: 'Run Anyway' }).click();
     await expect(page.getByTestId('console-unresolved-var').first()).toBeVisible();
   });
 

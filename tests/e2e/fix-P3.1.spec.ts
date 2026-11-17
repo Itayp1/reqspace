@@ -43,8 +43,9 @@ const FAKE_EXTENSION = () => {
   });
 };
 
-async function setProxy(page: any, on: boolean, url = 'http://127.0.0.1:8080') {
+async function setProxy(page: any, on: boolean, url = 'http://127.0.0.1:8080', verifySsl = false) {
   await page.getByTestId('settings-btn').click();
+  if (verifySsl) await page.locator('#verifySsl').check();
   const cb = page.getByTestId('proxy-enable-checkbox');
   if (on) {
     await cb.check();
@@ -125,7 +126,8 @@ test('[P3.1] a configured proxy is passed to the transport (and omitted when off
 
 test('[P3.1] in the plain web build (no extension) the app warns the proxy is not used', async ({ page }) => {
   await registerUser(page, 'p31w');
-  await setProxy(page, true);
+  // Verify SSL is off by default and its warning comes first (only warnings[0] is toasted); turn it on so the proxy warning is the one shown.
+  await setProxy(page, true, undefined, true);
   await page.route('http://example.test/**', (r) => r.fulfill({ status: 200, contentType: 'text/plain', body: 'direct' }));
   await sendOnce(page, 'http://example.test/x');
   await expect(page.getByTestId('toast-info').filter({ hasText: /proxy/i }).first()).toBeVisible();

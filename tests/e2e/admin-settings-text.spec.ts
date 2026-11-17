@@ -7,10 +7,12 @@ import path from 'path';
 // server-side SSRF guard only covers requests the server makes itself (URL imports).
 test('Admin settings SSRF text does not claim to govern "Send"', () => {
   const src = fs.readFileSync(path.resolve(__dirname, '../../client/src/pages/AdminPage.tsx'), 'utf8');
+  // The private-network toggle is no longer rendered in the Admin UI (the server proxy relay was removed),
+  // so the page must simply not make the old claim; if the toggle returns, its text must carry the caveats.
+  expect(src).not.toContain(`every user's "Send"`);
   const start = src.indexOf('Allow requests to internal/private network addresses');
-  expect(start).toBeGreaterThan(-1);
+  if (start === -1) return;
   const text = src.slice(start, start + 1200).replace(/\s+/g, ' ');
-  expect(text).not.toContain(`every user's "Send"`);
-  expect(text).toContain('on a user\'s behalf');
+  expect(text).toContain("on a user's behalf");
   expect(text).toContain('It does not affect "Send"');
 });
