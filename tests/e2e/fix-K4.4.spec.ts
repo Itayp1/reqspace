@@ -29,8 +29,7 @@ async function loginUi(page: Page, ctx: APIRequestContext) {
   // The server's CSRF check only whitelists the dev origin :5173; this run's client may be on another port.
   await page.context().route('**/api/**', async (r) => {
     if (r.request().method() === 'GET') return r.fallback();
-    const res = await r.fetch({ headers: { ...r.request().headers(), origin: 'http://localhost:5173' } });
-    await r.fulfill({ response: res });
+    try { const res = await r.fetch({ headers: { ...r.request().headers(), origin: 'http://localhost:5173' } }); await r.fulfill({ response: res }); } catch { /* page closed */ }
   });
   await page.goto('/');
   await expect(page.getByTestId('workspace-select')).toBeVisible();
