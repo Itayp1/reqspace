@@ -4,6 +4,7 @@ import { registerUser, loginAdminUi } from '../helpers';
 /** QA-28: Admin > Workspaces shows "1 members" / "1 collections" for a count of 1. */
 test('Admin workspaces table uses singular for a count of 1', async ({ page }) => {
   await registerUser(page, 'qa28', 'Plural User');
+  await page.goto('about:blank'); // stop the app's in-flight requests so they don't 401 into fperrors
   await page.context().clearCookies();
   await loginAdminUi(page);
   await page.goto('/admin');
