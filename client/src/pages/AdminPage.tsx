@@ -326,7 +326,7 @@ export default function AdminPage() {
                 {/* 1. Email (SMTP) */}
                 <div className="p-4 border border-border rounded-lg bg-surface">
                   <div className="flex items-center gap-2 mb-2">
-                    <input 
+                    <input autoComplete="off" 
                       type="checkbox" 
                       id="admin-smtp-enabled"
                       data-testid="admin-smtp-enabled"
@@ -339,26 +339,26 @@ export default function AdminPage() {
                     <div className="space-y-3 mt-3 ml-6 border-l-2 border-border pl-4">
                       <div>
                         <label className="block text-xs mb-1 text-text-muted">Host</label>
-                        <input data-testid="admin-smtp-host" type="text" value={config.auth.smtp.host || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, host: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="smtp.gmail.com" />
+                        <input autoComplete="off" data-testid="admin-smtp-host" type="text" value={config.auth.smtp.host || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, host: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="smtp.gmail.com" />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">Port</label>
-                          <input data-testid="admin-smtp-port" type="number" value={config.auth.smtp.port || 587} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, port: Number(e.target.value)}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input autoComplete="off" data-testid="admin-smtp-port" type="number" value={config.auth.smtp.port || 587} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, port: Number(e.target.value)}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">From Address</label>
-                          <input data-testid="admin-smtp-from" type="text" value={config.auth.smtp.fromAddress || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, fromAddress: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="noreply@reqspace.com" />
+                          <input autoComplete="off" data-testid="admin-smtp-from" type="text" value={config.auth.smtp.fromAddress || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, fromAddress: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="noreply@reqspace.com" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">User</label>
-                          <input data-testid="admin-smtp-user" type="text" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input autoComplete="off" data-testid="admin-smtp-user" type="text" value={config.auth.smtp.user || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, user: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                         <div>
                           <label className="block text-xs mb-1 text-text-muted">Password</label>
-                          <input data-testid="admin-smtp-pass" type="password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                          <input autoComplete="new-password" data-testid="admin-smtp-pass" type="password" value={config.auth.smtp.pass || ''} onChange={e => setConfig({...config, auth: {...config.auth, smtp: {...config.auth.smtp, pass: e.target.value}}})} className="w-full p-2 border border-border rounded bg-background text-sm" />
                         </div>
                       </div>
                       <button 
@@ -393,7 +393,7 @@ export default function AdminPage() {
                 {/* 2. Self Registration */}
                 <div className="p-4 border border-border rounded-lg bg-surface">
                   <div className="flex items-center gap-2">
-                    <input 
+                    <input autoComplete="off" 
                       type="checkbox" 
                       id="admin-self-registration"
                       data-testid="admin-self-registration"
@@ -411,7 +411,7 @@ export default function AdminPage() {
 
                 <div className="p-4 border border-border rounded-lg bg-surface">
                   <div className="flex items-center gap-2">
-                    <input
+                    <input autoComplete="off"
                       type="checkbox"
                       id="admin-disable-admin-login"
                       data-testid="admin-disable-admin-login"
@@ -434,7 +434,7 @@ export default function AdminPage() {
                   return (
                     <div key={provider} className="p-4 border border-border rounded-lg bg-surface">
                       <div className="flex items-center gap-2 mb-2">
-                        <input type="checkbox" id={`admin-${provider}-enabled`} data-testid={`admin-${provider}-enabled`} checked={p.enabled || false} onChange={e => setP({ enabled: e.target.checked })} />
+                        <input autoComplete="off" type="checkbox" id={`admin-${provider}-enabled`} data-testid={`admin-${provider}-enabled`} checked={p.enabled || false} onChange={e => setP({ enabled: e.target.checked })} />
                         <label htmlFor={`admin-${provider}-enabled`} className="text-sm font-bold">{i + 3}. {provider === 'microsoft' ? 'Microsoft (Azure / Entra ID)' : provider === 'custom' ? 'Custom OAuth2 / OIDC' : label} OAuth</label>
                       </div>
                       {p.enabled && (
@@ -463,15 +463,15 @@ export default function AdminPage() {
                           })()}
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">{provider === 'microsoft' ? 'Application (client) ID' : 'Client ID'}</label>
-                            <input data-testid={`admin-${provider}-client-id`} type="text" value={p.clientId || ''} onChange={e => setP({ clientId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                            <input autoComplete="off" data-testid={`admin-${provider}-client-id`} type="text" value={p.clientId || ''} onChange={e => setP({ clientId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">Client Secret</label>
-                            <input data-testid={`admin-${provider}-client-secret`} type="password" value={p.clientSecret || ''} onChange={e => setP({ clientSecret: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
+                            <input autoComplete="new-password" data-testid={`admin-${provider}-client-secret`} type="password" value={p.clientSecret || ''} onChange={e => setP({ clientSecret: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" />
                           </div>
                           <div>
                             <label className="block text-xs mb-1 text-text-muted">Proxy URL (optional, for the server's calls to the provider)</label>
-                            <input data-testid={`admin-${provider}-proxy-url`} type="text" value={p.proxyUrl || ''} onChange={e => setP({ proxyUrl: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="http://user:pass@proxy.example.com:8080" />
+                            <input autoComplete="off" data-testid={`admin-${provider}-proxy-url`} type="text" value={p.proxyUrl || ''} onChange={e => setP({ proxyUrl: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="http://user:pass@proxy.example.com:8080" />
                           </div>
                           {provider === 'custom' && (
                             <>
@@ -484,7 +484,7 @@ export default function AdminPage() {
                               ] as const).map(([field, text, ph]) => (
                                 <div key={field}>
                                   <label className="block text-xs mb-1 text-text-muted">{text}</label>
-                                  <input data-testid={`admin-custom-${field}`} type="text" value={p[field] || ''} onChange={e => setP({ [field]: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder={ph} />
+                                  <input autoComplete="off" data-testid={`admin-custom-${field}`} type="text" value={p[field] || ''} onChange={e => setP({ [field]: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder={ph} />
                                 </div>
                               ))}
                             </>
@@ -492,7 +492,7 @@ export default function AdminPage() {
                           {provider === 'microsoft' && (
                             <div>
                               <label className="block text-xs mb-1 text-text-muted">Tenant ID (or common / organizations / consumers)</label>
-                              <input data-testid="admin-microsoft-tenant-id" type="text" value={p.tenantId || ''} onChange={e => setP({ tenantId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="common" />
+                              <input autoComplete="off" data-testid="admin-microsoft-tenant-id" type="text" value={p.tenantId || ''} onChange={e => setP({ tenantId: e.target.value })} className="w-full p-2 border border-border rounded bg-background text-sm" placeholder="common" />
                             </div>
                           )}
                         </div>
@@ -527,7 +527,7 @@ export default function AdminPage() {
                       </select>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input
+                      <input autoComplete="off"
                         type="checkbox"
                         id="admin-server-ratelimit-enabled"
                         data-testid="admin-server-ratelimit-enabled"
@@ -539,7 +539,7 @@ export default function AdminPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium mb-1">Login attempts per 15 min (per IP)</label>
-                        <input
+                        <input autoComplete="off"
                           type="number"
                           min={1}
                           data-testid="admin-server-login-max"
@@ -550,7 +550,7 @@ export default function AdminPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">Registrations per hour (per IP)</label>
-                        <input
+                        <input autoComplete="off"
                           type="number"
                           min={1}
                           data-testid="admin-server-register-max"
@@ -569,7 +569,7 @@ export default function AdminPage() {
                       ] as const).map(([field, text, fallback, testId]) => (
                         <div key={field}>
                           <label className="block text-sm font-medium mb-1">{text}</label>
-                          <input
+                          <input autoComplete="off"
                             type="number"
                             min={1}
                             data-testid={testId}
@@ -582,7 +582,7 @@ export default function AdminPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Trust proxy (empty = off, a hop count such as 1, or a comma-separated IP/CIDR list)</label>
-                      <input
+                      <input autoComplete="off"
                         type="text"
                         data-testid="admin-server-trust-proxy"
                         value={server.trustProxy ?? ''}
@@ -606,7 +606,7 @@ export default function AdminPage() {
                       />
                     </div>
                     <div className="flex items-center gap-2">
-                      <input
+                      <input autoComplete="off"
                         type="checkbox"
                         id="admin-server-capture-auth-failures"
                         data-testid="admin-server-capture-auth-failures"
@@ -617,7 +617,7 @@ export default function AdminPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Error log de-duplication window, ms (0 = record every occurrence)</label>
-                      <input
+                      <input autoComplete="off"
                         type="number"
                         min={0}
                         data-testid="admin-server-error-dedupe"
@@ -650,7 +650,7 @@ export default function AdminPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Max Request Body KB (before truncate)</label>
-                  <input 
+                  <input autoComplete="off" 
                     type="number" 
                     value={config.history?.maxRequestBodyKB || 10} 
                     onChange={e => setConfig({...config, history: {...config.history, maxRequestBodyKB: +e.target.value}})}
@@ -659,7 +659,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Max Total History per User MB</label>
-                  <input 
+                  <input autoComplete="off" 
                     type="number" 
                     value={config.history?.maxTotalPerUserMB || 20} 
                     onChange={e => setConfig({...config, history: {...config.history, maxTotalPerUserMB: +e.target.value}})}
@@ -668,7 +668,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Max History Records per User (0 = unlimited)</label>
-                  <input
+                  <input autoComplete="off"
                     type="number"
                     min={0}
                     data-testid="admin-history-max-records"
@@ -679,7 +679,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">History Retention Days (0 = keep forever)</label>
-                  <input
+                  <input autoComplete="off"
                     type="number"
                     min={0}
                     data-testid="admin-history-retention-days"
@@ -710,7 +710,7 @@ export default function AdminPage() {
                   Export Data
                 </button>
                 <div className="relative">
-                  <input 
+                  <input autoComplete="off" 
                     data-testid="import-data-input"
                     type="file"
                     accept=".json"

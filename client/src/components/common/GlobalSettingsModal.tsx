@@ -123,7 +123,7 @@ function ClientCertificatesManager() {
           {error && <div className="text-red-600 dark:text-red-400 text-xs">{error}</div>}
           <div>
             <label className="block text-xs mb-1">Hostname (Supports Wildcards e.g. *.example.com)</label>
-            <input type="text" data-testid="cert-hostname-input" value={hostname} onChange={e => setHostname(e.target.value)} placeholder="api.company.local" className="w-full bg-surface border border-border p-1.5 rounded text-sm font-mono" />
+            <input autoComplete="off" type="text" data-testid="cert-hostname-input" value={hostname} onChange={e => setHostname(e.target.value)} placeholder="api.company.local" className="w-full bg-surface border border-border p-1.5 rounded text-sm font-mono" />
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
@@ -143,7 +143,7 @@ function ClientCertificatesManager() {
           </div>
           <div>
             <label className="block text-xs mb-1">Passphrase (Optional)</label>
-            <input type="password" data-testid="cert-passphrase-input" value={passphrase} onChange={e => setPassphrase(e.target.value)} className="w-full bg-surface border border-border p-1.5 rounded text-sm" />
+            <input autoComplete="new-password" type="password" data-testid="cert-passphrase-input" value={passphrase} onChange={e => setPassphrase(e.target.value)} className="w-full bg-surface border border-border p-1.5 rounded text-sm" />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setIsAdding(false)} className="px-3 py-1 text-xs hover:bg-border rounded">Cancel</button>
