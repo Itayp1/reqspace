@@ -19,6 +19,7 @@ const oauthProviderSchema = z.object({
 export const updateConfigSchema = z.object({
   auth: z.object({
     allowSelfRegistration: z.boolean().optional(),
+    disableAdminLogin: z.boolean().optional(),
     allowedEmailDomains: z.array(z.string()).optional(),
     jwtTtlDays: z.number().int().min(1).max(365).optional(),
     jwtRefreshHoursBeforeExpiry: z.number().int().min(0).max(8760).optional(),

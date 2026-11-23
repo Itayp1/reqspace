@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../api/axios';
+import { apiErrorMessage } from '../utils/apiError';
 import { Shield, ShieldOff, Trash2, Ban, X } from 'lucide-react';
 import { AddUserModal } from '../components/admin/AddUserModal';
 import { ErrorsPanel } from '../components/admin/ErrorsPanel';
@@ -118,7 +119,8 @@ export default function AdminPage() {
       await api.put('/admin/config', payload);
       useToastStore.getState().addToast('success', 'Config saved');
     } catch (e: any) {
-      useToastStore.getState().addToast('error', e.message);
+      useToastStore.getState().addToast('error', apiErrorMessage(e, 'Failed to save config'));
+      fetchConfig(); // drop the unsaved checkbox state the server refused
     }
   };
 
@@ -405,6 +407,22 @@ export default function AdminPage() {
                       Allows users to register using a local email and password stored in the database.
                     </div>
                   )}
+                </div>
+
+                <div className="p-4 border border-border rounded-lg bg-surface">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="admin-disable-admin-login"
+                      data-testid="admin-disable-admin-login"
+                      checked={config.auth?.disableAdminLogin || false}
+                      onChange={e => setConfig({...config, auth: {...config.auth, disableAdminLogin: e.target.checked}})}
+                    />
+                    <label htmlFor="admin-disable-admin-login" className="text-sm font-bold">Disable admin password login</label>
+                  </div>
+                  <div className="mt-2 ml-6 text-xs text-text-muted">
+                    Super-admins can no longer sign in with a password; use SSO. Requires an active super-admin who signs in with SSO. Set the server env ALLOW_ADMIN_LOGIN=true to override this if SSO breaks.
+                  </div>
                 </div>
 
                 {/* 3-5. OAuth sign-in providers */}

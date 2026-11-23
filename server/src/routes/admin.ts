@@ -298,6 +298,14 @@ router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequ
   }
   if (update.proxy?.password === SECRET_MASK) delete update.proxy.password;
 
+  // Never lock everyone out: password login may only be disabled while an active SSO super-admin exists.
+  if (update.auth?.disableAdminLogin === true) {
+    const ssoAdmins = await UserRepository.list({ isSuperAdmin: true, authType: 'sso', status: 'active' }, { limit: 1 });
+    if (!ssoAdmins.items.length) {
+      return res.status(400).json({ message: 'Cannot disable admin password login: no active super-admin signs in with SSO. Sign in once with SSO and make that user a super-admin first.' });
+    }
+  }
+
   const config = await SystemConfigRepository.updateConfig(update);
   await logAudit(req.user!._id as any, 'admin.config.update', {
     ip: req.ip, details: { fields: Object.keys(req.body) },

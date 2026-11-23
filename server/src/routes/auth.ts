@@ -18,6 +18,11 @@ async function needsSetup() {
   return (await UserRepository.list({ isSuperAdmin: true })).items.length === 0;
 }
 
+// DB setting turns super-admin password login off; env ALLOW_ADMIN_LOGIN=true wins (fallback when OAuth/DB is broken).
+function adminLoginDisabled(config: { auth?: { disableAdminLogin?: boolean } } | null) {
+  return !!config?.auth?.disableAdminLogin && !/^(1|true|yes)$/i.test(process.env.ALLOW_ADMIN_LOGIN ?? '');
+}
+
 // Login/password-guessing and account-creation throttles — this whole file
 // was previously reachable with unlimited attempts per IP.
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: () => getServerSettings().rateLimit.loginMax, message: 'Too many login attempts — please try again later.' });
@@ -144,6 +149,11 @@ router.post('/login', validate(schemas.loginSchema), loginLimiter, async (req: R
   }
   failedLogins.delete(lk);
 
+  if (user.isSuperAdmin && adminLoginDisabled(config)) {
+    await logAudit(user._id as any, 'auth.login_failed', { ip: req.ip, details: { reason: 'admin_login_disabled' } });
+    return res.status(403).json({ message: "Administrator accounts can't sign in with a password here. Use SSO." });
+  }
+
   await UserRepository.update(user._id as any, { lastLoginAt: new Date() } as any);
   await logAudit(user._id as any, 'auth.login', { ip: req.ip });
 
@@ -204,6 +214,7 @@ router.get('/config', async (_req: Request, res: Response) => {
     mode: isOfflineMode() ? 'offline' : 'login',
     allowSelfRegistration: config?.auth?.allowSelfRegistration ?? false,
     needsSetup: await needsSetup(),
+    adminLoginDisabled: adminLoginDisabled(config),
   };
   // Public: only what the browser needs to start the redirect — never the secret.
   for (const id of OAUTH_PROVIDERS) {

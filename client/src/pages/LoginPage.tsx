@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axios';
 import { apiErrorMessage } from '../utils/apiError';
 import { useAuthStore } from '../store/authStore';
-import OAuthButtons from '../components/common/OAuthButtons';
+import OAuthButtons, { enabledOAuthProviders } from '../components/common/OAuthButtons';
 import SecretsSetup from '../components/common/SecretsSetup';
 import { sessionCookieStored, SESSION_COOKIE_BLOCKED_MESSAGE } from '../utils/sessionCookie';
 
@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [config, setConfig] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
   const setUser = useAuthStore((state) => state.setUser);
 
@@ -49,6 +50,9 @@ export default function LoginPage() {
     }
   };
 
+  const oauthOnly = !!config?.adminLoginDisabled && !config.needsSetup && enabledOAuthProviders(config).length > 0;
+  const hideForm = oauthOnly && !showPassword;
+
   return (
     <div className="flex h-screen items-center justify-center bg-surface">
       <form onSubmit={handleSubmit} noValidate className="bg-background p-8 rounded-lg shadow-md w-96 border border-border">
@@ -60,6 +64,13 @@ export default function LoginPage() {
         
         {error && <div data-testid="login-error" role="alert" className="bg-delete/10 dark:bg-red-950 text-delete p-2 rounded mb-4 text-sm">{error}</div>}
 
+        {config?.adminLoginDisabled && !config.needsSetup && (
+          <p role="status" className="text-xs text-text-muted text-center mb-4">
+            {oauthOnly ? 'Password sign-in is turned off for administrators.' : 'Administrator sign-in is disabled. Use a non-admin account.'}
+          </p>
+        )}
+
+        {hideForm ? <OAuthButtons config={config} onError={setError} /> : <>
         {config?.needsSetup && (
           <div className="mb-4">
             <label htmlFor="login-name" className="block text-sm font-medium mb-1">Name</label>
@@ -115,6 +126,13 @@ export default function LoginPage() {
         </button>
 
         <OAuthButtons config={config} onError={setError} />
+        </>}
+
+        {oauthOnly && (
+          <button type="button" data-testid="login-show-password" onClick={() => setShowPassword(!showPassword)} className="w-full mt-2 text-sm text-text-muted hover:underline focus-visible:ring-2 focus-visible:ring-primary/40 rounded">
+            {showPassword ? 'Back to other sign-in options' : 'Sign in with a password'}
+          </button>
+        )}
 
         {!config?.needsSetup && config?.allowSelfRegistration !== false && (
           <div className="mt-4 text-center text-sm text-text-muted">

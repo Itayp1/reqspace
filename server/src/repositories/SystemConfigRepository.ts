@@ -8,6 +8,8 @@ export interface ISystemConfigRecord {
   id: string;
   auth: {
     allowSelfRegistration: boolean;
+    /** Block password login for super-admins (use OAuth). Overridden by env ALLOW_ADMIN_LOGIN=true. */
+    disableAdminLogin?: boolean;
     allowedEmailDomains: string[];
     jwtTtlDays: number;
     jwtRefreshHoursBeforeExpiry: number;

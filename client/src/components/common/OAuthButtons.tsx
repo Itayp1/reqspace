@@ -41,10 +41,13 @@ const CONFIG_KEY: Record<OAuthProvider, string> = {
 /** One "Continue with …" button per enabled provider in the public /auth/config response. */
 const labelOf = (provider: OAuthProvider, cfg: any) => (provider === 'custom' && cfg?.name) || OAUTH_LABELS[provider];
 
+export const enabledOAuthProviders = (config: any) =>
+  OAUTH_PROVIDERS.filter((p) => config?.[CONFIG_KEY[p]]?.enabled && config[CONFIG_KEY[p]].clientId && (p !== 'custom' || config[CONFIG_KEY[p]].authorizeUrl));
+
 export default function OAuthButtons({ config, onError }: { config: any; onError: (message: string) => void }) {
   return (
     <>
-      {OAUTH_PROVIDERS.filter((p) => config?.[CONFIG_KEY[p]]?.enabled && config[CONFIG_KEY[p]].clientId && (p !== 'custom' || config[CONFIG_KEY[p]].authorizeUrl)).map((provider) => (
+      {enabledOAuthProviders(config).map((provider) => (
         <button
           key={provider}
           type="button"
