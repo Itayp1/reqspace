@@ -359,7 +359,8 @@ const oauthLogin = (provider: OAuthProviderId) => async (req: Request, res: Resp
     // 3. Find or create user
     let user = await UserRepository.findByEmail(userData.email);
     if (!user) {
-      if (!config?.auth?.allowSelfRegistration) {
+      // The admin-configured custom SSO vouches for its users, so it may create them even when open registration is off.
+      if (!config?.auth?.allowSelfRegistration && provider !== 'custom') {
         return res.status(403).json({ message: 'Self registration is disabled' });
       }
       let created = false;
