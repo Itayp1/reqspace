@@ -1,6 +1,6 @@
 {
   "name": "reqspace",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "reqSpace Desktop App",
   "main": "main.js",
   "scripts": {
@@ -50,8 +50,13 @@
       }
     ],
     "win": {
-      "target": "nsis",
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
       "artifactName": "reqSpace-Setup.exe"
+    },
+    "portable": {
+      "artifactName": "reqSpace-Portable.exe"
     },
     "publish": {
       "provider": "github",

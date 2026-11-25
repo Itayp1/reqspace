@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Menu, net } = require('electron');
 const { sendRequest: nodeSendRequest } = require('./electron/httpRequest');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -53,7 +53,8 @@ async function customAuthorizeUrl() {
   if (Date.now() - customIdpCache.at < 30000) return customIdpCache.authorizeUrl;
   let authorizeUrl = '';
   try {
-    const res = await fetch(appOrigin() + '/api/auth/config', { signal: AbortSignal.timeout(3000) });
+    // net.fetch (not Node's fetch) so a company-internal CA from the OS certificate store is trusted.
+    const res = await net.fetch(appOrigin() + '/api/auth/config', { signal: AbortSignal.timeout(3000) });
     const cfg = await res.json();
     if (cfg && cfg.customOAuth && cfg.customOAuth.enabled) authorizeUrl = cfg.customOAuth.authorizeUrl || '';
   } catch { /* server unreachable: treat as not configured */ }
@@ -89,10 +90,9 @@ function readConfig() {
 }
 
 // ── SQLite location ──────────────────────────────────────────────────────────
-// Default: next to the executable (the portable build's own folder when set). If that folder is
-// not writable (e.g. an installer under Program Files) fall back to the per-user data folder.
-// An install that already has a database in the old per-user location keeps using it until the
-// user picks a folder, so upgrading never hides existing data.
+// Default: the per-user data folder (%APPDATA%\reqSpace\reqspace). The user can pick another
+// folder in the setup screen. A database already next to the exe keeps being used, so upgrading
+// never hides existing data.
 const DB_FILE_NAME = 'reqSpace.sqlite';
 
 function isWritableDir(dir) {
@@ -103,9 +103,13 @@ function isWritableDir(dir) {
   } catch { return false; }
 }
 
+// A database already sitting next to the exe (the older default) keeps being used.
+function exeDir() {
+  return process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(app.getPath('exe'));
+}
+
 function defaultDbDir() {
-  const exeDir = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(app.getPath('exe'));
-  return isWritableDir(exeDir) ? exeDir : configDir;
+  return fs.existsSync(path.join(exeDir(), DB_FILE_NAME)) && isWritableDir(exeDir()) ? exeDir() : configDir;
 }
 
 function resolveDbDir(cfg) {
