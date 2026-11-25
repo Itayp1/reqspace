@@ -12,6 +12,7 @@ import { FpErrorRepository } from '../repositories/FpErrorRepository';
 import { CascadeRepository } from '../repositories/CascadeRepository';
 import { listErrorsQuerySchema } from '../schemas/errors.schemas';
 import { isValidId } from '../utils/ids';
+import { buildDump, encryptDump, decryptDump, previewImport, applyImport, TransferError } from '../utils/systemTransfer';
 import { superAdminCache, workspaceRoleCache } from '../utils/cache';
 import { likeAnyColumn, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 import { isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
@@ -374,6 +375,52 @@ async function runSmtpTest(req: AuthRequest, res: Response) {
     transporter.close();
   }
 }
+
+// ── Whole-system export / import ────────────────────────────────────────────
+// The file is encrypted with a password the admin chooses (it carries password hashes, secret variables,
+// OAuth/SMTP secrets and client certificates). Secrets sealed with this server's CERT_ENCRYPTION_KEY are
+// written in plaintext *inside* the encrypted file and sealed again with the target server's key.
+const transferErr = (res: Response, e: unknown) => {
+  if (e instanceof TransferError) return res.status(e.status).json({ message: e.message });
+  throw e;
+};
+const transferPassword = (req: AuthRequest): string | null => {
+  const raw = req.headers['x-transfer-password'];
+  const pw = typeof raw === 'string' ? Buffer.from(raw, 'base64').toString('utf8') : '';
+  return pw.length >= 8 ? pw : null;
+};
+
+router.post('/system/export', validate(schemas.systemExportSchema), async (req: AuthRequest, res: Response) => {
+  const { password, includeHistory } = req.body ?? {};
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ message: 'Choose a password of at least 8 characters.' });
+  try {
+    const file = await encryptDump(await buildDump({ includeHistory: includeHistory === true }), password);
+    await logAudit(req.user!._id as any, 'admin.export.system', { ip: req.ip, details: { includeHistory: includeHistory === true } });
+    res.setHeader('Content-Disposition', `attachment; filename="reqspace-system-${new Date().toISOString().slice(0, 10)}.rqsx"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    return res.send(file);
+  } catch (e) { return transferErr(res, e); }
+});
+
+// The body is the raw file (parsed by express.raw in index.ts, which allows far more than the JSON limit).
+router.post('/system/import/preview', validate(schemas.systemImportSchema), async (req: AuthRequest, res: Response) => {
+  const pw = transferPassword(req);
+  if (!pw || !Buffer.isBuffer(req.body)) return res.status(400).json({ message: 'A file and its password are required.' });
+  try {
+    return res.json(await previewImport(await decryptDump(req.body, pw), req.query.mode === 'merge' ? 'merge' : 'replace'));
+  } catch (e) { return transferErr(res, e); }
+});
+
+router.post('/system/import', validate(schemas.systemImportSchema), async (req: AuthRequest, res: Response) => {
+  const pw = transferPassword(req);
+  if (!pw || !Buffer.isBuffer(req.body)) return res.status(400).json({ message: 'A file and its password are required.' });
+  const mode = req.query.mode === 'merge' ? 'merge' : 'replace';
+  try {
+    const result = await applyImport(await decryptDump(req.body, pw), { mode, applyConfig: req.query.applyConfig === 'true' });
+    await logAudit(req.user!._id as any, 'admin.import.system', { ip: req.ip, details: { mode, ...result } });
+    return res.json(result);
+  } catch (e) { return transferErr(res, e); }
+});
 
 router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
   const workspaceId = req.params.workspaceId;

@@ -29,6 +29,8 @@ export interface ISystemConfigRecord {
   history: {
     maxRequestBodyKB: number;
     maxTotalPerUserMB: number;
+    /** Cap per user within one workspace, oldest entries are dropped first; 0 = off, absent = 10. */
+    maxTotalPerWorkspaceMB?: number;
     /** Per-user cap on stored entries; 0 or absent = unlimited. */
     maxRecords?: number;
     /** Entries older than this many days are purged; 0 or absent = keep forever. */
@@ -198,6 +200,7 @@ const DEFAULT_CONFIG = {
   history: {
     maxRequestBodyKB: 1024,
     maxTotalPerUserMB: 100,
+    maxTotalPerWorkspaceMB: 10,
     cleanupPolicy: 'fifo' as const,
   },
   proxy: {

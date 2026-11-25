@@ -7,6 +7,7 @@ import { apiErrorMessage } from '../utils/apiError';
 import { Shield, ShieldOff, Trash2, Ban, X, ChevronDown } from 'lucide-react';
 import { AddUserModal } from '../components/admin/AddUserModal';
 import { ErrorsPanel } from '../components/admin/ErrorsPanel';
+import { SystemBackupPanel } from '../components/admin/SystemBackupPanel';
 import { customConfirm } from '../utils/dialog';
 import { useEscape } from '../hooks/useEscape';
 import { useToastStore } from '../store/toastStore';
@@ -729,6 +730,17 @@ export default function AdminPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-1">Max History per User in a Workspace MB (0 = off, oldest entries are deleted first)</label>
+                  <input autoComplete="off"
+                    type="number"
+                    min={0}
+                    data-testid="admin-history-max-workspace-mb"
+                    value={config.history?.maxTotalPerWorkspaceMB ?? 10}
+                    onChange={e => setConfig({...config, history: {...config.history, maxTotalPerWorkspaceMB: +e.target.value}})}
+                    className="w-full p-2 border border-border rounded bg-surface"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-1">Max History Records per User (0 = unlimited)</label>
                   <input autoComplete="off"
                     type="number"
@@ -751,6 +763,10 @@ export default function AdminPage() {
                   />
                 </div>
               </div>
+            </Section>
+
+            <Section title="Full System Backup (encrypted export / import)" testId="admin-system-backup-section">
+              <SystemBackupPanel />
             </Section>
 
             <Section title="Export / Import System Data">

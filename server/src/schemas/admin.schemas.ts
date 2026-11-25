@@ -79,6 +79,7 @@ export const updateConfigSchema = z.object({
     maxRequestBodyKB: z.number().int().min(1).max(102400).optional(),
     maxTotalPerUserMB: z.number().int().min(1).max(102400).optional(),
     maxRecords: z.number().int().min(0).max(10_000_000).optional(),
+    maxTotalPerWorkspaceMB: z.number().int().min(0).max(102400).optional(),
     retentionDays: z.number().int().min(0).max(36500).optional(),
     cleanupPolicy: z.enum(['fifo']).optional(),
   }).optional(),
@@ -112,3 +113,10 @@ export const testSmtpSchema = z.object({
 }).strict();
 
 export const importDumpSchema = z.record(z.any()); // passthrough because multer adds fields
+
+export const systemExportSchema = z.object({
+  password: z.string().min(8).max(256),
+  includeHistory: z.boolean().optional(),
+});
+/** The import body is the raw encrypted file (read by express.raw), not JSON. */
+export const systemImportSchema = z.instanceof(Buffer);

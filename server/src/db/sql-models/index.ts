@@ -375,7 +375,7 @@ export function initSqlModels() {
     requestData: { type: DataTypes.TEXT, defaultValue: '{}' },
     responseData: { type: DataTypes.TEXT, defaultValue: '{}' },
     responseSizeBytes: { type: DataTypes.INTEGER, defaultValue: 0 },
-  }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false, indexes: [{ fields: ['userId', 'workspaceId'] }, { fields: ['createdAt'] }] });
+  }, { sequelize: sq, tableName: 'history', timestamps: true, updatedAt: false, indexes: [{ fields: ['userId', 'workspaceId'] }, { fields: ['createdAt'] }, { fields: ['userId', 'workspaceId', 'createdAt'], name: 'idx_history_user_ws_created' }, { fields: ['userId', 'createdAt'], name: 'idx_history_user_created' }] });
 
   SqlAuditLog.init({
     id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
