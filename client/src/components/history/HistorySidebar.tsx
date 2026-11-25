@@ -170,7 +170,7 @@ export default function HistorySidebar() {
               placeholder="Search history..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-background border border-border rounded pl-7 pr-2 py-1.5 text-xs text-text outline-none focus:border-primary transition-colors"
+              className="w-full bg-background border border-border rounded pl-7 pr-2 py-1.5 text-xs text-text outline-none focus:border-primary focus-visible:ring-1 focus-visible:ring-primary transition-colors"
             />
           </div>
           {settings?.saveHistory === false && (
@@ -178,8 +178,8 @@ export default function HistorySidebar() {
               History saving is off - new requests are not recorded.
             </p>
           )}
-          <div className="flex items-center justify-between mt-3">
-            <label htmlFor="saveHistoryToggle" className="text-[11px] text-text-muted flex-1 cursor-pointer">
+          <div className="flex flex-row-reverse items-center justify-end gap-2 mt-3">
+            <label htmlFor="saveHistoryToggle" className="text-[11px] text-text-muted cursor-pointer">
               Save Request History
             </label>
             <input
@@ -213,8 +213,9 @@ export default function HistorySidebar() {
             <div className="p-4 text-center text-sm text-text-muted">Loading...</div>
           ) : filteredHistory.length === 0 ? (
             <div className="p-8 text-center text-sm text-text-muted">
-              <div className="text-2xl mb-2">🕰️</div>
+              <div className="text-2xl mb-2" aria-hidden="true">🕰️</div>
               No history found.
+              <p className="mt-1 text-xs">Requests you send appear here.</p>
             </div>
           ) : (
             <>

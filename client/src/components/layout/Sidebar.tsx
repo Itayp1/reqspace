@@ -101,7 +101,7 @@ export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         <select 
           id="workspace-select"
           data-testid="workspace-select"
-          className="flex-1 p-2 bg-background border border-border rounded text-sm outline-none truncate"
+          className="flex-1 min-w-0 p-2 bg-background border border-border rounded text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary truncate"
           value={activeWorkspace?._id || ''}
           onChange={(e) => {
             const ws = workspaces.find(w => w._id === e.target.value);
