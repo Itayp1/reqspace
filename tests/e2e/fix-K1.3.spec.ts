@@ -27,8 +27,7 @@ test('[K1.3] history search filters by response status code', async ({ page }) =
   await page.context().addCookies((await ctx.storageState()).cookies);
   await page.context().route('**/api/**', async (r) => {
     if (r.request().method() === 'GET') return r.fallback();
-    const res = await r.fetch({ headers: { ...r.request().headers(), origin: 'http://localhost:5173' } });
-    await r.fulfill({ response: res });
+    try { const res = await r.fetch({ headers: { ...r.request().headers(), origin: 'http://localhost:5173' } }); await r.fulfill({ response: res }); } catch { /* page closed */ }
   });
   await page.goto('/');
   await expect(page.getByTestId('workspace-select')).toBeVisible();

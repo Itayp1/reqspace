@@ -63,7 +63,7 @@ export const useSettingsStore = create<SettingsStore>()(
     (set) => ({
       settings: {
         followRedirects: true,
-        verifySsl: true,
+        verifySsl: false,
         sendNoCacheHeader: false,
         encodeUrl: true,
         timeout: 0,

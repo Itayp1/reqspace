@@ -19,12 +19,16 @@ import type { KeyValueItem, ActiveRequest } from '../../store/requestStore';
 
 import { fileToBase64 } from '../../utils/fileToBase64';
 import { resolveAllVariables } from '../../utils/variables';
-import { applyRequestAuth, resolveInheritedAuth } from '../../utils/requestAuth';
+import { applyRequestAuth, folderChainClosestFirst, resolveInheritedAuth } from '../../utils/requestAuth';
 import { runPreRequestScript, runTestScript, diffRequestMods } from '../../utils/scripts';
 import { stripJsonComments } from '../../utils/jsonComments';
 import { toRequestPayload } from '../../utils/requestPayload';
 import { useToastStore } from '../../store/toastStore';
 import { notifyHistoryUpdated } from '../../utils/historySync';
+import { useEnvironmentStore } from '../../store/environmentStore';
+import { findMissingVariables, type MissingVariable } from '../../utils/missingVariables';
+import { MissingVariablesModal } from '../collection/MissingVariablesModal';
+import { isExtensionInstalled } from '../../transport/extension';
 
 function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () => void }) {
   return (
@@ -44,6 +48,8 @@ function ViewerForkModal({ onClose, onCopy }: { onClose: () => void, onCopy: () 
     </div>
   );
 }
+
+const IGNORED_MISSING = new Set<string>();
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
 
@@ -120,7 +126,16 @@ function conflictDiff(remote: any, local: any): React.ReactNode {
   );
 }
 
-function describeNetworkError(url: string): string {
+// An opaque no-cors request resolves iff the server answered, so if the real request failed
+// but this one resolves, the server is reachable and the browser's CORS check is what blocked it.
+async function isCorsBlocked(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { mode: 'no-cors', method: 'GET', signal: AbortSignal.timeout(5000) });
+    return true;
+  } catch { return false; }
+}
+
+function describeNetworkError(url: string, corsBlocked = false): string {
   // An undefined {{variable}} is the cause, not the network: name it instead of listing CORS/SSL guesses.
   const undefinedVars = [...new Set([...url.matchAll(/\{\{\s*([^}$]+?)\s*\}\}/g)].map((m) => m[1]))];
   if (undefinedVars.length) {
@@ -128,6 +143,12 @@ function describeNetworkError(url: string): string {
   }
   const mixedContent = typeof window !== 'undefined' && window.location.protocol === 'https:' && /^http:\/\//i.test(url);
   const isHttps = /^https:\/\//i.test(url);
+  if (corsBlocked) {
+    const extension = (window as any).electron || isExtensionInstalled()
+      ? 'The request was sent through the Desktop App / extension, so check the extension is allowed for this site.'
+      : 'Extension not installed.\nInstall the Reqspace Transport extension (Get App button) to send requests to servers that block CORS.';
+    return [`Blocked by CORS: ${url}`, '', `The server is reachable, but it does not allow requests from this web page (${window.location.origin}), so the browser blocked the response.`, '', extension, 'Alternatively, make the server send an Access-Control-Allow-Origin header for this origin.'].join('\n');
+  }
   const out = [`Could not reach ${url}`, '', 'The request never left the browser.'];
   if (mixedContent) {
     out.push('', 'Mixed content: this app is served over HTTPS and the browser blocks requests to plain HTTP URLs. Use an HTTPS URL, or send the request with the Desktop App or Browser Extension.');
@@ -208,7 +229,32 @@ export function UrlBar() {
   // Expose handleParamsChange via window so KeyValueEditor can call it when in Params tab
   (window as any).__onParamsChange = handleParamsChange;
 
-  const handleSend = async () => {
+  // Ask once about names no scope defines; "Run Anyway" is remembered for the session.
+  const [missing, setMissing] = useState<MissingVariable[] | null>(null);
+  const handleSend = () => {
+    if (!activeRequest) return;
+    const env = useEnvironmentStore.getState();
+    const col = useCollectionStore.getState().collections.find(c => c._id === activeRequest.collectionId);
+    const keys = [
+      ...(env.globalEnvironment?.variables || []),
+      ...(env.environments.find(e => e._id === env.activeEnvironmentId)?.variables || []),
+      ...(col?.variables || []),
+      ...env.userProfileVariables,
+    ].map(v => v.key);
+    const r: any = activeRequest;
+    // Collection and folder scripts run before the request and may define variables it uses.
+    const { foldersByCollection } = useCollectionStore.getState();
+    const folders = (foldersByCollection[activeRequest.collectionId] ?? []) as Folder[];
+    const scripts = [col, ...folderChainClosestFirst(activeRequest.folderId, folders)]
+      .map(g => ({ label: 'Parent', fields: { preRequestScript: g?.preRequestScript, testScript: g?.testScript } }));
+    const found = findMissingVariables(
+      [...scripts, { label: r.name || 'Request', fields: { url: r.url, params: r.params, headers: r.headers, auth: r.auth, body: r.body, preRequestScript: r.preRequestScript, testScript: r.testScript } }],
+      keys,
+    ).filter(m => !IGNORED_MISSING.has(m.name));
+    if (found.length) setMissing(found); else doSend();
+  };
+
+  const doSend = async () => {
     if (!activeRequest) return;
     // Captured now, not re-read from the store later — the user may switch
     // tabs while this request is in flight, and the response still has to
@@ -436,7 +482,7 @@ export function UrlBar() {
       if (getTransport() instanceof BrowserTransport) {
         const warnings = getBrowserTransportWarnings(reqPayload);
         warnings.forEach((message) => useConsoleStore.getState().addLog({ type: 'warn', message }));
-        if (warnings.length) useToastStore.getState().addToast('info', warnings[0]);
+        warnings.forEach((message) => useToastStore.getState().addToast('info', message));
       }
 
       const res = await sendRequest(reqPayload);
@@ -525,10 +571,11 @@ export function UrlBar() {
         && /failed to fetch|networkerror|load failed/i.test(err.message);
       // Input the user must fix (e.g. empty URL) is not a server failure.
       const isClientError = err?.code === 'EMPTY_URL';
+      const corsBlocked = isNetworkError && !/\{\{/.test(sentUrl) && await isCorsBlocked(sentUrl);
       const errorBody = err.response?.data
         ? JSON.stringify(err.response.data, null, 2)
         : isNetworkError
-          ? describeNetworkError(sentUrl)
+          ? describeNetworkError(sentUrl, corsBlocked)
           : err.message;
       setResponseForTab(tabId, {
         status: err.response?.status || ((isNetworkError || isClientError) ? 0 : 500),
@@ -894,6 +941,15 @@ export function UrlBar() {
 
       {isSaveModalOpen && (
         <SaveRequestModal onClose={() => setIsSaveModalOpen(false)} />
+      )}
+      {missing && (
+        <MissingVariablesModal
+          missing={missing}
+          collectionId={activeRequest.collectionId || ''}
+          onCreated={() => { setMissing(null); doSend(); }}
+          onRunAnyway={() => { missing.forEach(m => IGNORED_MISSING.add(m.name)); setMissing(null); doSend(); }}
+          onCancel={() => setMissing(null)}
+        />
       )}
       {isLoadTestModalOpen && (
         <LoadTestModal onClose={() => setIsLoadTestModalOpen(false)} />

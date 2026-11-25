@@ -134,7 +134,7 @@ export default defineConfig({
      of racing to bind a second process to the same port. */
   webServer: [
     {
-      command: 'npm run dev --prefix server',
+      command: 'pnpm --dir server run dev',
       url: API_BASE,
       reuseExistingServer: !!process.env.CI,
       env: {
@@ -149,7 +149,7 @@ export default defineConfig({
       }
     },
     {
-      command: `npm run dev --prefix client -- --port ${CLIENT_PORT} --strictPort`,
+      command: `pnpm --dir client run dev --port ${CLIENT_PORT} --strictPort`,
       url: CLIENT_BASE,
       env: { REQSPACE_PROXY_TARGET: API_BASE },
       reuseExistingServer: !!process.env.CI,

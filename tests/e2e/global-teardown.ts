@@ -22,7 +22,7 @@ interface Row { source: string; kind: string; message: string; route: string | n
 const RESULTS_DIR = path.resolve(__dirname, '..', '..', process.env.REQSPACE_RESULTS_DIR || 'test-results');
 const API_URL = process.env.REQSPACE_API_URL || 'http://localhost:3005';
 
-function readSqlite(dbPath: string): Row[] | null {
+function readSqlite(dbPath: string, since: string): Row[] | null {
   let Database: any;
   try {
     Database = require(path.join(__dirname, '..', '..', 'server', 'node_modules', 'better-sqlite3'));
@@ -34,12 +34,12 @@ function readSqlite(dbPath: string): Row[] | null {
   try {
     const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fperrors'").get();
     if (!exists) return [];
-    // The file is created fresh for every run, so every row in it is this run's.
+    // CI runs several Playwright projects against one server/file, so only rows since THIS run started count (earlier projects' declared faults live in their own allow-list).
     return db.prepare(`
       SELECT MAX(source) AS source, MAX(kind) AS kind, MAX(message) AS message, MAX(route) AS route,
              fingerprint, COUNT(*) AS count, MIN(createdAt) AS firstSeen, MAX(createdAt) AS lastSeen
-      FROM fperrors GROUP BY fingerprint ORDER BY lastSeen DESC
-    `).all() as Row[];
+      FROM fperrors WHERE datetime(createdAt) >= datetime(?) GROUP BY fingerprint ORDER BY lastSeen DESC
+    `).all(since) as Row[];
   } finally {
     db.close();
   }
@@ -82,7 +82,7 @@ export default async function globalTeardown() {
   let rows: Row[] | null = null;
   let method = '';
   if (dbType === 'sqlite' && process.env.REQSPACE_E2E_DB_PATH) {
-    rows = readSqlite(process.env.REQSPACE_E2E_DB_PATH);
+    rows = readSqlite(process.env.REQSPACE_E2E_DB_PATH, since);
     method = `table fperrors in ${process.env.REQSPACE_E2E_DB_PATH}`;
   }
   if (rows === null) {

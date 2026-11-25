@@ -56,11 +56,11 @@ If you want to contribute or run the project locally:
    ```bash
    # Install Server dependencies
    cd server
-   npm install
+   pnpm install
 
    # Install Client dependencies
    cd ../client
-   npm install
+   pnpm install
    ```
 
 3. **Configure Environment Variables:**
@@ -75,11 +75,11 @@ If you want to contribute or run the project locally:
    ```bash
    # In one terminal window (Start Server)
    cd server
-   npm run dev
+   pnpm run dev
 
    # In another terminal window (Start Client)
    cd client
-   npm run dev
+   pnpm run dev
    ```
 
 ## 📦 Build & Deploy
@@ -103,8 +103,8 @@ pm2 list               # what's running
 ### Manual build
 
 ```bash
-cd client && npm install && npm run build     # → client/dist
-cd ../server && npm install && npm run build  # → server/dist  (TypeScript)
+cd client && pnpm install && pnpm run build     # → client/dist
+cd ../server && pnpm install && pnpm run build  # → server/dist  (TypeScript)
 
 # Run it (server/.env must be configured)
 NODE_ENV=production node dist/index.js
@@ -151,7 +151,7 @@ by every instance within about 30 seconds.
 | Shared-link views / error reports per IP | 100 per 15 min / 30 per minute | Public endpoints |
 | Trust proxy | off | Hop count (`1`) or IP/CIDR list. **Behind a reverse proxy or ingress set this**, otherwise every visitor shares one IP and rate-limit bucket |
 | Extra allowed origins | none | CORS and cross-origin check for extra dev/test clients; ignored in production |
-| OAuth redirect URIs | localhost defaults | Must list every `<origin>/auth/<provider>/callback` you register with the providers |
+| OAuth hostnames | localhost defaults | Enter only the hostname (e.g. `app.example.com`); the app adds `/auth/<provider>/callback` and shows the full redirect URLs with a Copy button to paste into each provider |
 | Error-log de-duplication window | 60000 ms | `0` records every occurrence |
 | Record 401/403 responses | On | Include auth failures in the error log |
 
@@ -339,8 +339,9 @@ app's origin(s) (dev, any tunnel, prod) to Authorized JavaScript origins, and
 `<origin>/auth/google/callback` to Authorized redirect URIs — this app uses
 the authorization-code flow (`POST /auth/google` exchanges a `code` for
 tokens server-side), not just an ID-token button, so both are required and
-"OAuth redirect URIs" (Admin → Settings → Server & Security) must list every
-redirect URI you register.
+"OAuth hostnames" (Admin → Settings, at the top of the OAuth providers) must list your
+hostname. Type just the hostname; the full redirect URL is built for you and
+shown with a Copy button.
 
 ### Setting it headlessly (no admin login needed)
 

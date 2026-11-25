@@ -17,7 +17,7 @@ test('QA-73: env created while the Rename prompt is open stays in the list', asy
 
   // Another client adds an env; the socket pushes it into the list while the prompt is open.
   await page.evaluate(async () => {
-    const ws = (await (await fetch('/api/workspaces')).json())[0];
+    const ws = (await (await fetch('/api/workspaces')).json()).find((w: any) => w.isPersonal);
     await fetch(`/api/workspaces/${ws._id ?? ws.id}/environments`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Env Two', variables: [] }),
     });

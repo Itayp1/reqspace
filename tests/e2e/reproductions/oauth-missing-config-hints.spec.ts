@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures';
+import { expandAdminSections, test, expect } from '../fixtures';
 import { apiAsAdmin, loginAdminUi } from '../helpers';
 
 /**
@@ -19,6 +19,7 @@ test.describe('OAuth missing-configuration hints', () => {
     await loginAdminUi(page);
     await page.goto('/admin');
     await page.getByTestId('admin-tab-settings').click().catch(() => {});
+    await expandAdminSections(page);
     const hint = page.getByTestId('admin-github-missing');
     await expect(hint).toBeVisible();
     await expect(hint).toContainText('Client Secret');

@@ -2,6 +2,7 @@
 import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { readFileSync } from 'node:fs';
 
 // The dev proxy logs a full stack for every websocket a closing page leaves half-open; it is not actionable.
 const logger = createLogger();
@@ -14,9 +15,14 @@ logger.error = (msg, options) => {
 // Unique per build: baked into the bundle and written to dist/version.json, which the server announces over the socket.
 const BUILD_ID = String(Date.now());
 
+// Shown in Settings > About. Docker builds pass APP_VERSION (the client stage has no root package.json); local builds read it.
+const APP_VERSION = process.env.APP_VERSION || (() => {
+  try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version; } catch { return 'dev'; }
+})();
+
 export default defineConfig({
   customLogger: logger,
-  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID), __APP_VERSION__: JSON.stringify(APP_VERSION) },
   plugins: [
     tailwindcss(),
     react(),

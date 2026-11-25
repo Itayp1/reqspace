@@ -17,6 +17,12 @@ export function oauthRedirectUri(provider: OAuthProvider): string {
   return `${window.location.origin}/auth/${provider}/callback`;
 }
 
+/** Full callback URL for an admin-entered hostname (or origin); '' if it is not valid. Mirrors the server. */
+export function redirectUrlFor(host: string, provider: OAuthProvider): string {
+  if (/\/auth\/\w+\/callback\/?$/.test(host)) return host;
+  try { return `${new URL(/^https?:\/\//i.test(host) ? host : `https://${host}`).origin}/auth/${provider}/callback`; } catch { return ''; }
+}
+
 export interface OAuthPublicConfig { clientId: string; tenantId?: string; name?: string; authorizeUrl?: string; scope?: string }
 
 function authorizeUrl(provider: OAuthProvider, cfg: OAuthPublicConfig, state: string): string {

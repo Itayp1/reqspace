@@ -14,6 +14,14 @@ const oauthProviderSchema = z.object({
   clientId: z.string().optional(),
   clientSecret: z.string().optional(),
   proxyUrl: httpUrl,
+  // Hostname only (optional scheme/port, no path): the server appends /auth/<provider>/callback.
+  redirectHost: z.string().refine((v) => {
+    if (v === '') return true;
+    const full = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+    if (!URL.canParse(full)) return false;
+    const u = new URL(full);
+    return u.pathname === '/' && !u.search && !u.hash && !u.username;
+  }, 'Enter only the hostname (e.g. app.example.com), not a full URL path').optional(),
 });
 
 export const updateConfigSchema = z.object({
@@ -60,8 +68,6 @@ export const updateConfigSchema = z.object({
     trustProxy: z.string().max(500).regex(/^(|false|\d{1,2}|[A-Za-z0-9.:/_, -]+)$/, 'Invalid trust proxy value').optional(),
     captureAuthFailures: z.boolean().optional(),
     errorDedupeMs: z.number().int().min(0).max(86_400_000).optional(),
-    // Every entry must be an absolute http(s) URL: these are OAuth redirect targets.
-    oauthAllowedRedirectUris: z.array(z.string().refine((v) => /^https?:\/\//i.test(v) && URL.canParse(v), 'Must be an http(s) URL')).max(100).optional(),
   }).optional(),
   proxy: z.object({
     allowPrivateTargets: z.boolean().optional()

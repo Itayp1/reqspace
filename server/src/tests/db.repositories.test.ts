@@ -506,16 +506,15 @@ describe('SystemConfigRepository (SQL)', () => {
     expect(cfg!.proxy.password).toBe('proxy-pw');
   });
 
-  it('persists server settings (rate limit, cookie, redirect URIs) with defaults for the rest', async () => {
+  it('persists server settings (rate limit, cookie) with defaults for the rest', async () => {
     const { getServerSettings } = await import('../repositories/SystemConfigRepository');
     const updated = await SystemConfigRepository.updateConfig({
-      server: { cookieSecure: 'off', rateLimit: { enabled: false }, oauthAllowedRedirectUris: ['https://app.test/auth/google/callback'] },
+      server: { cookieSecure: 'off', rateLimit: { enabled: false } },
     });
     expect(updated!.server.cookieSecure).toBe('off');
     expect(updated!.server.rateLimit.enabled).toBe(false);
     expect(updated!.server.rateLimit.loginMax).toBeGreaterThan(0); // untouched sibling kept
     expect(getServerSettings().cookieSecure).toBe('off');
-    expect(updated!.server.oauthAllowedRedirectUris).toEqual(['https://app.test/auth/google/callback']);
   });
 
   it('ensure is idempotent', async () => {

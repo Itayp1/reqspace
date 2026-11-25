@@ -24,12 +24,13 @@ function listFiles(dir: string, prefix = ''): string[] {
 }
 
 /** Zips a directory (deflate, no dependencies) so dev setups can serve the extension without `zip`. */
-export function zipDirectory(dir: string): Buffer {
+export function zipDirectory(dir: string, transform?: (rel: string, data: Buffer) => Buffer): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const rel of listFiles(dir)) {
-    const data = fs.readFileSync(path.join(dir, rel));
+    let data: Buffer = fs.readFileSync(path.join(dir, rel));
+    if (transform) data = transform(rel, data);
     const comp = zlib.deflateRawSync(data);
     const name = Buffer.from(rel, 'utf8');
     const crc = crc32(data);

@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { expandAdminSections, test, expect } from './fixtures';
 import { startNewRequest } from './helpers';
 
 test.describe('Import / Export', () => {
@@ -53,6 +53,7 @@ test.describe('Import / Export', () => {
     const settingsTab = page.getByTestId('admin-tab-settings');
     await settingsTab.waitFor({ state: 'visible' });
     await settingsTab.click();
+    await expandAdminSections(page);
 
     // Export Data
     const downloadPromise = page.waitForEvent('download');

@@ -9,10 +9,10 @@ import { useEnvironmentStore } from '../../store/environmentStore';
 import type { MissingVariable } from '../../utils/missingVariables';
 
 type Scope = 'profile' | 'environment' | 'global' | 'collection';
-interface Row { scope: Scope; value: string; secret: boolean }
+interface Row { scope: Scope; envId: string; value: string; secret: boolean }
 
-const SCOPE_LABEL: Record<Scope, string> = { profile: 'Profile', environment: 'Environment', global: 'Global', collection: 'Collection' };
-const SCOPES: Scope[] = ['environment', 'collection', 'global', 'profile'];
+const SCOPE_LABEL: Record<Scope, string> = { profile: 'Personal', environment: 'Environment', global: 'Global', collection: 'Collection' };
+const SCOPES: Scope[] = ['profile', 'environment', 'collection', 'global'];
 
 export function MissingVariablesModal({ missing, collectionId, onCreated, onRunAnyway, onCancel }: {
   missing: MissingVariable[];
@@ -23,17 +23,19 @@ export function MissingVariablesModal({ missing, collectionId, onCreated, onRunA
 }) {
   const canWrite = ['editor', 'owner'].includes(useAuthStore(s => s.activeWorkspace?.myRole) || '');
   const activeEnvironmentId = useEnvironmentStore(s => s.activeEnvironmentId);
-  // Profile is per-user, so it is the only scope a viewer may change.
+  const environments = useEnvironmentStore(s => s.environments);
+  const defaultEnvId = activeEnvironmentId || environments[0]?._id || '';
+  // Personal is per-user, so it is the only scope a viewer may change.
   const disabledReason = (s: Scope): string | null => {
     if (s === 'profile') return null;
     if (!canWrite) return 'view-only access';
-    if (s === 'environment' && !activeEnvironmentId) return 'no environment selected';
+    if (s === 'collection' && !collectionId) return 'request is not in a collection';
+    if (s === 'environment' && !environments.length) return 'no environments';
     return null;
   };
-  const defaultScope = SCOPES.find(s => !disabledReason(s)) as Scope;
 
   const [rows, setRows] = useState<Record<string, Row>>(() => Object.fromEntries(missing.map(m => [
-    m.name, { scope: defaultScope, value: '', secret: /key|token|secret|password|auth/i.test(m.name) },
+    m.name, { scope: 'profile' as Scope, envId: defaultEnvId, value: '', secret: /key|token|secret|password|auth/i.test(m.name) },
   ])));
   const [show, setShow] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
@@ -53,9 +55,11 @@ export function MissingVariablesModal({ missing, collectionId, onCreated, onRunA
       const res = await api.put('/user-profile-variables', { variables: vars });
       env.setUserProfileVariables(res.data.variables || vars);
     } else if (scope === 'environment') {
-      const cur = env.environments.find(e => e._id === activeEnvironmentId)!;
-      const res = await api.put(`/environments/${cur._id}`, { name: cur.name, variables: [...cur.variables, ...items.map(envVar)] });
-      env.applyEnvironmentUpserted(res.data);
+      for (const id of new Set(items.map(([, r]) => r.envId))) {
+        const cur = env.environments.find(e => e._id === id)!;
+        const res = await api.put(`/environments/${cur._id}`, { name: cur.name, variables: [...cur.variables, ...items.filter(([, r]) => r.envId === id).map(envVar)] });
+        env.applyEnvironmentUpserted(res.data);
+      }
     } else if (scope === 'global') {
       const workspaceId = useAuthStore.getState().activeWorkspace!._id;
       const res = await api.put(`/workspaces/${workspaceId}/global-environment`, { variables: [...(env.globalEnvironment?.variables || []), ...items.map(envVar)] });
@@ -84,7 +88,7 @@ export function MissingVariablesModal({ missing, collectionId, onCreated, onRunA
     setError(`Couldn't create ${bad.size} variable${bad.size > 1 ? 's' : ''}. They weren't saved and the run didn't start. Try again or choose another scope.`);
   };
 
-  const setAll = (scope: Scope) => setRows(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { ...v, scope }])));
+  const setAll = (scope: Scope) => setRows(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { ...v, scope, envId: v.envId || defaultEnvId }])));
 
   return createPortal(
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[210]">
@@ -98,7 +102,7 @@ export function MissingVariablesModal({ missing, collectionId, onCreated, onRunA
           <button type="button" onClick={onCancel} disabled={busy} aria-label="Close" className="p-1 hover:bg-border rounded focus-visible:ring-2 focus-visible:ring-primary"><X className="w-5 h-5" aria-hidden="true" /></button>
         </div>
         <div className="p-4 overflow-y-auto space-y-3">
-          {!canWrite && <p className="text-sm text-text-muted">You have view-only access, so these are saved to your Profile only (visible only to you, in all workspaces).</p>}
+          {!canWrite && <p className="text-sm text-text-muted">You have view-only access, so these are saved to your Personal variables only (visible only to you, in all workspaces).</p>}
           <div className="flex items-center gap-2 text-sm">
             <label htmlFor="mv-all">Set scope for all</label>
             <select id="mv-all" defaultValue="" onChange={e => e.target.value && setAll(e.target.value as Scope)} disabled={busy} className="p-1 border border-border rounded bg-surface text-text">
@@ -119,6 +123,11 @@ export function MissingVariablesModal({ missing, collectionId, onCreated, onRunA
                       <select aria-label={`Scope for ${m.name}`} value={r.scope} disabled={busy} onChange={e => patch(m.name, { scope: e.target.value as Scope })} className="p-1 border border-border rounded bg-surface text-text">
                         {SCOPES.map(s => <option key={s} value={s} disabled={!!disabledReason(s)}>{SCOPE_LABEL[s]}{disabledReason(s) ? ` (${disabledReason(s)})` : ''}</option>)}
                       </select>
+                      {r.scope === 'environment' && (
+                        <select aria-label={`Environment for ${m.name}`} value={r.envId} disabled={busy} onChange={e => patch(m.name, { envId: e.target.value })} className="mt-1 p-1 border border-border rounded bg-surface text-text block">
+                          {environments.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}
+                        </select>
+                      )}
                     </td>
                     <td className="py-2">
                       <input aria-label={`Value for ${m.name}`} data-testid={`missing-var-value-${m.name}`} type={r.secret && !show[m.name] ? 'password' : 'text'} autoComplete="off" spellCheck={false}

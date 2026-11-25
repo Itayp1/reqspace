@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { expandAdminSections, test, expect } from './fixtures';
 import { apiAsAdmin, loginAdminUi } from './helpers';
 
 test.describe('Q8.1 admin history limits', () => {
@@ -9,6 +9,7 @@ test.describe('Q8.1 admin history limits', () => {
       await loginAdminUi(page);
       await page.goto('/admin');
       await page.getByTestId('admin-tab-settings').click();
+      await expandAdminSections(page);
       const maxRecords = page.getByTestId('admin-history-max-records');
       const retention = page.getByTestId('admin-history-retention-days');
       await expect(maxRecords).toBeVisible();

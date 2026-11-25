@@ -16,3 +16,20 @@ test.describe('R2.5 extension download', () => {
     expect(buf.includes(Buffer.from('manifest.json'))).toBeTruthy();
   });
 });
+
+test.describe('extension crx download', () => {
+  test('/extension/reqspace-transport.crx is a CRX3 wrapping the extension zip', async () => {
+    const ctx = await pwRequest.newContext({
+      baseURL: API_URL,
+      extraHTTPHeaders: { 'X-Forwarded-For': `10.${230 + Math.floor(Math.random() * 20)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` },
+    });
+    const res = await ctx.get('/extension/reqspace-transport.crx');
+    expect(res.status()).toBe(200);
+    const buf = await res.body();
+    expect(buf.subarray(0, 4).toString('latin1')).toBe('Cr24');
+    expect(buf.readUInt32LE(4)).toBe(3);
+    const zipStart = 12 + buf.readUInt32LE(8);
+    expect(buf.subarray(zipStart, zipStart + 4).toString('hex')).toBe('504b0304');
+    expect(buf.includes(Buffer.from('manifest.json'))).toBeTruthy();
+  });
+});

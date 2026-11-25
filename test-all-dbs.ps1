@@ -12,7 +12,7 @@ if ($tests.Count -eq 1) { Write-Host "Only sqlite will run — set TEST_DB_POSTG
 
 Write-Host "Rebuilding Server..."
 Set-Location server
-npm run build
+pnpm run build
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 Set-Location ..
 
@@ -57,7 +57,7 @@ foreach ($test in $tests) {
     # Run E2E Test
     Write-Host "Running E2E tests..."
     Set-Location server
-    npx jest src/tests/auth.e2e.test.ts --runInBand
+    pnpm exec jest src/tests/auth.e2e.test.ts --runInBand
     $testExitCode = $LASTEXITCODE
     Set-Location ..
     if ($testExitCode -ne 0) {

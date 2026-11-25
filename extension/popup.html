@@ -146,21 +146,77 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
-      max-height: 60px;
+      max-height: 110px;
       overflow-y: auto;
     }
 
     .origin-pill {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-size: 11px;
       color: #94a3b8;
       background: #0f1117;
       border: 1px solid #2d3348;
       border-radius: 4px;
-      padding: 3px 7px;
+      padding: 4px 4px 4px 8px;
+    }
+
+    .origin-pill span {
+      flex: 1;
+      min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
+    .origin-pill button {
+      flex: none;
+      width: 18px;
+      height: 18px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .origin-pill button:hover { background: #3b1d2a; color: #f87171; }
+
+    .origin-add {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .origin-add input {
+      flex: 1;
+      min-width: 0;
+      background: #0f1117;
+      border: 1px solid #2d3348;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 11px;
+      color: #e2e8f0;
+    }
+
+    .origin-add input:focus { outline: 1px solid #4f46e5; }
+
+    .origin-add button {
+      border: none;
+      border-radius: 4px;
+      background: #4f46e5;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 0 10px;
+      cursor: pointer;
+    }
+
+    #originError { font-size: 10px; color: #f87171; min-height: 12px; margin-top: 4px; }
 
     /* ── Footer actions ──────────────────────────── */
     .actions {

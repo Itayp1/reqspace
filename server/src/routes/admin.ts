@@ -16,7 +16,7 @@ import { superAdminCache, workspaceRoleCache } from '../utils/cache';
 import { likeAnyColumn, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 import { isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
 import { Op, fn, col } from 'sequelize';
-import { OAUTH_PROVIDERS, allowedRedirectUris } from '../utils/oauthProviders';
+import { OAUTH_PROVIDERS, OAUTH_HOST_FIELD, configKey, missingOAuthFields } from '../utils/oauthProviders';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -285,9 +285,7 @@ function maskConfigSecrets(config: any) {
 
 router.get('/config', async (_req: AuthRequest, res: Response) => {
   const config = await SystemConfigRepository.getConfig();
-  // Lets the settings screen warn when a provider's callback URL would be refused.
-  const oauthRedirectAllowlist = Object.fromEntries(OAUTH_PROVIDERS.map((id) => [id, allowedRedirectUris(id, config?.server.oauthAllowedRedirectUris)]));
-  return res.json({ ...maskConfigSecrets(config), oauthRedirectAllowlist });
+  return res.json(maskConfigSecrets(config));
 });
 
 router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequest, res: Response) => {
@@ -297,6 +295,14 @@ router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequ
     if (update.auth?.[key]?.clientSecret === SECRET_MASK) delete update.auth[key].clientSecret;
   }
   if (update.proxy?.password === SECRET_MASK) delete update.proxy.password;
+  // An enabled provider needs its OAuth URL hostname, whether sent now or already stored.
+  const stored = await SystemConfigRepository.getConfig();
+  const noHost = OAUTH_PROVIDERS.filter((id) => {
+    const k = configKey(id);
+    const merged = { ...stored?.auth?.[k], ...update.auth?.[k] };
+    return merged.enabled && missingOAuthFields(id, merged).includes(OAUTH_HOST_FIELD);
+  });
+  if (noHost.length) return res.status(400).json({ message: `Set the ${OAUTH_HOST_FIELD} for: ${noHost.join(', ')}` });
 
   // Never lock everyone out: password login may only be disabled while an active SSO super-admin exists.
   if (update.auth?.disableAdminLogin === true) {

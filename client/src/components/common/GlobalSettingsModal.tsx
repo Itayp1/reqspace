@@ -371,6 +371,14 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
             </div>
           </div>
 
+          <div data-testid="about-section">
+            <h3 className="font-semibold mb-3">About</h3>
+            <div className="bg-surface p-4 rounded border border-border flex items-center justify-between text-sm">
+              <span className="font-medium">Reqspace version</span>
+              <span data-testid="app-version" className="font-mono text-text-muted">{__APP_VERSION__}</span>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>,
