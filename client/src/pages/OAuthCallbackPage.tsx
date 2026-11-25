@@ -46,6 +46,7 @@ export default function OAuthCallbackPage() {
         }
         setUser(res.data.user);
         navigate('/');
+        window.location.reload(); // To fetch workspaces (same as password login)
       })
       .catch(err => {
         console.error(err);
