@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 test.describe("History Logging", () => {
   test.describe.configure({ mode: "serial" });
@@ -30,8 +31,8 @@ test.describe("History Logging", () => {
     await page.getByTestId("new-workspace-btn").click();
     await page.getByTestId("prompt-input").fill(wsName);
     await page.getByTestId("prompt-submit").click();
-    await expect(page.getByTestId("workspace-select")).toContainText(wsName);
-    workspaceId = await page.getByTestId("workspace-select").inputValue();
+    await expectWorkspaceListed(page, wsName);
+    workspaceId = await activeWorkspaceId(page);
 
     // Create a request and send
     await page.getByTestId("new-tab-btn").click();
@@ -67,7 +68,7 @@ test.describe("History Logging", () => {
   });
 
   test("Search history", async ({ page }) => {
-    await page.getByTestId("workspace-select").selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await page.getByTestId("new-tab-btn").click();
 
     // Send a couple of requests
@@ -96,7 +97,7 @@ test.describe("History Logging", () => {
   });
 
   test("Save to Collection from History", async ({ page }) => {
-    await page.getByTestId("workspace-select").selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     // Ensure we have a collection (custom in-app modal, not a native dialog)
     const newBtn = page.getByTestId("new-collection-empty-btn");
@@ -145,7 +146,7 @@ test.describe("History Logging", () => {
     // the OLDEST entries once the user's total exceeds maxTotalPerUserMB —
     // it never excludes the triggering request itself, so the history entry
     // for this URL is still expected to show up.
-    await page.getByTestId("workspace-select").selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await page.getByTestId("new-tab-btn").click();
 
     // Send a request that returns > 500KB (e.g. 600000 bytes)

@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures';
 import { startMockIdp, enableCustomProvider, disableCustomProvider, type MockIdp } from '../mock-idp';
+import { expectWorkspaceListed } from '../helpers';
 
 /** First SSO sign-in creates the user's own personal workspace; signing out and in again returns to it. */
 let idp: MockIdp;
@@ -24,12 +25,12 @@ test('first SSO login gets a personal workspace, kept after re-login', async ({ 
   const personal = list.filter((w: any) => w.isPersonal);
   expect(personal).toHaveLength(1);
   expect(personal[0].name).toBe("Sso Personal's Workspace");
-  await expect(page.getByTestId('workspace-select')).toContainText("Sso Personal's Workspace");
+  await expectWorkspaceListed(page, "Sso Personal's Workspace");
 
   await page.request.post('/api/auth/logout');
   await page.goto('/login');
   await page.getByTestId('oauth-custom').click();
-  await expect(page.getByTestId('workspace-select')).toContainText("Sso Personal's Workspace", { timeout: 20000 });
+  await expectWorkspaceListed(page, "Sso Personal's Workspace");
   const again = await (await page.request.get('/api/workspaces')).json();
   expect(again.filter((w: any) => w.isPersonal)).toHaveLength(1);
 });

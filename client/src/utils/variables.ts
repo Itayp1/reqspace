@@ -14,6 +14,37 @@ export function listVariableNames(): { env: string[]; dynamic: string[] } {
   return { env: Array.from(new Set(vars.map(v => v.key))), dynamic: DYNAMIC_VARS };
 }
 
+export interface NameSuggestion { name: string; tag: string; group: 0 | 1 | 2 }
+
+/**
+ * Variable names to offer while typing a variable NAME: the ones already in the list being edited
+ * (`current`), then other scopes (global, profile, other environments, collections), then the dynamic ones.
+ * `skip` = the scope being edited ('global', 'profile' or an environment id) so it is not suggested twice.
+ */
+export function suggestVariableNames(query: string, current: string[], currentLabel: string, skip?: string): NameSuggestion[] {
+  const { environments, globalEnvironment, userProfileVariables } = useEnvironmentStore.getState();
+  const collections = useCollectionStore.getState().collections;
+  const seen = new Set<string>();
+  const out: NameSuggestion[] = [];
+  const add = (names: (string | undefined)[], tag: string, group: 0 | 1 | 2) => {
+    for (const name of names) {
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push({ name, tag, group });
+    }
+  };
+  add(current, currentLabel, 0);
+  if (skip !== 'global') add((globalEnvironment?.variables || []).map(v => v.key), 'Global', 1);
+  if (skip !== 'profile') add((userProfileVariables || []).map(v => v.key), 'Profile', 1);
+  for (const e of environments) if (e._id !== skip) add((e.variables || []).map(v => v.key), e.name, 1);
+  for (const c of collections) add(((c as any).variables || []).map((v: any) => v.key), 'Collection', 1);
+  add(DYNAMIC_VARS, 'Dynamic', 2);
+  const q = query.trim().toLowerCase();
+  const match = out.filter(s => s.name.toLowerCase().includes(q) && s.name.toLowerCase() !== q);
+  const rank = (s: NameSuggestion) => s.group * 2 + (s.name.toLowerCase().startsWith(q) ? 0 : 1);
+  return match.sort((a, b) => rank(a) - rank(b)).slice(0, 40); // Array.sort is stable
+}
+
 export function resolveDynamicVars(text: string): string {
   if (!text) return '';
   return text.replace(/\{\{(\$[^}]+)\}\}/g, (_, varName) => {

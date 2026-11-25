@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, expectWorkspaceListed } from './helpers';
 
 test.describe('Scripts Scope', () => {
   test('Pre-request scripts run at Collection and Folder levels', async ({ page }) => {
@@ -19,7 +19,7 @@ test.describe('Scripts Scope', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(`WS_${timestamp}`);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
+    await expectWorkspaceListed(page, `WS_${timestamp}`);
 
     // Create Collection
     await page.getByTestId('new-collection-empty-btn').click();

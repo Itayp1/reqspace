@@ -1,5 +1,5 @@
 import { expandAdminSections, test, expect } from './fixtures';
-import { registerUser, loginAdminUi, apiAs, apiAsAdmin, treeNode, openNodeMenu, createCollectionUi } from './helpers';
+import { registerUser, loginAdminUi, apiAs, apiAsAdmin, treeNode, openNodeMenu, createCollectionUi, selectWorkspace } from './helpers';
 
 /**
  * Regression tests for the bugs found in the manual browser pass of 2026-10-14
@@ -34,7 +34,7 @@ test.describe('Manual-pass bugs (regressions of bugs found by hand)', () => {
     expect(invite.ok()).toBeTruthy();
 
     await viewerPage.reload();
-    await viewerPage.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(viewerPage, wsId);
     await expect(treeNode(viewerPage, 'Read Only Col')).toBeVisible();
     await openNodeMenu(viewerPage, 'Read Only Col');
     await expect(viewerPage.getByTestId('action-menu-new-request')).toHaveCount(0);

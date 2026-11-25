@@ -2,7 +2,7 @@ import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import http from 'http';
 import type { AddressInfo } from 'net';
-import { registerUser, apiAs, treeNode, openNodeMenu } from './helpers';
+import { registerUser, apiAs, treeNode, openNodeMenu, selectWorkspace } from './helpers';
 
 /**
  * One Playwright test per D-section (requests & HTTP) failure listed in
@@ -46,6 +46,9 @@ test.beforeEach(() => { seen = []; });
 /** Fresh account, landed on a new empty request tab. */
 async function newRequestPage(page: Page, prefix = 'dfail') {
   const email = await registerUser(page, prefix);
+  // Sending jar cookies is off by default; the cookie tests below need it on.
+  await page.request.put('/api/auth/settings', { data: { sendCookies: true } });
+  await page.reload();
   await page.getByTestId('create-request-btn').click();
   await expect(page.getByTestId('request-url-input')).toBeVisible();
   return email;
@@ -322,7 +325,7 @@ test.describe('D - requests and HTTP (UI, failed-manual-test regressions)', () =
     expect((await a.post(`/api/workspaces/${wsId}/members`, { data: { email: emailB, role: 'editor' } })).ok()).toBeTruthy();
 
     await pageB.reload();
-    await pageB.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(pageB, wsId);
     await pageB.getByTestId('node-D83Col').click();
     const loaded = pageB.waitForResponse((r) => /\/api\/requests\/[^/]+$/.test(r.url()) && r.request().method() === 'GET');
     await pageB.getByTestId('node-D83Req').click();
@@ -351,7 +354,7 @@ test.describe('D - requests and HTTP (UI, failed-manual-test regressions)', () =
     expect((await owner.post(`/api/workspaces/${wsId}/members`, { data: { email: viewerEmail, role: 'viewer' } })).ok()).toBeTruthy();
 
     await pageV.reload();
-    await pageV.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(pageV, wsId);
     await pageV.getByTestId('node-D103Col').click();
     await expect(treeNode(pageV, 'D103Req')).toBeVisible();
     await openNodeMenu(pageV, 'D103Req');

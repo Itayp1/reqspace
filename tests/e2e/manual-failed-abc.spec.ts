@@ -4,7 +4,7 @@ import { request as pwRequest, type APIRequestContext, type Page } from '@playwr
 import { io, type Socket } from 'socket.io-client';
 import fs from 'fs';
 import path from 'path';
-import { registerUser, loginUi, apiAs, apiAsAdmin, treeNode, openNodeMenu, addViaMenu, createCollectionUi } from './helpers';
+import { registerUser, loginUi, apiAs, apiAsAdmin, treeNode, openNodeMenu, addViaMenu, createCollectionUi, selectWorkspace } from './helpers';
 
 /**
  * Group 1 of MANUAL_TEST_PLAN_FAILED.md (auth / workspace realtime / tree).
@@ -124,15 +124,17 @@ test.describe('B — workspaces realtime / UI', () => {
     const wsId = await seedWorkspace(owner.ctx, wsName);
     expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: memberEmail, role: 'editor' } })).status()).toBe(201);
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(wsId);
-    await expect(page.getByTestId('workspace-select')).toHaveValue(wsId);
+    await selectWorkspace(page, wsId);
+    await expect(page.getByTestId('workspace-select')).toHaveAttribute('data-value', wsId);
     await page.waitForTimeout(800); // let the socket join the room
 
     expect((await owner.ctx.delete(`/api/workspaces/${wsId}`)).status()).toBe(200);
 
     await expect(page.getByTestId('toast-info').filter({ hasText: /deleted/i }).first()).toBeVisible();
-    await expect(page.getByTestId('workspace-select')).not.toHaveValue(wsId);
-    await expect(page.getByTestId('workspace-select').locator(`option[value="${wsId}"]`)).toHaveCount(0);
+    await expect(page.getByTestId('workspace-select')).not.toHaveAttribute('data-value', wsId);
+    await page.getByTestId('workspace-select').click();
+    await expect(page.getByTestId(`workspace-option-${wsId}`)).toHaveCount(0);
+    await page.keyboard.press('Escape');
   });
 
   test('[B2.1] renaming a workspace updates other members live', async ({ page }) => {
@@ -141,11 +143,13 @@ test.describe('B — workspaces realtime / UI', () => {
     const wsId = await seedWorkspace(owner.ctx, uniq('OldName'));
     expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: memberEmail, role: 'editor' } })).status()).toBe(201);
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(page, wsId);
     await page.waitForTimeout(800);
     const newName = uniq('Renamed');
     expect((await owner.ctx.put(`/api/workspaces/${wsId}`, { data: { name: newName } })).status()).toBe(200);
-    await expect(page.getByTestId('workspace-select').locator(`option[value="${wsId}"]`)).toHaveText(newName);
+    await page.getByTestId('workspace-select').click();
+    await expect(page.getByTestId(`workspace-option-${wsId}`)).toHaveText(newName);
+    await page.keyboard.press('Escape');
   });
 
   test('[B4.7] member search is debounced: typing 5 chars quickly fires one /users/search', async ({ page }) => {
@@ -170,13 +174,15 @@ test.describe('B — workspaces realtime / UI', () => {
     const wsId = await seedWorkspace(owner.ctx);
     expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: memberEmail, role: 'editor' } })).status()).toBe(201);
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(page, wsId);
     await page.waitForTimeout(800);
     const detail = await (await owner.ctx.get(`/api/workspaces/${wsId}`)).json();
     const m = detail.members.find((x: any) => JSON.stringify(x).includes(memberEmail));
     const memberUserId = m.userId?._id ?? m.userId;
     expect((await owner.ctx.delete(`/api/workspaces/${wsId}/members/${memberUserId}`)).ok()).toBeTruthy();
-    await expect(page.getByTestId('workspace-select').locator(`option[value="${wsId}"]`)).toHaveCount(0);
+    await page.getByTestId('workspace-select').click();
+    await expect(page.getByTestId(`workspace-option-${wsId}`)).toHaveCount(0);
+    await page.keyboard.press('Escape');
   });
 
   test('[B6.6] a removed member socket stops receiving workspace events', async () => {
@@ -223,7 +229,7 @@ test.describe('C — collection tree', () => {
     expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: viewerEmail, role: 'viewer' } })).status()).toBe(201);
     await owner.ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'ViewerCol' } });
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(page, wsId);
     await expect(page.getByTestId('node-ViewerCol')).toBeVisible();
     await openNodeMenu(page, 'ViewerCol');
     for (const re of [/new request/i, /new folder/i, /rename/i, /delete/i, /duplicate/i]) {

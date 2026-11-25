@@ -1,5 +1,5 @@
 import { expandAdminSections, test, expect } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, expectWorkspaceListed } from './helpers';
 
 test.describe('Import / Export', () => {
   test('should export workspace data and import it successfully', async ({ page }) => {
@@ -19,7 +19,7 @@ test.describe('Import / Export', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(`Import Export WS ${ts}`);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(`Import Export WS ${ts}`);
+    await expectWorkspaceListed(page, `Import Export WS ${ts}`);
 
     // Create a new collection to export (custom in-app modal, not a native dialog)
     const newBtn = page.getByTestId('new-collection-empty-btn');

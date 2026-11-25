@@ -47,9 +47,22 @@ export default function AppScreen() {
     const startY = e.clientY;
     const startH = e.currentTarget.nextElementSibling!.getBoundingClientRect().height;
     const max = root.clientHeight - root.firstElementChild!.getBoundingClientRect().height - 10 - 300;
-    const move = (ev: PointerEvent) => setResponseH(Math.max(120, Math.min(max, startH + startY - ev.clientY)));
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    const grip = e.currentTarget;
+    const pane = grip.nextElementSibling as HTMLElement;
+    // Capture the pointer so a preview iframe can't swallow the move events, and resize the pane
+    // directly (one write per frame) instead of re-rendering both Monaco editors on every event.
+    grip.setPointerCapture(e.pointerId);
+    let h = startH, frame = 0;
+    const move = (ev: PointerEvent) => {
+      h = Math.max(120, Math.min(max, startH + startY - ev.clientY));
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; pane.style.flex = `0 0 ${h}px`; });
+    };
+    const up = () => {
+      cancelAnimationFrame(frame);
+      grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+      setResponseH(h);
+    };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
   };
 
   return (
@@ -66,7 +79,22 @@ export default function AppScreen() {
       </div>
       {!isEnvTab && !isConnTab && (
         <>
-          <div data-testid="response-splitter" onPointerDown={startDrag} className="h-2.5 shrink-0 cursor-row-resize select-none touch-none bg-surface border-y border-border flex items-center justify-center">
+          <div
+            data-testid="response-splitter"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize response panel"
+            tabIndex={0}
+            onPointerDown={startDrag}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+              e.preventDefault();
+              const h = e.currentTarget.nextElementSibling!.getBoundingClientRect().height;
+              const root = rootRef.current!;
+              const max = root.clientHeight - root.firstElementChild!.getBoundingClientRect().height - 10 - 300;
+              setResponseH(Math.max(120, Math.min(max, h + (e.key === 'ArrowUp' ? 20 : -20))));
+            }}
+            className="h-2.5 shrink-0 cursor-row-resize select-none touch-none bg-surface border-y border-border flex items-center justify-center hover:bg-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
             <div className="w-10 h-1 bg-text-muted/40 rounded-full" />
           </div>
           <div data-testid="response-pane" style={responseH == null ? undefined : { flex: `0 0 ${responseH}px` }} className="flex-[1_1_0%] flex min-h-[120px] bg-background">

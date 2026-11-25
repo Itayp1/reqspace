@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './fixtures';
+import { selectWorkspace, expectWorkspaceListed } from './helpers';
 
 /**
  * Profile variables are the user's own values (phone, email, ...) and must
@@ -60,9 +61,9 @@ test.describe('Profile variables across workspaces', () => {
       await page.getByTestId('new-workspace-btn').click();
       await page.getByTestId('prompt-input').fill(name);
       await page.getByTestId('prompt-submit').click();
-      await expect(page.getByTestId('workspace-select')).toContainText(name);
+      await expectWorkspaceListed(page, name);
     }
-    await page.getByTestId('workspace-select').selectOption({ label: WS_A });
+    await selectWorkspace(page, { label: WS_A });
 
     const profile = await openEditor(page);
     await addVar(page, profile, 'myphone', PHONE);
@@ -71,8 +72,8 @@ test.describe('Profile variables across workspaces', () => {
 
   test('the profile variable is still there, with its value, after switching workspace', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: WS_B });
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(WS_B);
+    await selectWorkspace(page, { label: WS_B });
+    await expect(page.getByTestId('workspace-select')).toHaveText(WS_B);
 
     const editor = await openEditor(page);
     await expect(editor.getByPlaceholder('New variable').first()).toHaveValue('myphone');
@@ -81,8 +82,8 @@ test.describe('Profile variables across workspaces', () => {
 
   test('the profile variable resolves in a request sent from the other workspace', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: WS_B });
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(WS_B);
+    await selectWorkspace(page, { label: WS_B });
+    await expect(page.getByTestId('workspace-select')).toHaveText(WS_B);
 
     const url = await sentUrl(page, 'https://profile-phone.example.com/ping?tel={{myphone}}', 'profile-phone.example.com');
     expect(url).toContain(`tel=${PHONE}`);
@@ -90,14 +91,14 @@ test.describe('Profile variables across workspaces', () => {
 
   test('profile variable edits made in B are visible back in A', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: WS_B });
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(WS_B);
+    await selectWorkspace(page, { label: WS_B });
+    await expect(page.getByTestId('workspace-select')).toHaveText(WS_B);
 
     const editor = await openEditor(page);
     await addVar(page, editor, 'myemail', 'me@profile.example.com');
 
-    await page.getByTestId('workspace-select').selectOption({ label: WS_A });
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(WS_A);
+    await selectWorkspace(page, { label: WS_A });
+    await expect(page.getByTestId('workspace-select')).toHaveText(WS_A);
     const inA = await openEditor(page);
     await expect(inA.getByPlaceholder('New variable').nth(0)).toHaveValue('myphone');
     await expect(inA.getByPlaceholder('Value').nth(0)).toHaveValue(PHONE);

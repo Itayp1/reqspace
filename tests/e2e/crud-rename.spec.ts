@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, selectWorkspace, expectWorkspaceListed } from './helpers';
 const uuidv4 = () => require('crypto').randomUUID();
 
 test.describe('Full CRUD / Rename Matrix', () => {
@@ -29,10 +29,10 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(wsName);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(wsName);
+    await expectWorkspaceListed(page, wsName);
     
     // Select it
-    await page.getByTestId('workspace-select').selectOption({ label: wsName });
+    await selectWorkspace(page, { label: wsName });
 
     // Rename Workspace. Opening the modal kicks off its own GET to refresh
     // name/description/isPublic, which lands in state (setName(...)) right
@@ -47,7 +47,7 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await page.getByTestId('workspace-save-btn').click();
     await wsUpdateResponse;
     await page.getByTestId('close-workspace-modal').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(renamedWs);
+    await expectWorkspaceListed(page, renamedWs);
 
     // 3. Create Environment, Variable, and Rename Variable
     await page.getByTestId('tab-environments').click();

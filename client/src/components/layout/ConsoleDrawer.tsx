@@ -18,8 +18,20 @@ export const ConsoleDrawer: React.FC = () => {
   const { isOpen, logs, setIsOpen, clearLogs } = useConsoleStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [revealSecrets, setRevealSecrets] = useState(false);
+  const [height, setHeight] = useState(() => Number(localStorage.getItem('consoleHeight')) || 192);
 
   if (!isOpen) return null;
+
+  const clamp = (h: number) => Math.min(Math.max(h, 80), window.innerHeight * 0.8);
+  const resize = (h: number) => { const v = Math.round(clamp(h)); setHeight(v); localStorage.setItem('consoleHeight', String(v)); };
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const startY = e.clientY, startH = height;
+    const move = (ev: PointerEvent) => resize(startH + startY - ev.clientY);
+    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    e.preventDefault();
+  };
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
@@ -41,7 +53,23 @@ export const ConsoleDrawer: React.FC = () => {
   };
 
   return (
-    <div id="console-drawer" data-testid="console-drawer" className="h-48 max-h-[35vh] shrink-0 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-col text-xs font-mono select-none">
+    <div id="console-drawer" data-testid="console-drawer" style={{ height: clamp(height) }} className="shrink-0 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 flex flex-col text-xs font-mono select-none">
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize console"
+        aria-valuenow={Math.round(clamp(height))}
+        aria-valuemin={80}
+        aria-valuemax={Math.round(window.innerHeight * 0.8)}
+        tabIndex={0}
+        data-testid="console-resize-handle"
+        onPointerDown={startDrag}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowUp') { e.preventDefault(); resize(height + 20); }
+          if (e.key === 'ArrowDown') { e.preventDefault(); resize(height - 20); }
+        }}
+        className="h-1.5 -mt-0.5 shrink-0 cursor-row-resize hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none touch-none"
+      />
       {/* Console Header */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-semibold text-[11px]">

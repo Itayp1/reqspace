@@ -1,8 +1,8 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { useAuthStore } from '../../store/authStore';
 import { VariablePopover } from './VariablePopover';
-import { DYNAMIC_VARS } from '../../utils/variables';
+import { DYNAMIC_VARS, resolveWithSource, type VarScope } from '../../utils/variables';
 import { ContextMenu } from './ContextMenu';
 
 interface VariableInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
@@ -62,6 +62,29 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
     else setPopoverVar(name);
   };
 
+  // Hover tooltip: the real input covers the overlay, so hit-test the highlighted spans by pointer position.
+  const [hoverVar, setHoverVar] = useState<string | null>(null);
+  const hoverName = useRef<string | null>(null);
+  const hoverTimer = useRef<number>(0);
+  const hideHover = () => { clearTimeout(hoverTimer.current); hoverName.current = null; setHoverVar(null); };
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  const handleMouseMove = (e: React.MouseEvent<any>) => {
+    let name: string | null = null;
+    overlayRef.current?.querySelectorAll<HTMLElement>('[data-var]').forEach((el) => {
+      for (const r of Array.from(el.getClientRects())) {
+        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) name = el.dataset.var!;
+      }
+    });
+    if (name === hoverName.current) return;
+    hideHover();
+    if (!name) return;
+    hoverName.current = name;
+    hoverTimer.current = window.setTimeout(() => setHoverVar(name), 300);
+  };
+  const hoverHits = hoverVar && !hoverVar.startsWith('$') ? resolveWithSource(hoverVar) : [];
+  const hoverEnvName = activeEnv?.name || 'environment';
+  const scopeLabel = (s: VarScope) => (s === 'environment' ? `Environment ${hoverEnvName}` : s === 'profile' ? 'Profile' : 'Global');
+
   // Parse text to highlight {{var}}
   const renderHighlighted = () => {
     const parts = value.split(/(\{\{[^{}]+\}\})/g);
@@ -70,7 +93,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         const varName = part.slice(2, -2);
         const exists = allVars.some(v => v.key === varName) || DYNAMIC_VARS.includes(varName);
         return (
-          <span key={i} className={exists ? "text-orange-500" : "text-amber-700 dark:text-amber-400 underline decoration-dashed decoration-1 underline-offset-2"}>
+          <span key={i} data-var={varName} className={exists ? "text-orange-500" : "text-amber-700 dark:text-amber-400 underline decoration-dashed decoration-1 underline-offset-2"}>
             {part}
           </span>
         );
@@ -200,7 +223,9 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         title={unresolvedNames.length ? `Undefined variable: ${unresolvedNames.join(', ')}. Select an environment or define it.` : undefined}
         {...(multilineOnFocus ? { rows: wrapped ? 2 : 1, wrap: wrapped ? 'soft' : 'off' } : { type: 'text' })}
         value={value}
-        onChange={handleChange}
+        onChange={(e: React.ChangeEvent<any>) => { hideHover(); handleChange(e); }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={hideHover}
         onKeyDown={handleKeyDown}
         onClick={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
         onKeyUp={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
@@ -215,6 +240,25 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
       />
 
       {popoverVar && <VariablePopover name={popoverVar} canWrite={canWrite} onClose={() => setPopoverVar(null)} />}
+
+      {hoverVar && !popoverVar && !menu && (
+        <div role="tooltip" data-testid="variable-hover" className="absolute left-0 top-full mt-1 z-50 pointer-events-none bg-background text-text border border-border rounded-lg shadow-2xl px-3 py-2 text-xs max-w-sm flex flex-col gap-1">
+          <div className="font-mono font-semibold break-all">{hoverVar}</div>
+          {hoverVar.startsWith('$') ? (
+            <div data-testid="variable-hover-source" className="text-text-muted">Dynamic value</div>
+          ) : hoverHits.length === 0 ? (
+            <div data-testid="variable-hover-source" className="text-text-muted">Not defined in any scope</div>
+          ) : (
+            <>
+              <div data-testid="variable-hover-value" className="font-mono break-all line-clamp-3">{hoverHits[0].secret ? '••••' : (hoverHits[0].value || '(empty)')}</div>
+              <div data-testid="variable-hover-source" className="text-text-muted">
+                Source: <b>{scopeLabel(hoverHits[0].scope)}</b>
+                {hoverHits.length > 1 && ` · overrides ${hoverHits.slice(1).map(h => scopeLabel(h.scope)).join(', ')}`}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {activeVarVal !== null && activeVarName !== null && !popoverVar && (
         <div className="absolute left-0 bottom-full mb-1 z-50 bg-background text-text border border-border rounded-lg shadow-2xl px-3 py-2 text-xs font-mono max-w-sm break-all flex flex-col gap-1">

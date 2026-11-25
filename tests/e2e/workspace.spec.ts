@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
@@ -25,11 +26,11 @@ test.describe('Workspace Management', () => {
     await page.getByTestId('prompt-input').fill(newWorkspaceName);
     await page.getByTestId('prompt-submit').click();
     
-    await expect(page.locator('[data-testid="workspace-select"]')).toContainText(newWorkspaceName);
+    await expectWorkspaceListed(page, newWorkspaceName);
 
     // 3. Switch to it
-    const workspaceId = await page.locator('[data-testid="workspace-select"]').inputValue();
-    await page.selectOption('[data-testid="workspace-select"]', workspaceId);
+    const workspaceId = await activeWorkspaceId(page);
+    await selectWorkspace(page, workspaceId);
 
     // 4. Edit the workspace
     await page.click('[data-testid="workspace-settings-btn"]');
@@ -41,7 +42,7 @@ test.describe('Workspace Management', () => {
     await saved;
     await page.click('[data-testid="close-workspace-modal"]');
     
-    await expect(page.locator('[data-testid="workspace-select"]')).toContainText(editedWorkspaceName);
+    await expectWorkspaceListed(page, editedWorkspaceName);
 
     // Cookie session authenticates; there is no Bearer token in localStorage.
     const status = await page.evaluate(async (id) => {
@@ -71,10 +72,10 @@ test.describe('Workspace Management', () => {
     await ownerPage.click('[data-testid="new-workspace-btn"]');
     await ownerPage.getByTestId('prompt-input').fill(wsName);
     await ownerPage.getByTestId('prompt-submit').click();
-    await expect(ownerPage.locator('[data-testid="workspace-select"]')).toContainText(wsName);
+    await expectWorkspaceListed(ownerPage, wsName);
     
-    const workspaceId = await ownerPage.locator('[data-testid="workspace-select"]').inputValue();
-    await ownerPage.selectOption('[data-testid="workspace-select"]', workspaceId);
+    const workspaceId = await activeWorkspaceId(ownerPage);
+    await selectWorkspace(ownerPage, workspaceId);
 
     // Register member
     const memberContext = await browser.newContext();
@@ -100,11 +101,11 @@ test.describe('Workspace Management', () => {
     
     // Member refreshes and switches to workspace
     await memberPage.reload();
-    await expect(memberPage.locator('[data-testid="workspace-select"]')).toContainText(wsName);
-    await memberPage.selectOption('[data-testid="workspace-select"]', workspaceId);
+    await expectWorkspaceListed(memberPage, wsName);
+    await selectWorkspace(memberPage, workspaceId);
     
     // Verify member has access
-    await expect(memberPage.locator('[data-testid="workspace-select"]')).toHaveValue(workspaceId);
+    await expect(memberPage.locator('[data-testid="workspace-select"]')).toHaveAttribute('data-value', workspaceId);
     
     // Verify member has access via API first
     const resBefore = await memberPage.evaluate(async (id) => {

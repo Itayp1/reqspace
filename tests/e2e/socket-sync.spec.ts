@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, expectWorkspaceListed } from './helpers';
 
 test.describe('WebSocket Sync', () => {
   test('User B sees conflict when User A edits request', async ({ browser }) => {
@@ -34,7 +35,7 @@ test.describe('WebSocket Sync', () => {
     await pageA.getByTestId('prompt-input').fill(`WS_${timestamp}`);
     await pageA.getByTestId('prompt-submit').click();
     
-    await expect(pageA.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
+    await expectWorkspaceListed(pageA, `WS_${timestamp}`);
 
     // 4. User A invites User B
     await pageA.getByTestId('workspace-settings-btn').click();
@@ -50,8 +51,8 @@ test.describe('WebSocket Sync', () => {
 
     // 5. User B switches to the workspace
     await pageB.reload();
-    await expect(pageB.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
-    await pageB.getByTestId('workspace-select').selectOption({ label: `WS_${timestamp}` });
+    await expectWorkspaceListed(pageB, `WS_${timestamp}`);
+    await selectWorkspace(pageB, { label: `WS_${timestamp}` });
 
     // 6. User A creates and saves a request
     await pageA.getByTestId('create-request-btn').click();

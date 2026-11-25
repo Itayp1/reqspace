@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, expectWorkspaceListed } from './helpers';
 
 test.describe('Smart Fork (collection fork + auto-sync)', () => {
   test('fork from a shared workspace into the personal workspace, switch workspaces, and see an unmodified item update live via socket', async ({ browser }) => {
@@ -25,14 +26,14 @@ test.describe('Smart Fork (collection fork + auto-sync)', () => {
     await pageA.getByTestId('register-password').fill(pass);
     await pageA.getByTestId('register-submit').click();
     await expect(pageA).toHaveURL(/.*\/$/);
-    await expect(pageA.getByTestId('workspace-select')).toContainText(personalWsName);
+    await expectWorkspaceListed(pageA, personalWsName);
 
     // 2. Create a shared workspace A (becomes active) to hold the fork source
     // — forking is not allowed to originate from the personal workspace.
     await pageA.getByTestId('new-workspace-btn').click();
     await pageA.getByTestId('prompt-input').fill(wsAName);
     await pageA.getByTestId('prompt-submit').click();
-    await expect(pageA.getByTestId('workspace-select')).toContainText(wsAName);
+    await expectWorkspaceListed(pageA, wsAName);
 
     // 3. Create the source collection + a folder inside it, in workspace A
     await pageA.goto('/');
@@ -64,7 +65,7 @@ test.describe('Smart Fork (collection fork + auto-sync)', () => {
     // calling the API directly.
     const pageB = await context.newPage();
     await pageB.goto('/');
-    await pageB.getByTestId('workspace-select').selectOption({ label: personalWsName });
+    await selectWorkspace(pageB, { label: personalWsName });
 
     // 5. Fork the source collection from workspace A into the personal workspace
     await sourceColNode.getByTestId('action-menu-btn').click();
@@ -78,7 +79,7 @@ test.describe('Smart Fork (collection fork + auto-sync)', () => {
     await expect(pageA.getByText(/Forked into/)).toBeVisible();
 
     // 6. pageA itself can also switch over and see it
-    await pageA.getByTestId('workspace-select').selectOption({ label: personalWsName });
+    await selectWorkspace(pageA, { label: personalWsName });
     await expect(pageA.getByTestId(`node-${forkName}`).first()).toBeVisible();
 
     // 7. pageB, which never reloaded, sees the forked collection appear live
@@ -89,7 +90,7 @@ test.describe('Smart Fork (collection fork + auto-sync)', () => {
 
     // 8. Edit the source (still reachable from pageA, workspace A) — an item the
     // fork owner never touched, so it should sync forward automatically.
-    await pageA.getByTestId('workspace-select').selectOption({ label: wsAName });
+    await selectWorkspace(pageA, { label: wsAName });
     const renamedFolderName = `${folderName} Renamed`;
     // Re-expand the source collection (workspace switches collapse the tree)
     await pageA.getByTestId(`node-${sourceColName}`).first().click();

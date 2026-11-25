@@ -23,6 +23,9 @@ test.describe('Cookies & Console', () => {
     await page.getByTestId('register-password').fill('password123');
     await page.getByTestId('register-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
+    // Sending jar cookies is off by default; these tests are about what happens once it is on.
+    await page.request.put('/api/auth/settings', { data: { sendCookies: true } });
+    await page.reload();
     await page.getByTestId('create-request-btn').click();
   }
 

@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { registerUser, createCollectionUi, addViaMenu, treeNode, openNodeMenu, apiAs } from './helpers';
+import { registerUser, createCollectionUi, addViaMenu, treeNode, openNodeMenu, apiAs, activeWorkspaceId } from './helpers';
 
 async function openMissingModal(page: Page, name: string) {
   await page.route('https://mvt.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
@@ -26,7 +26,7 @@ test('missing variable scope defaults to Personal', async ({ page }) => {
 
 test('missing variable can be created in a chosen environment', async ({ page }) => {
   const email = await registerUser(page, 'mvt2');
-  const wsId = await page.getByTestId('workspace-select').inputValue();
+  const wsId = await activeWorkspaceId(page);
   const api = await apiAs(email);
   for (const name of ['Alpha', 'Beta']) {
     const res = await api.post(`/api/workspaces/${wsId}/environments`, { data: { name, variables: [] } });
@@ -51,7 +51,7 @@ test('missing variable can be created in a chosen environment', async ({ page })
 
 test('missing variable can be created in the global environment', async ({ page }) => {
   const email = await registerUser(page, 'mvt3');
-  const wsId = await page.getByTestId('workspace-select').inputValue();
+  const wsId = await activeWorkspaceId(page);
   const dialog = await openMissingModal(page, 'seg');
   await dialog.getByLabel('Scope for seg').selectOption('global');
   await page.getByTestId('missing-var-value-seg').fill('g1');

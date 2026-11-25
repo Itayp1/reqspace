@@ -1,5 +1,5 @@
 import { test, expect, fetchFpErrorsSince } from './fixtures';
-import { registerUser, apiAs } from './helpers';
+import { registerUser, apiAs, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 /**
  * App-level behaviour no spec covered: the database-error screen, unknown
@@ -76,9 +76,9 @@ test.describe('App shell', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(`Roles WS ${ts}`);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(`Roles WS ${ts}`);
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(`Roles WS ${ts}`);
-    const wsId = await page.getByTestId('workspace-select').inputValue();
+    await expectWorkspaceListed(page, `Roles WS ${ts}`);
+    await expect(page.getByTestId('workspace-select')).toHaveText(`Roles WS ${ts}`);
+    const wsId = await activeWorkspaceId(page);
 
     await page.getByTestId('workspace-settings-btn').click();
     await page.getByTestId('workspace-members-tab').click();

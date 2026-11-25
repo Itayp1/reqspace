@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../store/authStore';
-import { Settings, Users, FolderOpen, Clock, DownloadCloud, SlidersHorizontal, LogOut, ChevronsLeft } from 'lucide-react';
+import { Settings, FolderOpen, Clock, DownloadCloud, SlidersHorizontal, LogOut, ChevronsLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import CollectionExplorer from '../collection/CollectionExplorer';
 import WorkspaceSettingsModal from '../workspace/WorkspaceSettingsModal';
@@ -9,6 +9,7 @@ import ImportModal from '../collection/ImportModal';
 import EnvironmentSidebar from '../environment/EnvironmentSidebar';
 import api, { beginSignOut } from '../../api/axios';
 import { InlineNameInput } from '../common/InlineNameInput';
+import { WorkspacePicker } from '../common/WorkspacePicker';
 import { useToastStore } from '../../store/toastStore';
 
 export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
@@ -97,21 +98,7 @@ export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       </div>
 
       <div className="p-2 border-b border-border flex gap-1">
-        <label htmlFor="workspace-select" className="sr-only">Select workspace</label>
-        <select 
-          id="workspace-select"
-          data-testid="workspace-select"
-          className="flex-1 min-w-0 p-2 bg-background border border-border rounded text-sm outline-none focus-visible:ring-1 focus-visible:ring-primary truncate"
-          value={activeWorkspace?._id || ''}
-          onChange={(e) => {
-            const ws = workspaces.find(w => w._id === e.target.value);
-            if (ws) setActiveWorkspace(ws);
-          }}
-        >
-          {workspaces.map(ws => (
-            <option key={ws._id} value={ws._id}>{ws.name}</option>
-          ))}
-        </select>
+        <WorkspacePicker items={workspaces} activeId={activeWorkspace?._id || ''} onSelect={setActiveWorkspace} />
         <button
           data-testid="new-workspace-btn"
           onClick={() => setCreatingWs(true)}
@@ -126,9 +113,9 @@ export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
           onClick={() => setShowWorkspaceModal(true)}
           className="p-2 bg-background border border-border rounded hover:bg-border text-text-muted transition flex-shrink-0"
           title="Workspace Settings"
-          aria-label="Workspace settings and members"
+          aria-label="Workspace settings"
         >
-          <Users className="w-4 h-4" aria-hidden="true" />
+          <Settings className="w-4 h-4" aria-hidden="true" />
         </button>
       </div>
       {creatingWs && (

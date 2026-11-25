@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { registerUser, apiAs, treeNode } from './helpers';
+import { registerUser, apiAs, treeNode, selectWorkspace } from './helpers';
 
 /**
  * A move made by one user must show up for everyone else as a move, not a
@@ -26,7 +26,7 @@ test('a request and a folder moved by a teammate appear once, in their new place
   const req = await (await a.post(`/api/collections/${col._id}/requests`, { data: { name: 'Traveller', method: 'GET', url: 'https://move.example.test', folderId: from._id } })).json();
 
   await page.reload();
-  await page.getByTestId('workspace-select').selectOption(ws._id);
+  await selectWorkspace(page, ws._id);
   await treeNode(page, 'Move Col').click();
   await treeNode(page, 'From Folder').click();
   await treeNode(page, 'To Folder').click();

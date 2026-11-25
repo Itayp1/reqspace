@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 test.describe('RBAC Roles', () => {
   test('Viewer cannot edit, Editor can edit', async ({ browser }) => {
@@ -33,8 +34,8 @@ test.describe('RBAC Roles', () => {
     await pageA.getByTestId('new-workspace-btn').click();
     await pageA.getByTestId('prompt-input').fill(wsName);
     await pageA.getByTestId('prompt-submit').click();
-    await expect(pageA.getByTestId('workspace-select')).toContainText(wsName);
-    const workspaceId = await pageA.getByTestId('workspace-select').inputValue();
+    await expectWorkspaceListed(pageA, wsName);
+    const workspaceId = await activeWorkspaceId(pageA);
 
     // User A creates a collection first — the Save modal itself can't create
     // one (its "Save to..." list just says "No collections found" when
@@ -66,8 +67,8 @@ test.describe('RBAC Roles', () => {
 
     // User B refreshes and switches to workspace
     await pageB.reload();
-    await pageB.getByTestId('workspace-select').selectOption(workspaceId);
-    await expect(pageB.getByTestId('workspace-select')).toContainText(wsName);
+    await selectWorkspace(pageB, workspaceId);
+    await expectWorkspaceListed(pageB, wsName);
 
     // User B opens the request. A fresh page load starts every collection
     // collapsed, so it has to be expanded before its request is in the DOM.
@@ -91,7 +92,7 @@ test.describe('RBAC Roles', () => {
 
     // User B reloads
     await pageB.reload();
-    await pageB.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(pageB, workspaceId);
     await expect(pageB.getByTestId('node-Col 1')).toBeVisible();
     await pageB.getByTestId('node-Col 1').click();
     await pageB.getByTestId('node-Test Request').click();

@@ -4,7 +4,10 @@ import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
 import { Lock, Unlock, Eye, EyeOff, Trash2, Download, Save, Plus } from 'lucide-react';
 import { useToastStore } from '../../store/toastStore';
+import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 import api from '../../api/axios';
+import { VariableNameInput } from '../common/VariableNameInput';
+import { suggestVariableNames } from '../../utils/variables';
 import type { EnvironmentVariable } from '../../store/environmentStore';
 
 export function EnvironmentTabEditor() {
@@ -150,16 +153,7 @@ export function EnvironmentTabEditor() {
     }
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key ?? "").toLowerCase() === 's') {
-        e.preventDefault();
-        handleSave();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [handleSave]);
+  useSaveShortcut(handleSave);
 
   if (!env) return <div className="p-4 text-text-muted">Environment not found</div>;
 
@@ -252,7 +246,7 @@ export function EnvironmentTabEditor() {
                     <input type="checkbox" aria-label={`Enable ${v.key || 'variable'}`} checked={v.enabled} onChange={e => handleUpdateVar(i, 'enabled', e.target.checked)} />
                   </td>
                   <td className="p-0 border-l border-border relative">
-                    <input type="text" data-testid={`env-var-key-${i}`} value={v.key} onChange={e => handleUpdateVar(i, 'key', e.target.value)} className="w-full p-2 bg-transparent font-mono focus:bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary" placeholder="New key" aria-label="Variable name" />
+                    <VariableNameInput data-testid={`env-var-key-${i}`} value={v.key} onChange={val => handleUpdateVar(i, 'key', val)} getSuggestions={q => suggestVariableNames(q, localVars.filter((_, j) => j !== i).map(x => x.key), 'This environment', envId)} className="w-full p-2 bg-transparent font-mono focus:bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary" placeholder="New key" aria-label="Variable name" />
                   </td>
                   <td className="p-1 border-l border-border text-center">
                     <button
