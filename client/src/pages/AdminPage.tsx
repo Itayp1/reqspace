@@ -56,6 +56,7 @@ export default function AdminPage() {
   const [logPage, setLogPage] = useState(1);
   const [logTotal, setLogTotal] = useState(0);
   const [testingSmtp, setTestingSmtp] = useState(false);
+  const [testingRedis, setTestingRedis] = useState(false);
   const testingSmtpRef = useRef(false); // synchronous guard: state is stale between rapid clicks
 
   useEffect(() => {
@@ -666,6 +667,61 @@ export default function AdminPage() {
                       />
                       <p className="text-xs text-text-muted mt-0.5">Set this when the server runs behind a reverse proxy; otherwise every visitor shares the proxy's IP and X-Forwarded-For is ignored.</p>
                     </div>
+                    {(() => {
+                      const redis = server.redis || {};
+                      const setRedis = (patch: any) => setServer({ redis: { ...redis, ...patch } });
+                      const field = (key: string, label: string, type = 'text', numeric = false) => (
+                        <div key={key}>
+                          <label className="block text-xs mb-1 text-text-muted">{label}</label>
+                          <input autoComplete={type === 'password' ? 'new-password' : 'off'} type={type} data-testid={`admin-redis-${key}`}
+                            value={redis[key] ?? (numeric ? 0 : '')}
+                            onChange={e => setRedis({ [key]: numeric ? +e.target.value : e.target.value })}
+                            className="w-full p-2 border border-border rounded bg-background text-sm" />
+                        </div>
+                      );
+                      return (
+                        <div className="p-3 border border-border rounded space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input autoComplete="off" type="checkbox" id="admin-redis-enabled" data-testid="admin-redis-enabled"
+                              checked={redis.enabled ?? false} onChange={e => setRedis({ enabled: e.target.checked })} />
+                            <label htmlFor="admin-redis-enabled" className="text-sm font-medium">Redis for realtime sync across several servers</label>
+                          </div>
+                          <p className="text-xs text-text-muted">Read once when the server starts: a saved change applies only after a restart. A connection that fails is rejected on save; if Redis is unreachable at startup the server runs without it.</p>
+                          {redis.enabled && (
+                            <div className="grid grid-cols-2 gap-2">
+                              {field('host', 'Host')}
+                              {field('port', 'Port', 'number', true)}
+                              {field('username', 'User')}
+                              {field('password', 'Password', 'password')}
+                              {field('db', 'Database (0-15)', 'number', true)}
+                              <label className="flex items-center gap-2 text-sm self-end pb-2">
+                                <input autoComplete="off" type="checkbox" data-testid="admin-redis-tls" checked={redis.tls ?? false} onChange={e => setRedis({ tls: e.target.checked })} />
+                                TLS
+                              </label>
+                              <button
+                                disabled={testingRedis}
+                                data-testid="admin-redis-test"
+                                onClick={async () => {
+                                  setTestingRedis(true);
+                                  try {
+                                    const { enabled: _e, ...body } = redis;
+                                    const res = await api.post('/admin/test-redis', body);
+                                    useToastStore.getState().addToast('success', res.data.message);
+                                  } catch (err: any) {
+                                    useToastStore.getState().addToast('error', err.response?.data?.message || err.message);
+                                  } finally {
+                                    setTestingRedis(false);
+                                  }
+                                }}
+                                className="bg-primary-strong text-white text-xs px-3 py-1.5 rounded hover:bg-primary-strong-hover transition disabled:opacity-50 w-fit"
+                              >
+                                {testingRedis ? 'Testing…' : 'Test Connection'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div>
                       <label htmlFor="admin-server-allowed-origins" className="block text-sm font-medium mb-1">Extra allowed browser origins (one per line; ignored in production)</label>
                       <textarea

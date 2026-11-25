@@ -24,6 +24,15 @@ const oauthProviderSchema = z.object({
   }, 'Enter only the hostname (e.g. app.example.com), not a full URL path').optional(),
 });
 
+const redisFields = z.object({
+  host: z.string().max(255),
+  port: z.number().int().min(1).max(65535),
+  username: z.string().max(255),
+  password: z.string().max(1024),
+  tls: z.boolean(),
+  db: z.number().int().min(0).max(15),
+});
+
 export const updateConfigSchema = z.object({
   auth: z.object({
     allowSelfRegistration: z.boolean().optional(),
@@ -68,6 +77,7 @@ export const updateConfigSchema = z.object({
     trustProxy: z.string().max(500).regex(/^(|false|\d{1,2}|[A-Za-z0-9.:/_, -]+)$/, 'Invalid trust proxy value').optional(),
     captureAuthFailures: z.boolean().optional(),
     errorDedupeMs: z.number().int().min(0).max(86_400_000).optional(),
+    redis: redisFields.extend({ enabled: z.boolean() }).partial().optional(),
   }).optional(),
   proxy: z.object({
     allowPrivateTargets: z.boolean().optional()
@@ -102,6 +112,8 @@ export const emptyBodySchema = z.object({}).strict();
 export const suspendUserSchema = z.object({
   suspended: z.boolean(),
 }).strict();
+
+export const testRedisSchema = redisFields.strict();
 
 export const testSmtpSchema = z.object({
   enabled: z.boolean().optional(),

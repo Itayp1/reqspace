@@ -2,8 +2,7 @@ import 'express-async-errors';
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { createAdapter } from '@socket.io/redis-adapter';
-import { Redis } from 'ioredis';
+import { attachRedisAdapter } from './utils/redisAdapter';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -71,12 +70,6 @@ export const io = new SocketIOServer(server, {
   },
   path: '/ws',
   });
-
-  if (process.env.REDIS_URL) {
-    const pubClient = new Redis(process.env.REDIS_URL);
-    const subClient = pubClient.duplicate();
-    io.adapter(createAdapter(pubClient, subClient));
-  }
 
 /** Verifies the socket's auth cookie and returns the userId, or null. */
 function getSocketUserId(socket: import('socket.io').Socket): string | null {
@@ -486,6 +479,7 @@ async function bootstrap() {
 
     await SystemConfigRepository.ensure();
     await sealPendingSecrets();
+    await attachRedisAdapter(io);
     console.log('ג… SystemConfig initialized');
 
     // The superadmin is created by the first-run setup screen (POST /api/auth/setup), never at boot.

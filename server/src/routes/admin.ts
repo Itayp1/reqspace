@@ -18,6 +18,7 @@ import { likeAnyColumn, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 import { isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
 import { Op, fn, col } from 'sequelize';
 import { OAUTH_PROVIDERS, OAUTH_HOST_FIELD, configKey, missingOAuthFields } from '../utils/oauthProviders';
+import { testRedis } from '../utils/redisAdapter';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -281,6 +282,7 @@ function maskConfigSecrets(config: any) {
     if (masked.auth?.[key]?.clientSecret) masked.auth[key].clientSecret = SECRET_MASK;
   }
   if (masked.proxy?.password) masked.proxy.password = SECRET_MASK;
+  if (masked.server?.redis?.password) masked.server.redis.password = SECRET_MASK;
   return masked;
 }
 
@@ -296,6 +298,7 @@ router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequ
     if (update.auth?.[key]?.clientSecret === SECRET_MASK) delete update.auth[key].clientSecret;
   }
   if (update.proxy?.password === SECRET_MASK) delete update.proxy.password;
+  if (update.server?.redis?.password === SECRET_MASK) delete update.server.redis.password;
   // An enabled provider needs its OAuth URL hostname, whether sent now or already stored.
   const stored = await SystemConfigRepository.getConfig();
   const noHost = OAUTH_PROVIDERS.filter((id) => {
@@ -313,11 +316,29 @@ router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequ
     }
   }
 
+  // Saving an enabled Redis config requires that it connects.
+  if (update.server?.redis) {
+    const redis = { ...stored?.server.redis, ...update.server.redis };
+    if (redis.enabled) {
+      const failure = await testRedis(redis);
+      if (failure) return res.status(400).json({ message: `Redis connection failed: ${failure}` });
+    }
+  }
+
   const config = await SystemConfigRepository.updateConfig(update);
   await logAudit(req.user!._id as any, 'admin.config.update', {
     ip: req.ip, details: { fields: Object.keys(req.body) },
   });
   return res.json(maskConfigSecrets(config));
+});
+
+// "Test Connection" on the Redis settings; a masked password means "use the stored one".
+router.post('/test-redis', validate(schemas.testRedisSchema), async (req: AuthRequest, res: Response) => {
+  const body = { ...req.body, enabled: true };
+  if (body.password === SECRET_MASK) body.password = (await SystemConfigRepository.getConfig())?.server.redis.password ?? '';
+  const failure = await testRedis(body);
+  if (failure) return res.status(400).json({ message: `Redis connection failed: ${failure}` });
+  return res.json({ message: `Connected to ${body.host}:${body.port}` });
 });
 
 // "Test Connection" on the SMTP settings. Takes the form's current values, so
