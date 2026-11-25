@@ -49,3 +49,8 @@ For every assigned bug, you MUST adhere to the following sequence:
 - Every push (any branch) must publish a version tag to Docker Hub (`itayp/reqspace`), not just `latest`/branch/sha. `.github/workflows/docker-publish.yml` does it: `<major>.<minor>` from root `package.json` + `.<github.run_number>`, so the patch part rises automatically on every push.
 - To raise the minor/major, edit `version` in root `package.json` (`chore: release X.Y.0`). Electron releases trigger on an `X.Y.0` bump on master.
 - After pushing, check the Actions run is green and the tag exists on Docker Hub; if the workflow lacks the "Compute version" step, the tag will not appear.
+
+## Finishing a worktree or branch
+- Whenever work in a worktree or branch is finished: merge it into `dev` and push `dev`. Do this every time, without being asked.
+- `master` only when the user asks for it. Never merge or push `master` on your own; if unsure, ask with the AskUserQuestion tool (interactive), not in plain text.
+- Before the commit and push that promotes work to `dev`, bump the fix (patch) number of `version` in root `package.json` (e.g. `1.5.0` -> `1.5.1`).
