@@ -1,5 +1,7 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { useEnvironmentStore } from '../../store/environmentStore';
+import { useAuthStore } from '../../store/authStore';
+import { VariablePopover } from './VariablePopover';
 
 interface VariableInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
   value: string;
@@ -11,7 +13,9 @@ interface VariableInputProps extends Omit<React.InputHTMLAttributes<HTMLInputEle
 }
 
 export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, onEnter, multilineOnFocus, className, style, ...props }) => {
-  const { environments, activeEnvironmentId, globalEnvironment } = useEnvironmentStore();
+  const { environments, activeEnvironmentId, globalEnvironment, userProfileVariables } = useEnvironmentStore();
+  const canWrite = ['editor', 'owner'].includes(useAuthStore(s => s.activeWorkspace?.myRole) || '');
+  const [popoverVar, setPopoverVar] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [varFilter, setVarFilter] = useState('');
   const [cursorPos, setCursorPos] = useState<number>(0);
@@ -42,8 +46,19 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
   const activeEnv = environments.find(e => e._id === activeEnvironmentId);
   const allVars = [
     ...(globalEnvironment?.variables || []),
-    ...(activeEnv?.variables || [])
+    ...(activeEnv?.variables || []),
+    ...userProfileVariables.map(v => ({ ...v, currentValue: String(v.value ?? v.currentValue ?? '') })),
   ].filter(v => v.enabled);
+
+  // Right-click on a {{variable}} opens its source/edit popover; elsewhere the browser's own menu stays.
+  const handleContextMenu = (e: React.MouseEvent<any>) => {
+    const pos = e.currentTarget.selectionStart ?? 0;
+    const hit = Array.from(value.matchAll(/\{\{([^{}]+)\}\}/g)).find(m => pos >= m.index! && pos <= m.index! + m[0].length);
+    const name = hit?.[1].trim();
+    if (!name || name.startsWith('$')) return;
+    e.preventDefault();
+    setPopoverVar(name);
+  };
 
   // Parse text to highlight {{var}}
   const renderHighlighted = () => {
@@ -177,6 +192,7 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         onKeyDown={handleKeyDown}
         onClick={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
         onKeyUp={(e: React.SyntheticEvent<any>) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScrollSoon(); }}
+        onContextMenu={handleContextMenu}
         onScroll={syncScroll}
         onSelect={syncScrollSoon}
         onFocus={() => { setFocused(true); syncScrollSoon(); }}
@@ -186,7 +202,9 @@ export const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, o
         style={{ ...style }}
       />
 
-      {activeVarVal !== null && activeVarName !== null && (
+      {popoverVar && <VariablePopover name={popoverVar} canWrite={canWrite} onClose={() => setPopoverVar(null)} />}
+
+      {activeVarVal !== null && activeVarName !== null && !popoverVar && (
         <div className="absolute left-0 bottom-full mb-1 z-50 bg-background text-text border border-border rounded-lg shadow-2xl px-3 py-2 text-xs font-mono max-w-sm break-all flex flex-col gap-1">
           <div className="text-[10px] uppercase font-semibold text-text-muted">Value of {activeVarName}</div>
           <div className="text-text">{activeVarVal}</div>

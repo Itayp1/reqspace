@@ -43,6 +43,25 @@ export function resolveDynamicVars(text: string): string {
   });
 }
 
+export type VarScope = 'profile' | 'environment' | 'global';
+export interface VarHit { scope: VarScope; value: string; secret: boolean }
+
+/** Every scope that defines `name`, highest precedence first (profile > environment > global). The first hit wins. */
+export function resolveWithSource(name: string): VarHit[] {
+  const { environments, activeEnvironmentId, globalEnvironment, userProfileVariables } = useEnvironmentStore.getState();
+  const activeEnv = environments.find(e => e._id === activeEnvironmentId);
+  const last = (vars?: any[]) => vars?.filter(v => v.enabled && v.key === name).pop();
+  const hits: VarHit[] = [];
+  const add = (scope: VarScope, v: any, value: string) => v && hits.push({ scope, value, secret: v.type === 'secret' || !!v.isSecret });
+  const p = last(userProfileVariables);
+  add('profile', p, String(p?.value !== undefined ? p.value : (p?.currentValue || '')));
+  const e = last(activeEnv?.variables);
+  add('environment', e, e?.currentValue || e?.initialValue || '');
+  const g = last(globalEnvironment?.variables);
+  add('global', g, g?.currentValue || g?.initialValue || '');
+  return hits;
+}
+
 export function resolveAllVariables(text: string, collectionId?: string, iterationData?: Record<string, any>, localVariables?: Map<string, string>): string {
   if (!text) return '';
   let result = resolveDynamicVars(text);
