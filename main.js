@@ -208,6 +208,9 @@ function createWindow() {
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (isAllowedNavigation(url)) return;
+    // The window only ever shows the app or an allowed identity provider, so moving within the page's own
+    // origin (the IdP's login form, MFA step…) must stay here: the OAuth state cookie lives in this window.
+    try { if (new URL(mainWindow.webContents.getURL()).origin === new URL(url).origin) return; } catch { /* fall through */ }
     event.preventDefault();
     isConfiguredCustomIdp(url).then((isIdp) => {
       if (isIdp && mainWindow) mainWindow.loadURL(url);
@@ -289,6 +292,15 @@ function changeMode() {
   app.exit(0);
 }
 
+// Straight to offline (no setup question); the database folder choice is kept.
+ipcMain.on('reqspace:work-offline', () => {
+  if (serverProcess) { serverProcess.kill(); serverProcess = null; }
+  const { url: _url, ...rest } = readConfig() || {};
+  writeConfig({ ...rest, mode: 'local', offline: true });
+  app.relaunch();
+  app.exit(0);
+});
+
 function buildMenu() {
   const cfg = readConfig() || {};
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -296,7 +308,7 @@ function buildMenu() {
       label: 'File',
       submenu: [
         { label: 'Database location…', click: changeDbFolder },
-        { label: cfg.mode === 'remote' ? 'Work offline instead…' : 'Connect to a server…', click: changeMode },
+        { label: cfg.mode === 'local' ? 'Connect to a server…' : 'Work offline instead…', click: changeMode },
         { type: 'separator' },
         { role: 'quit' },
       ],

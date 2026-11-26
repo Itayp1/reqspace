@@ -17,6 +17,8 @@ if (!process.argv.includes('--e2e-web-transport')) {
   contextBridge.exposeInMainWorld('electron', {
     sendRequest: (payload, requestId) => ipcRenderer.invoke('reqspace:send-request', payload, requestId),
     abortRequest: (requestId) => ipcRenderer.send('reqspace:abort-request', requestId),
+    // Login screen escape hatch: restart in single-user offline mode.
+    workOffline: () => ipcRenderer.send('reqspace:work-offline'),
     // Live connections (Kafka, authenticated WebSocket); results are { ok, data | error }.
     connOpen: (id, kind, cfg) => ipcRenderer.invoke('reqspace:conn-open', id, kind, cfg),
     connClose: (id) => ipcRenderer.invoke('reqspace:conn-close', id),

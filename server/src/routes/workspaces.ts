@@ -44,10 +44,10 @@ async function enrichMembers(members: IWorkspaceMemberRecord[]) {
 // ── GET /api/workspaces ─────────────────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res: Response) => {
   const userId = String(req.user!._id);
-  const workspaces = await WorkspaceRepository.findForUser(userId);
+  const workspaces = await WorkspaceRepository.findForUser(userId, !!req.user!.isSuperAdmin);
   const result = workspaces.map((ws) => {
     const member = ws.members.find((m) => String(m.userId) === userId);
-    return { ...ws, myRole: member?.role ?? (ws.isPublic ? 'viewer' : undefined) };
+    return { ...ws, myRole: member?.role ?? (req.user!.isSuperAdmin ? 'owner' : ws.isPublic ? 'viewer' : undefined) };
   });
   return res.json(result);
 });

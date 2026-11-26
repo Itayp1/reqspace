@@ -134,6 +134,12 @@ export default function LoginPage() {
           </button>
         )}
 
+        {(window as any).electron?.workOffline && (
+          <button type="button" data-testid="login-work-offline" onClick={() => (window as any).electron.workOffline()} className="w-full mt-2 text-sm text-text-muted hover:underline focus-visible:ring-2 focus-visible:ring-primary/40 rounded">
+            Work offline instead
+          </button>
+        )}
+
         {!config?.needsSetup && config?.allowSelfRegistration !== false && (
           <div className="mt-4 text-center text-sm text-text-muted">
             Don't have an account? <Link to="/register" className="text-primary hover:underline focus-visible:ring-2 focus-visible:ring-primary/40 rounded">Register</Link>

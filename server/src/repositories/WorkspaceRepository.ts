@@ -45,11 +45,11 @@ export const WorkspaceRepository = {
     return w ? sqlToRecord(w) : null;
   },
 
-  async findForUser(userId: string): Promise<IWorkspaceRecord[]> {
+  async findForUser(userId: string, everything = false): Promise<IWorkspaceRecord[]> {
     const all = await SqlWorkspace.findAll();
     return all
       .map(sqlToRecord)
-      .filter(w => w.isPublic || w.ownerId === userId || w.members.some(m => m.userId === userId));
+      .filter(w => everything || w.isPublic || w.ownerId === userId || w.members.some(m => m.userId === userId));
   },
 
   async findPublic(): Promise<IWorkspaceRecord[]> {
