@@ -3,6 +3,7 @@
 import { use, expect, AssertionError } from 'chai';
 import _ from 'lodash';
 import Ajv from 'ajv';
+import Ajv04 from 'ajv-draft-04';
 
 const unsupported = (path: string): never => { throw new Error(`pm.${path} is not supported`); };
 const isObj = (v: any) => v !== null && typeof v === 'object';
@@ -107,6 +108,7 @@ class List<T extends { key: any }> {
   toString() { return this.items.filter((i: any) => !i.disabled).map(String).join(this.sep); }
   contentSize() { return this.items.reduce((n, i) => n + String(i).length + 2, 0); }
   toJSON() { return this.items.map((i: any) => (i.toJSON ? i.toJSON() : i)); }
+  [Symbol.iterator]() { return this.items[Symbol.iterator](); }
 }
 
 // pm.request.headers['X-A'] = 'b' / ['X-A'] read keep working (they did when headers was a plain object).
@@ -115,6 +117,9 @@ const headerList = (label: string, ro = false) => {
   return new Proxy(list, {
     get: (t, p, r) => (typeof p === 'string' && !(p in t) ? t.get(p) : Reflect.get(t, p, r)),
     set: (t, p, v) => { if (typeof p === 'string' && !(p in t)) { t.upsert({ key: p, value: String(v) }); return true; } return Reflect.set(t, p, v); },
+    // Object.keys(headers) lists header names, as it did when headers was a plain object.
+    ownKeys: (t) => [...new Set(t.items.map((i: any) => String(i.key)))],
+    getOwnPropertyDescriptor: (t, p) => (typeof p === 'string' && t.has(p) ? { value: t.get(p), enumerable: true, configurable: true, writable: true } : undefined),
     deleteProperty: (t, p) => { if (typeof p === 'string' && !(p in t)) t.remove(p); return true; },
   });
 };
@@ -391,7 +396,9 @@ use((chai: any, utils: any) => {
   A.addMethod('jsonSchema', function (this: any, schema: any, options?: any) {
     new A(schema).to.be.an('object');
     const data = this._obj instanceof Resp ? this._obj.json() : this._obj;
-    const ajv = new Ajv({ allErrors: true, strict: false, logger: false, ...options });
+    // Postman validates draft-04 by default; ajv 8 only knows draft-07 without ajv-draft-04.
+    const draft4 = typeof schema.$schema === 'string' && schema.$schema.includes('draft-04');
+    const ajv = new (draft4 ? Ajv04 : Ajv)({ allErrors: true, strict: false, logger: false, ...options });
     const ok = ajv.validate(schema, data);
     this.assert(ok, `expected data to satisfy schema but found following errors: \n${ajv.errorsText()}`, 'expected data to not satisfy schema', true, ok);
   });

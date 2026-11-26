@@ -5,7 +5,7 @@ import { X, Play, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { useEnvironmentStore } from '../../store/environmentStore';
 import { resolveAllVariables } from '../../utils/variables';
 import { applyRequestAuth, folderChainClosestFirst, resolveInheritedAuth } from '../../utils/requestAuth';
-import { runPreRequestScript, runTestScript } from '../../utils/scripts';
+import { runPreRequestScript, runTestScript, diffRequestMods } from '../../utils/scripts';
 import { useCollectionStore, type Folder } from '../../store/collectionStore';
 import { sendRequest, EXTENSION_NOT_INSTALLED_ERROR } from '../../transport';
 import { useExtensionStore } from '../../store/extensionStore';
@@ -248,20 +248,32 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           if (collection?.preRequestScript) preScripts.push(collection.preRequestScript);
           for (const f of chainRootFirst) if (f.preRequestScript) preScripts.push(f.preRequestScript);
           if (req.preRequestScript) preScripts.push(req.preRequestScript);
+          let mods: ReturnType<typeof diffRequestMods> = {};
+          let preRes: Awaited<ReturnType<typeof runPreRequestScript>>;
           if (preScripts.length > 0) {
-            const preRes = await runPreRequestScript(preScripts.join('\n\n'), collectionId, iterationData, localVariables, runnerRequest(req));
+            const orig = runnerRequest(req);
+            preRes = await runPreRequestScript(preScripts.join('\n\n'), collectionId, iterationData, localVariables, orig);
             if (preRes && preRes.nextRequest !== undefined) nextReqName = preRes.nextRequest;
+            mods = diffRequestMods(orig, preRes?.requestMods);
           }
+          const reqMethod = mods.method || req.method || 'GET';
 
-          const resolvedUrl = resolveAllVariables(req.url || '', collectionId, iterationData, localVariables);
+          const resolvedUrl = resolveAllVariables(mods.url ?? (req.url || ''), collectionId, iterationData, localVariables);
           const reqHeaders = req.headers?.reduce((acc: any, h: any) => {
             if (h.key && h.enabled) acc[h.key] = resolveAllVariables(h.value, collectionId, iterationData, localVariables);
             return acc;
           }, {}) || {};
 
+          // pm.request / req.headers changes from the pre-request scripts, same as Send.
+          const dropHeader = (k: string) => { const ex = Object.keys(reqHeaders).find((hk) => hk.toLowerCase() === k.toLowerCase()); if (ex) delete reqHeaders[ex]; };
+          Object.entries(mods.headers || {}).forEach(([k, v]) => { dropHeader(k); reqHeaders[k] = resolveAllVariables(String(v), collectionId, iterationData, localVariables); });
+          mods.removedHeaders?.forEach(dropHeader);
+          Object.entries(preRes?.headerWrites || {}).forEach(([k, v]) => { dropHeader(k); reqHeaders[k] = v; });
+          preRes?.removedHeaders?.forEach(dropHeader);
+
           let requestBody: any = undefined;
           if (req.body?.mode === 'raw') {
-            requestBody = resolveAllVariables(req.body.raw || '', collectionId, iterationData, localVariables);
+            requestBody = resolveAllVariables(mods.body ?? (req.body.raw || ''), collectionId, iterationData, localVariables);
           } else if (req.body?.mode === 'urlencoded') {
             const params = new URLSearchParams();
             req.body.urlencoded?.filter((i: any) => i.enabled && i.key).forEach((item: any) => {
@@ -294,7 +306,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           });
 
             const res = await sendRequest({
-              method: req.method || 'GET',
+              method: reqMethod,
               url: appliedAuth.url,
               headers: appliedAuth.headers,
               body: requestBody,
@@ -308,7 +320,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           const statusCode = res.status;
           const responseBody = res.body || '';
           recordRunnerHistory(
-            { method: req.method || 'GET', url: appliedAuth.url, headers: appliedAuth.headers, body: requestBody },
+            { method: reqMethod, url: appliedAuth.url, headers: appliedAuth.headers, body: requestBody },
             { responseBody: (res.size || 0) > 512 * 1024 ? `[Response body not saved to history: ${((res.size || 0) / (1024 * 1024)).toFixed(1)} MB, over the 512 KB limit]` : responseBody, responseStatus: statusCode, responseStatusText: res.statusText || '', responseHeaders: res.headers || {}, responseTime: duration, responseSize: res.size || 0 },
           );
 
@@ -326,7 +338,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
               body: responseBody,
               time: duration,
             }, collectionId, iterationData, localVariables, {
-              ...runnerRequest(req), url: appliedAuth.url, method: req.method || 'GET', headers: appliedAuth.headers,
+              ...runnerRequest(req), url: appliedAuth.url, method: reqMethod, headers: appliedAuth.headers,
               body: typeof requestBody === 'string' ? requestBody : undefined,
             });
             

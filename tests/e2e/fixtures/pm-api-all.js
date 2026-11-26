@@ -56,6 +56,8 @@ t('request.unsupported', () => { for (const m of ['proxy', 'certificate', 'meta'
 t('request.to.have.header', () => { pm.request.to.have.header('content-type'); pm.request.to.have.header('Content-Type', 'application/json'); pm.request.to.not.have.header('X-Never'); });
 t('test.index/skip', () => { const i = pm.test.index(); pm.test.skip('skipped probe', () => { throw new Error('never runs'); }); E(pm.test.index()).to.equal(i + 1); });
 t('test returns pm', () => E(t('inner', () => {})).to.equal(pm));
+t('request.headers Object.keys lists header names', () => { const k = Object.keys(pm.request.headers).map((x) => x.toLowerCase()); E(k).to.include('x-keep'); E(k).to.not.include('make'); E(k).to.not.include('items'); });
+t('request.headers is iterable', () => { const keys = []; for (const h of pm.request.headers) keys.push(h.key.toLowerCase()); E(keys).to.include('x-keep'); });
 //#PRE
 if (phase === 'pre') {
 t('response is undefined in pre-request', () => E(pm.response).to.equal(undefined));
@@ -72,6 +74,9 @@ pm.request.addHeader({ key: 'X-Pre-Done', value: '1' });
 }
 //#POST
 if (phase === 'post') {
+t('response.headers Object.keys lists header names', () => { const k = Object.keys(pm.response.headers); E(k).to.include('x-custom'); E(k).to.not.include('make'); });
+t('response.headers is iterable', () => { const keys = []; for (const h of pm.response.headers) keys.push(h.key.toLowerCase()); E(keys).to.include('x-custom'); });
+t('response.to.have.jsonSchema draft-04', () => { pm.response.to.have.jsonSchema({ $schema: 'http://json-schema.org/draft-04/schema#', type: 'object', required: ['id'], properties: { id: { type: 'number', minimum: 1, exclusiveMinimum: true } } }); pm.response.to.not.have.jsonSchema({ $schema: 'http://json-schema.org/draft-04/schema#', type: 'object', properties: { id: { type: 'number', maximum: 7, exclusiveMaximum: true } } }); });
 t('request is the sent request: method', () => E(pm.request.method).to.equal('PUT'));
 t('request is the sent request: url', () => { E(pm.request.url.query.get('a')).to.equal('1'); E(pm.request.url.query.get('c')).to.equal('3'); E(pm.request.url.query.get('e')).to.equal('5'); E(pm.request.url.query.has('b')).to.equal(false); });
 t('request is the sent request: headers', () => { const h = pm.request.headers; E(h.get('X-Pre-Done')).to.equal('1'); E(h.get('X-Update')).to.equal('new'); E(h.has('X-Remove')).to.equal(false); E(h.has('Authorization')).to.equal(true); });

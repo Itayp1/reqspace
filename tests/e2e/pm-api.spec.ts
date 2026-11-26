@@ -94,3 +94,42 @@ test('pm.response negative control: a wrong assertion shows FAIL', async ({ page
   expect(results.map((r) => [r.name, r.status])).toEqual([['wrong status', 'FAIL'], ['right status', 'PASS']]);
   expect(results[0].text).toContain('404');
 });
+
+test('Collection Runner applies pre-request changes (addHeader, method, url) like Send', async ({ page }) => {
+  await stubTransport(page);
+  await scene(page, {
+    ...base, method: 'GET', body: { mode: 'none' },
+    preRequestScript: "pm.request.addHeader({ key: 'X-Run-Added', value: '1' }); pm.request.removeHeader('X-Remove'); pm.request.method = 'PUT'; pm.request.url.addQueryParams('r=1');",
+  });
+  const col = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Col') });
+  await col.hover();
+  await col.getByTestId('action-menu-btn').click();
+  await page.getByTestId('action-menu-run-collection').click();
+  await expect(page.getByTestId('collection-runner-modal')).toBeVisible();
+  await page.getByTestId('collection-runner-run-btn').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__sent.length)).toBe(1);
+  const sent = (await page.evaluate(() => (window as any).__sent))[0];
+  const h = Object.fromEntries(Object.entries(sent.headers).map(([k, v]) => [k.toLowerCase(), v]));
+  expect(sent.method).toBe('PUT');
+  expect(sent.url).toContain('r=1');
+  expect(h).toMatchObject({ 'x-run-added': '1', 'x-keep': 'keep' });
+  expect(h).not.toHaveProperty('x-remove');
+});
+
+test('Collection Runner applies pre-request body and header-value changes', async ({ page }) => {
+  await stubTransport(page);
+  await scene(page, {
+    ...base,
+    preRequestScript: "pm.request.headers.upsert({ key: 'X-Update', value: 'new' }); pm.request.body.raw = '{\"changed\":true}';",
+  });
+  const col = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Col') });
+  await col.hover();
+  await col.getByTestId('action-menu-btn').click();
+  await page.getByTestId('action-menu-run-collection').click();
+  await page.getByTestId('collection-runner-run-btn').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__sent.length)).toBe(1);
+  const sent = (await page.evaluate(() => (window as any).__sent))[0];
+  const h = Object.fromEntries(Object.entries(sent.headers).map(([k, v]) => [k.toLowerCase(), v]));
+  expect(h['x-update']).toBe('new');
+  expect(sent.body).toBe('{"changed":true}');
+});
