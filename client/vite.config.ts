@@ -36,7 +36,7 @@ export default defineConfig({
   ],
   // Monaco is a huge lazily-imported module: transform it up front so the first editor does not
   // time out fetching it when the dev server is busy.
-  optimizeDeps: { include: ['monaco-editor', '@monaco-editor/react'] },
+  optimizeDeps: { include: ['monaco-editor', '@monaco-editor/react', 'chai', 'lodash', 'crypto-js', 'ajv', 'ajv-draft-04', 'uuid'] },
   server: {
     warmup: { clientFiles: ['./src/components/common/monacoEditorImpl.ts'] },
     proxy: {
