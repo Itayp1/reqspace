@@ -176,9 +176,13 @@ export const ResponseViewer: React.FC = () => {
     setForceRenderLarge(false);
   }, [activeRequest?._id, activeRequest?.tabId]);
 
+  const isLargeResponse = !!size && size > 5 * 1024 * 1024;
+
   const displayBody = useMemo(() => {
     if (!body) return '';
     if (bodyMode === 'raw') return body;
+    // Skip the parse/prettify until the user opts in to rendering a large body.
+    if (isLargeResponse && !forceRenderLarge) return body;
 
     if (isJson && (format === 'Auto' || format === 'JSON')) {
       try {
@@ -209,7 +213,7 @@ export const ResponseViewer: React.FC = () => {
     }
 
     return body;
-  }, [body, bodyMode, isJson, isXml, jsonFilter, format]);
+  }, [body, bodyMode, isJson, isXml, jsonFilter, format, isLargeResponse, forceRenderLarge]);
 
   if (isLoading) {
     return (
@@ -228,8 +232,6 @@ export const ResponseViewer: React.FC = () => {
       </div>
     );
   }
-
-  const isLargeResponse = size && size > 5 * 1024 * 1024;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background border-l border-border">
@@ -372,17 +374,26 @@ export const ResponseViewer: React.FC = () => {
           <div className="h-full" data-testid="response-body-viewer">
             {isLargeResponse && !forceRenderLarge ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background text-text">
-                <div className="bg-surface p-6 rounded-lg border border-border max-w-md text-center">
-                  <h3 className="text-text font-semibold mb-2 text-lg">Large Response</h3>
+                <div role="alert" className="bg-surface p-6 rounded-lg border border-border max-w-md text-center">
+                  <h3 className="text-text font-semibold mb-2 text-lg">Response too large</h3>
                   <p className="text-sm mb-4">
                     The response is <strong>{formatSize(size || 0)}</strong>. Rendering large payloads may cause the browser to freeze or crash.
                   </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    data-testid="large-response-save"
+                    onClick={handleDownload}
+                    className="px-4 py-2 bg-primary-strong hover:opacity-90 text-white rounded text-sm font-medium transition-colors"
+                  >
+                    Save to file
+                  </button>
                   <button
                     onClick={() => setForceRenderLarge(true)}
-                    className="px-4 py-2 bg-primary-strong hover:opacity-90 text-white rounded text-sm font-medium transition-colors"
+                    className="px-4 py-2 border border-border hover:bg-surface-hover rounded text-sm font-medium transition-colors"
                   >
                     Render Anyway
                   </button>
+                  </div>
                 </div>
               </div>
             ) : null}
