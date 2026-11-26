@@ -245,7 +245,7 @@ export function UrlBar() {
     const r: any = activeRequest;
     // Collection and folder scripts run before the request and may define variables it uses.
     const { foldersByCollection } = useCollectionStore.getState();
-    const folders = (foldersByCollection[activeRequest.collectionId] ?? []) as Folder[];
+    const folders = (foldersByCollection[activeRequest.collectionId ?? ''] ?? []) as Folder[];
     const scripts = [col, ...folderChainClosestFirst(activeRequest.folderId, folders)]
       .map(g => ({ label: 'Parent', fields: { preRequestScript: g?.preRequestScript, testScript: g?.testScript } }));
     const found = findMissingVariables(
