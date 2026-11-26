@@ -133,3 +133,22 @@ test('Collection Runner applies pre-request body and header-value changes', asyn
   expect(h['x-update']).toBe('new');
   expect(sent.body).toBe('{"changed":true}');
 });
+
+test('Collection Runner: pm.iterationData is the data row and wins over environment in pm.variables', async ({ page }) => {
+  await stubTransport(page);
+  await scene(page, {
+    ...base,
+    preRequestScript: "pm.request.addHeader({ key: 'X-Data', value: JSON.stringify(pm.iterationData.toObject()) }); pm.request.addHeader({ key: 'X-Prec', value: pm.variables.get('pv') }); pm.request.addHeader({ key: 'X-Env', value: pm.environment.get('pv') }); pm.request.addHeader({ key: 'X-Has', value: String(pm.iterationData.has('dk')) });",
+  }, [{ key: 'pv', value: 'fromenv', initialValue: 'fromenv', currentValue: 'fromenv', enabled: true }]);
+  const col = page.locator('[data-testid="node-container"]', { has: page.getByTestId('node-Col') });
+  await col.hover();
+  await col.getByTestId('action-menu-btn').click();
+  await page.getByTestId('action-menu-run-collection').click();
+  await page.getByTestId('collection-runner-data-file').setInputFiles({ name: 'd.json', mimeType: 'application/json', buffer: Buffer.from('[{"dk":"dv","pv":"fromdata"}]') });
+  await page.getByTestId('collection-runner-run-btn').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__sent.length)).toBe(1);
+  const sent = (await page.evaluate(() => (window as any).__sent))[0];
+  const h = Object.fromEntries(Object.entries(sent.headers).map(([k, v]) => [k.toLowerCase(), v]));
+  expect(JSON.parse(h['x-data'] as string)).toEqual({ dk: 'dv', pv: 'fromdata' });
+  expect(h).toMatchObject({ 'x-prec': 'fromdata', 'x-env': 'fromenv', 'x-has': 'true' });
+});

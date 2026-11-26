@@ -4,6 +4,7 @@ import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
 import { buildRequest, buildResponse, requestMods } from './pmApi';
+import { resolveDynamicVars } from '../utils/dynamicVars';
 
 const MAX_LOG_LEN = 10000;
 
@@ -64,12 +65,31 @@ self.onmessage = async (e) => {
 
     // In-run copies so a get() after a set()/unset() in the same script sees
     // the change (the real stores are only updated by the host afterwards).
+    // shortcut: collection and local writes both persist in the host's one runner map, so the next script sees them in both scopes; split the map if that matters.
     const envState: Record<string, any> = { ...(variables?.environment || {}) };
     const globState: Record<string, any> = { ...(variables?.globals || {}) };
     const localState: Record<string, any> = { ...(variables?.local || {}) };
-    const makeScope = (scope: string, state: Record<string, any>) => ({
-      get: (key: string) => state[key],
-      has: (key: string) => Object.prototype.hasOwnProperty.call(state, key),
+    const collState: Record<string, any> = { ...(variables?.collection || {}), ...(variables?.local || {}) };
+    const dataState: Record<string, any> = { ...(variables?.data || {}) };
+    // Postman precedence, narrowest first.
+    const chain = [localState, dataState, envState, collState, globState];
+    const has = (s: Record<string, any>, k: string) => Object.prototype.hasOwnProperty.call(s, k);
+    const replaceDeep = (v: any, lookup: (k: string) => { found: boolean; value?: any }): any => {
+      if (typeof v === 'string') {
+        return resolveDynamicVars(v).replace(/\{\{([^}$]+)\}\}/g, (m, k) => { const r = lookup(k.trim()); return r.found ? String(r.value) : m; });
+      }
+      if (Array.isArray(v)) return v.map((x) => replaceDeep(x, lookup));
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, replaceDeep(x, lookup)]));
+      return v;
+    };
+    const readers = (states: Record<string, any>[]) => ({
+      get: (key: string) => (states.find((s) => has(s, key)) || {})[key],
+      has: (key: string) => states.some((s) => has(s, key)),
+      toObject: () => Object.assign({}, ...[...states].reverse()),
+      replaceIn: (tpl: any) => replaceDeep(tpl, (k) => { const s = states.find((x) => has(x, k)); return s ? { found: true, value: s[k] } : { found: false }; }),
+    });
+    const makeScope = (scope: string, state: Record<string, any>, readFrom: Record<string, any>[] = [state]) => ({
+      ...readers(readFrom),
       set: (key: string, value: any) => {
         state[key] = value;
         variableWrites.push({ scope, action: 'set', key, value });
@@ -83,6 +103,11 @@ self.onmessage = async (e) => {
         variableWrites.push({ scope, action: 'clear', key: '', value: undefined });
       },
     });
+    const iterationData = {
+      ...readers([dataState]),
+      toJSON: () => ({ values: Object.entries(dataState).map(([key, value]) => ({ key, value })) }),
+      unset: (key: string) => { delete dataState[key]; variableWrites.push({ scope: 'data', action: 'unset', key, value: undefined }); },
+    };
 
     // pm.request / pm.response follow the Postman SDK (see pmApi.ts). The request is mutable in
     // pre-request (changes go back to the host as requestMods) and the sent request in post-response.
@@ -107,8 +132,9 @@ self.onmessage = async (e) => {
     const pm: any = {
       environment: makeScope('environment', envState),
       globals: makeScope('globals', globState),
-      collectionVariables: makeScope('collection', localState),
-      variables: makeScope('local', localState),
+      collectionVariables: makeScope('collection', collState),
+      variables: makeScope('local', localState, chain),
+      iterationData,
       request: pmRequest,
       response: pmResponse,
       test,

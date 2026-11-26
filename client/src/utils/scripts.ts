@@ -25,13 +25,13 @@ function serializeVariables(collectionId?: string, iterationData?: Record<string
   
   const envVars = activeEnv?.variables.reduce((acc: any, v: any) => ({...acc, [v.key]: v.currentValue}), {}) || {};
   const globVars = globalEnvironment?.variables.reduce((acc: any, v: any) => ({...acc, [v.key]: v.currentValue}), {}) || {};
+  const collVars: Record<string, any> = {};
   const localVars: Record<string, any> = {};
-  
-  if (col) col.variables?.forEach((v: any) => localVars[v.key] = v.value);
-  if (iterationData) Object.assign(localVars, iterationData);
+
+  if (col) col.variables?.forEach((v: any) => collVars[v.key] = v.value);
   if (localVariables) localVariables.forEach((val: any, key: any) => localVars[key] = val);
-  
-  return { environment: envVars, globals: globVars, local: localVars };
+
+  return { environment: envVars, globals: globVars, collection: collVars, data: { ...(iterationData || {}) }, local: localVars };
 }
 
 async function executeInSandbox(phase: 'pre-request' | 'test', script: string, options: {
@@ -102,6 +102,8 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
              } else if (w.action === 'remove') {
                removedHeaders.push(w.key);
              }
+           } else if (w.scope === 'data' && w.action === 'unset') {
+             if (options.iterationData) delete options.iterationData[w.key];
            } else if ((w.scope === 'local' || w.scope === 'collection') && w.action === 'set') {
              options.localVariables?.set(w.key, String(w.value));
            } else if ((w.scope === 'local' || w.scope === 'collection') && w.action === 'unset') {

@@ -1,5 +1,7 @@
 ﻿import { useEnvironmentStore } from '../store/environmentStore';
 import { useCollectionStore } from '../store/collectionStore';
+import { resolveDynamicVars } from './dynamicVars';
+export { resolveDynamicVars };
 
 export const DYNAMIC_VARS = ['$guid', '$randomUUID', '$timestamp', '$isoTimestamp', '$randomInt', '$randomBoolean', '$randomFirstName', '$randomLastName', '$randomEmail', '$randomColor', '$randomWord'];
 
@@ -43,48 +45,6 @@ export function suggestVariableNames(query: string, current: string[], currentLa
   const match = out.filter(s => s.name.toLowerCase().includes(q) && s.name.toLowerCase() !== q);
   const rank = (s: NameSuggestion) => s.group * 2 + (s.name.toLowerCase().startsWith(q) ? 0 : 1);
   return match.sort((a, b) => rank(a) - rank(b)).slice(0, 40); // Array.sort is stable
-}
-
-export function resolveDynamicVars(text: string): string {
-  if (!text) return '';
-  return text.replace(/\{\{(\$[^}]+)\}\}/g, (_, varName) => {
-    switch (varName) {
-      case '$guid':
-      case '$randomUUID':
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-          const r = (Math.random() * 16) | 0;
-          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-        });
-      case '$timestamp':
-        return String(Math.floor(Date.now() / 1000));
-      case '$isoTimestamp':
-        return new Date().toISOString();
-      case '$randomInt':
-        return String(Math.floor(Math.random() * 1000));
-      case '$randomBoolean':
-        return String(Math.random() > 0.5);
-      case '$randomFirstName': {
-        const names = ['Alice', 'Bob', 'Carol', 'David', 'Eve', 'Frank', 'Grace', 'Henry'];
-        return names[Math.floor(Math.random() * names.length)];
-      }
-      case '$randomLastName': {
-        const names = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller'];
-        return names[Math.floor(Math.random() * names.length)];
-      }
-      case '$randomEmail': {
-        const user = Math.random().toString(36).substring(2, 8);
-        return `${user}@example.com`;
-      }
-      case '$randomColor':
-        return '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
-      case '$randomWord': {
-        const words = ['lorem', 'ipsum', 'dolor', 'sit', 'amet', 'test', 'sample'];
-        return words[Math.floor(Math.random() * words.length)];
-      }
-      default:
-        return `{{${varName}}}`;
-    }
-  });
 }
 
 export type VarScope = 'profile' | 'environment' | 'global';
