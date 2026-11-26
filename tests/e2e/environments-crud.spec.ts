@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { registerUser, apiAs, expectToast } from './helpers';
+import { registerUser, apiAs, expectToast, selectWorkspace, activeWorkspaceId } from './helpers';
 
 /**
  * Environment sidebar actions. "Duplicate" and "Copy to Workspace" called
@@ -71,10 +71,10 @@ test.describe('Environment sidebar actions', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(target);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(target);
-    const targetId = await page.getByTestId('workspace-select').inputValue();
+    await expect(page.getByTestId('workspace-select')).toHaveText(target);
+    const targetId = await activeWorkspaceId(page);
     // Back to the personal workspace to create the source.
-    await page.getByTestId('workspace-select').selectOption({ index: 0 });
+    await selectWorkspace(page, { index: 0 });
 
     await createEnv(page, 'Portable', 'region', 'eu');
     await envMenu(page, 'Portable', 'Copy to Workspace');
@@ -88,7 +88,7 @@ test.describe('Environment sidebar actions', () => {
     expect(envs[0].variables[0]).toEqual(expect.objectContaining({ key: 'region' }));
     await api.dispose();
 
-    await page.getByTestId('workspace-select').selectOption(targetId);
+    await selectWorkspace(page, targetId);
     await page.getByTestId('tab-environments').click();
     await expect(page.getByTestId('env-node-Portable (Copy)')).toBeVisible();
   });
@@ -98,9 +98,9 @@ test.describe('Environment sidebar actions', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(target);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText(target);
-    const targetId = await page.getByTestId('workspace-select').inputValue();
-    await page.getByTestId('workspace-select').selectOption({ index: 0 });
+    await expect(page.getByTestId('workspace-select')).toHaveText(target);
+    const targetId = await activeWorkspaceId(page);
+    await selectWorkspace(page, { index: 0 });
 
     await createEnv(page, 'From Editor', 'x', 'y');
     await page.getByTestId('env-copy-target').selectOption(targetId);

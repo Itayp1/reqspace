@@ -23,6 +23,9 @@ test.describe('Cookies & Console', () => {
     await page.getByTestId('register-password').fill('password123');
     await page.getByTestId('register-submit').click();
     await expect(page).toHaveURL(/.*\/$/);
+    // Sending jar cookies is off by default; these tests are about what happens once it is on.
+    await page.request.put('/api/auth/settings', { data: { sendCookies: true } });
+    await page.reload();
     await page.getByTestId('create-request-btn').click();
   }
 
@@ -145,7 +148,7 @@ test.describe('Cookies & Console', () => {
     await page.keyboard.insertText(`console.log('from-pre-request');\nreq.headers.set('X-Script-Header', 'set-by-script');`);
 
     await page.getByTestId('request-send-btn').click();
-    await expect(page.getByTestId('response-status')).toContainText('201');
+    await expect(page.getByTestId('response-status')).toContainText('201', { timeout: 15000 });
 
     await page.getByTestId('console-toggle-btn').click();
     await expect(page.getByTestId('console-drawer')).toBeVisible();

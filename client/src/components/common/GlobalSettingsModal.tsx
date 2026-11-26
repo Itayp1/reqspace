@@ -212,7 +212,7 @@ export default function GlobalSettingsModal({ onClose }: { onClose: () => void }
                 <input
                   type="checkbox"
                   id="sendCookies"
-                  checked={settings.sendCookies !== false}
+                  checked={settings.sendCookies === true}
                   onChange={(e) => updateSettings({ sendCookies: e.target.checked })}
                 />
               </div>

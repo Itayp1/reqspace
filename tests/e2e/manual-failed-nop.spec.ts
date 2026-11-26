@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { API_URL } from './fixtures';
-import { registerUser, apiAs, treeNode } from './helpers';
+import { registerUser, apiAs, treeNode, selectWorkspace } from './helpers';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
@@ -59,7 +59,7 @@ test.describe('N — realtime access changes', () => {
     const me = await (await member.get('/api/auth/me')).json();
     const memberId: string = me.user?.id ?? me.user?._id ?? me.id ?? me._id;
     await mpage.reload();
-    await mpage.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(mpage, wsId);
     await expect(treeNode(mpage, 'Live Col')).toBeVisible();
     return { owner, wsId, mpage, mctx, memberId };
   }
@@ -69,7 +69,9 @@ test.describe('N — realtime access changes', () => {
     const res = await owner.delete(`/api/workspaces/${wsId}/members/${memberId}`);
     expect(res.ok()).toBeTruthy();
     await expect(treeNode(mpage, 'Live Col')).toHaveCount(0, { timeout: 8000 });
-    await expect(mpage.getByTestId('workspace-select').locator(`option[value="${wsId}"]`)).toHaveCount(0);
+    await mpage.getByTestId('workspace-select').click();
+    await expect(mpage.getByTestId(`workspace-option-${wsId}`)).toHaveCount(0);
+    await mpage.keyboard.press('Escape');
     await mctx.close();
   });
 

@@ -1,10 +1,10 @@
 import { test, expect } from './fixtures';
-import { registerUser, apiAs } from './helpers';
+import { registerUser, apiAs, selectWorkspace, activeWorkspaceId } from './helpers';
 
 test.describe('Environment quick look: copy and inline edit', () => {
   test('owner edits a value inline (persists); viewer can copy but not edit', async ({ page, browser }) => {
     const ownerEmail = await registerUser(page, 'qlowner');
-    const wsId = await page.getByTestId('workspace-select').inputValue();
+    const wsId = await activeWorkspaceId(page);
     const owner = await apiAs(ownerEmail);
     const created = await owner.post(`/api/workspaces/${wsId}/environments`, {
       data: { name: 'QL Env', variables: [{ key: 'api_host', initialValue: 'old-value', currentValue: 'old-value', enabled: true }] },
@@ -36,7 +36,7 @@ test.describe('Environment quick look: copy and inline edit', () => {
     // Viewer: same workspace and environment, copy yes, edit no.
     await viewerPage.reload();
     await expect(viewerPage.getByTestId('workspace-select')).toBeVisible();
-    await viewerPage.getByTestId('workspace-select').selectOption(wsId);
+    await selectWorkspace(viewerPage, wsId);
     await viewerPage.getByTestId('env-select').selectOption(envId);
     await viewerPage.getByRole('button', { name: 'Environment quick look and edit' }).click();
     await expect(viewerPage.getByRole('button', { name: 'Copy api_host value' })).toBeVisible();

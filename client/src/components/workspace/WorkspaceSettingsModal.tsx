@@ -7,6 +7,7 @@ import { UserAutocomplete } from '../common/UserAutocomplete';
 import { useToastStore } from '../../store/toastStore';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { DuplicateWorkspaceModal } from './DuplicateWorkspaceModal';
+import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
   const { activeWorkspace, workspaces, setWorkspaces, setActiveWorkspace, user } = useAuthStore();
@@ -123,6 +124,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
   
 
   const isOwner = activeWorkspace?.myRole === 'owner';
+  useSaveShortcut(() => { if (isOwner && activeTab === 'general' && !loading && !confirmConfig.isOpen && !showDuplicate) handleUpdate(); });
 
   // The confirm dialog (rendered inside this one) owns Escape while it is open.
   useEffect(() => {

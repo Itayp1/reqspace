@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { loginUi } from './helpers';
+import { loginUi, selectWorkspace } from './helpers';
 import { PERF, readPerfState, wsName, colName, folderName } from './perf-seed';
 
 /**
@@ -49,7 +49,7 @@ test.describe('Action latency under load', () => {
 
   test.beforeEach(async ({ page }) => {
     await loginUi(page, readPerfState().email, PERF.password);
-    await page.getByTestId('workspace-select').selectOption({ label: wsName(w) });
+    await selectWorkspace(page, { label: wsName(w) });
     await page.getByTestId(`node-${colName(w, c)}`).click();
     await page.getByTestId(`node-${src}`).click();
     await page.getByTestId(`node-${dst}`).click();

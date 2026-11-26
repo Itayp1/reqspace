@@ -1,9 +1,9 @@
 import { test, expect } from './fixtures';
-import { registerUser, apiAs } from './helpers';
+import { registerUser, apiAs, selectWorkspace, activeWorkspaceId } from './helpers';
 
 test('viewer: missing-variable modal offers Personal only', async ({ page, browser }) => {
   const ownerEmail = await registerUser(page, 'mvowner');
-  const wsId = await page.getByTestId('workspace-select').inputValue();
+  const wsId = await activeWorkspaceId(page);
   const owner = await apiAs(ownerEmail);
   expect((await owner.post(`/api/workspaces/${wsId}/environments`, { data: { name: 'MV Env', variables: [] } })).ok()).toBeTruthy();
   const col = await (await owner.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'MVV Col' } })).json();
@@ -15,7 +15,7 @@ test('viewer: missing-variable modal offers Personal only', async ({ page, brows
   expect((await owner.post(`/api/workspaces/${wsId}/members`, { data: { email: viewerEmail, role: 'viewer' } })).ok()).toBeTruthy();
   await viewerPage.reload();
   await expect(viewerPage.getByTestId('workspace-select')).toBeVisible();
-  await viewerPage.getByTestId('workspace-select').selectOption(wsId);
+  await selectWorkspace(viewerPage, wsId);
 
   await viewerPage.route('https://mvv.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
   await viewerPage.getByTestId('node-MVV Col').click();

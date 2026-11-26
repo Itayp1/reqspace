@@ -2,8 +2,7 @@ import 'express-async-errors';
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { createAdapter } from '@socket.io/redis-adapter';
-import { Redis } from 'ioredis';
+import { attachRedisAdapter } from './utils/redisAdapter';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -71,12 +70,6 @@ export const io = new SocketIOServer(server, {
   },
   path: '/ws',
   });
-
-  if (process.env.REDIS_URL) {
-    const pubClient = new Redis(process.env.REDIS_URL);
-    const subClient = pubClient.duplicate();
-    io.adapter(createAdapter(pubClient, subClient));
-  }
 
 /** Verifies the socket's auth cookie and returns the userId, or null. */
 function getSocketUserId(socket: import('socket.io').Socket): string | null {
@@ -224,6 +217,8 @@ app.use(compression());
 // Cap request bodies. 50mb made the process trivial to OOM (CR#8). Override via
 // MAX_BODY_SIZE if a deployment legitimately needs larger payloads.
 const MAX_BODY_SIZE = process.env.MAX_BODY_SIZE || '5mb';
+// The whole-system import is an encrypted file, far larger than any JSON body: it is read raw, ahead of the JSON parser.
+app.use('/api/admin/system/import', express.raw({ type: () => true, limit: process.env.SYSTEM_IMPORT_MAX_SIZE || '500mb' }));
 app.use(express.json({ limit: MAX_BODY_SIZE }));
 app.use(express.urlencoded({ extended: true, limit: MAX_BODY_SIZE }));
 // JWT_SECRET is needed to sign any login: until it exists the API answers 503 (except the setup helpers).
@@ -484,6 +479,7 @@ async function bootstrap() {
 
     await SystemConfigRepository.ensure();
     await sealPendingSecrets();
+    await attachRedisAdapter(io);
     console.log('ג… SystemConfig initialized');
 
     // The superadmin is created by the first-run setup screen (POST /api/auth/setup), never at boot.

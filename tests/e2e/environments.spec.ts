@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 test.describe('Environments Operations', () => {
   // Run serially to reuse state
@@ -26,12 +27,12 @@ test.describe('Environments Operations', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(WORKSPACE_NAME);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(WORKSPACE_NAME);
-    workspaceId = await page.getByTestId('workspace-select').inputValue();
+    await expectWorkspaceListed(page, WORKSPACE_NAME);
+    workspaceId = await activeWorkspaceId(page);
   });
 
   test('Create an environment, add a variable, select and verify', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     // Click on Environments tab
     await page.getByTestId('tab-environments').click();
@@ -67,7 +68,7 @@ test.describe('Environments Operations', () => {
   });
 
   test('secret masking, globals-vs-env precedence, export', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     await page.getByTestId('tab-environments').click();
 

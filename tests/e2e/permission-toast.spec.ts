@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, expectWorkspaceListed } from './helpers';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
@@ -42,7 +43,7 @@ test('a viewer attempting an editor-only action sees an explicit permission mess
   await pageOwner.getByTestId('new-workspace-btn').click();
   await pageOwner.getByTestId('prompt-input').fill(wsName);
   await pageOwner.getByTestId('prompt-submit').click();
-  await expect(pageOwner.getByTestId('workspace-select')).toContainText(wsName);
+  await expectWorkspaceListed(pageOwner, wsName);
 
   await pageOwner.getByTestId('new-collection-empty-btn').click();
   await pageOwner.getByTestId('prompt-input').fill('Perm Collection');
@@ -73,7 +74,7 @@ test('a viewer attempting an editor-only action sees an explicit permission mess
   });
   // Viewer switches into the workspace.
   await pageViewer.reload();
-  await expect(pageViewer.getByTestId('workspace-select')).toContainText(wsName);
+  await expectWorkspaceListed(pageViewer, wsName);
   // CollectionExplorer's `useEffect(() => fetchCollectionsData(activeWorkspace._id), [activeWorkspace?._id])`
   // fires once on mount for the default workspace, and again on switch —
   // fetchCollectionsData applies whichever response lands last with no
@@ -84,7 +85,7 @@ test('a viewer attempting an editor-only action sees an explicit permission mess
   // separate bug (not fixed here). Wait for the mount fetch's own settle
   // signal first so there is only ever one fetch in flight at a time.
   await expect(pageViewer.getByText(/no collections yet/i).or(pageViewer.getByTestId('node-container').first())).toBeVisible();
-  await pageViewer.getByTestId('workspace-select').selectOption({ label: wsName });
+  await selectWorkspace(pageViewer, { label: wsName });
   await expect(pageViewer.getByTestId('node-Perm Collection').first()).toBeVisible();
 
   // Viewer right-clicks the collection and renames it — the UI never hides

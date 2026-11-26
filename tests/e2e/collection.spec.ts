@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 test.describe('Collection Operations', () => {
   // Run serially to reuse state
@@ -29,8 +29,8 @@ test.describe('Collection Operations', () => {
     await page.getByTestId('prompt-submit').click();
 
     // Check if workspace is selected (we can assert that it appears)
-    await expect(page.getByTestId('workspace-select')).toContainText(WORKSPACE_NAME);
-    workspaceId = await page.getByTestId('workspace-select').inputValue();
+    await expectWorkspaceListed(page, WORKSPACE_NAME);
+    workspaceId = await activeWorkspaceId(page);
   });
 
   test('Create a collection', async ({ page }) => {
@@ -38,7 +38,7 @@ test.describe('Collection Operations', () => {
     // A fresh login defaults to whatever workspace is first for this admin —
     // with many workspaces accumulated across the suite that's not
     // necessarily the one this file created, so select it explicitly.
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     // Click on New Collection
     const newBtn = page.getByTestId('new-collection-empty-btn');
@@ -57,7 +57,7 @@ test.describe('Collection Operations', () => {
 
   test('Create a folder inside collection', async ({ page }) => {
     await page.goto('/');
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     // Open context menu for collection
     await page.getByTestId('node-Test Collection').hover();
@@ -74,7 +74,7 @@ test.describe('Collection Operations', () => {
 
   test('Rename collection and delete folder', async ({ page }) => {
     await page.goto('/');
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     // Rename Collection
     await page.getByTestId('node-Test Collection').hover();
@@ -105,7 +105,7 @@ test.describe('Collection Operations', () => {
 
   test('duplicate, move between folders, reorder survives reload', async ({ page }) => {
     await page.goto('/');
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
 
     // This workspace already has "Renamed Collection" from a previous test,
     // but the sidebar briefly renders its empty state while collections load

@@ -17,7 +17,7 @@ export interface GlobalSettings {
   proxyUsername?: string;
   proxyPassword?: string;
   saveHistory: boolean;
-  sendCookies?: boolean; // auto-attach cookies from the Cookie Jar (default true)
+  sendCookies?: boolean; // auto-attach cookies from the Cookie Jar (default false)
   clientCertPath?: string;
   shortcuts: {
     search: string;
@@ -74,7 +74,7 @@ export const useSettingsStore = create<SettingsStore>()(
         proxyUsername: '',
         proxyPassword: '',
         saveHistory: true,
-        sendCookies: true,
+        sendCookies: false,
         shortcuts: {
           search: 'ctrl+k',
           save: 'ctrl+s',

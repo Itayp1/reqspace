@@ -65,8 +65,10 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
         <button
           role="menuitem"
           data-testid="context-menu-item"
-          className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-surface focus-visible:outline-none focus-visible:bg-surface focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary transition-colors ${
-            item.danger ? 'text-red-600 dark:text-red-400' : 'text-text'
+          className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary transition-colors ${
+            item.danger
+              ? 'text-red-600 dark:text-red-400 hover:bg-red-500/15 focus-visible:bg-red-500/15 hover:text-red-700 focus-visible:text-red-700 dark:hover:text-red-300 dark:focus-visible:text-red-300'
+              : 'text-text hover:bg-primary/15 focus-visible:bg-primary/15 hover:text-primary-strong focus-visible:text-primary-strong dark:hover:text-primary dark:focus-visible:text-primary'
           }`}
           onClick={() => {
             item.onClick();

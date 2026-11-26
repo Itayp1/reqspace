@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 test.describe('Request Operations', () => {
   test.describe.configure({ mode: 'serial' });
@@ -23,8 +24,8 @@ test.describe('Request Operations', () => {
     await page.getByTestId('new-workspace-btn').click();
     await page.getByTestId('prompt-input').fill(WORKSPACE_NAME);
     await page.getByTestId('prompt-submit').click();
-    await expect(page.getByTestId('workspace-select')).toContainText(WORKSPACE_NAME);
-    workspaceId = await page.getByTestId('workspace-select').inputValue();
+    await expectWorkspaceListed(page, WORKSPACE_NAME);
+    workspaceId = await activeWorkspaceId(page);
 
     // Every later test in this file saves a request — create the target
     // collection once, up front, via the sidebar. The Save modal itself
@@ -38,7 +39,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Create a GET request, add headers and query params', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
 
@@ -67,7 +68,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Create a POST request with JSON body, save and send', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
 
     // Create a new request tab
@@ -97,7 +98,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Bearer auth persists and resolves after save+reload', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
     await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
@@ -112,7 +113,7 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
 
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('node-Test Collection').click();
     await page.getByTestId('node-Bearer Test').click();
@@ -129,7 +130,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Basic auth persists and resolves after save+reload', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
     await page.getByTestId('request-url-input').fill('http://localhost:12345/echo');
@@ -145,7 +146,7 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
 
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('node-Test Collection').click();
     await page.getByTestId('node-Basic Test').click();
@@ -164,7 +165,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Auth header and request body are both sent', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
     await page.getByTestId('method-select').selectOption('POST');
@@ -211,7 +212,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Raw JSON body persists after save+reload and is sent as the request body', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
     await page.getByTestId('method-select').selectOption('POST');
@@ -229,7 +230,7 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
 
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('node-Test Collection').click();
     await page.getByTestId('node-JSON Test').click();
@@ -247,7 +248,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Form-data body persists and sends multipart fields correctly', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
     await page.getByTestId('method-select').selectOption('POST');
@@ -264,7 +265,7 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
 
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('node-Test Collection').click();
     await page.getByTestId('node-Form Test').click();
@@ -283,7 +284,7 @@ test.describe('Request Operations', () => {
   });
 
   test('URL-encoded body persists and sends as application/x-www-form-urlencoded', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
     await page.getByTestId('method-select').selectOption('POST');
@@ -300,7 +301,7 @@ test.describe('Request Operations', () => {
     await expect(page.getByTestId('dirty-indicator')).not.toBeVisible();
 
     await page.reload();
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('node-Test Collection').click();
     await page.getByTestId('node-UrlEncoded Test').click();
@@ -318,7 +319,7 @@ test.describe('Request Operations', () => {
   });
 
   test('Dirty state indicators and undo/redo', async ({ page }) => {
-    await page.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(page, workspaceId);
     await expect(page.getByTestId('node-Test Collection')).toBeVisible();
     await page.getByTestId('new-tab-btn').click();
 

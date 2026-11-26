@@ -85,3 +85,29 @@ export async function apiAs(email: string, password = 'password123'): Promise<AP
 export async function apiAsAdmin(): Promise<APIRequestContext> {
   return apiAs('admin', 'admin123456');
 }
+
+/** Switches the sidebar workspace picker: by id, by exact name, or by position in the list. */
+export async function selectWorkspace(page: Page, target: string | { label: string } | { index: number }) {
+  await page.getByTestId('workspace-select').click();
+  const list = page.getByRole('listbox', { name: 'Workspaces' });
+  const opt = typeof target === 'string' ? list.getByTestId(`workspace-option-${target}`)
+    : 'label' in target ? list.getByRole('option', { name: target.label, exact: true })
+    : list.getByRole('option').nth(target.index);
+  await opt.click();
+}
+
+/** Id of the workspace currently shown in the sidebar picker. */
+export async function activeWorkspaceId(page: Page): Promise<string> {
+  return (await page.getByTestId('workspace-select').getAttribute('data-value')) ?? '';
+}
+
+/** Waits until a workspace named `name` is in the sidebar picker's list (active or not). */
+export async function expectWorkspaceListed(page: Page, name: string, timeout = 10000) {
+  const trigger = page.getByTestId('workspace-select');
+  await expect(async () => {
+    if ((await trigger.innerText()).includes(name)) return;
+    await trigger.click();
+    try { await expect(page.getByRole('option', { name, exact: true }).first()).toBeVisible({ timeout: 1000 }); }
+    finally { await page.keyboard.press('Escape'); }
+  }).toPass({ timeout });
+}

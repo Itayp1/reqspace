@@ -5,6 +5,9 @@ import { Save, Plus, Trash2, Eye, EyeOff, Lock, Unlock, Download } from 'lucide-
 import api from '../../api/axios';
 import { v4 as uuidv4 } from 'uuid';
 import { useToastStore } from '../../store/toastStore';
+import { VariableNameInput } from '../common/VariableNameInput';
+import { suggestVariableNames } from '../../utils/variables';
+import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 
 // Shared variable table component for the profile variables
 function VariableTable({
@@ -56,12 +59,13 @@ function VariableTable({
                 />
               </td>
               <td className="p-0 border-l border-border">
-                <input
+                <VariableNameInput
                   className="w-full p-2 bg-transparent font-mono focus:bg-surface focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
                   value={v.key}
                   placeholder="New variable"
                   aria-label="Variable name"
-                  onChange={(e) => onUpdate(v.id, 'key', e.target.value)}
+                  onChange={(val) => onUpdate(v.id, 'key', val)}
+                  getSuggestions={(q) => suggestVariableNames(q, vars.filter(x => x.id !== v.id).map(x => x.key), 'Profile', 'profile')}
                 />
               </td>
               <td className="p-1 border-l border-border text-center">
@@ -172,6 +176,8 @@ export default function ProfileVariablesEditor() {
       setSaving(false);
     }
   };
+
+  useSaveShortcut(() => { if (dirty && !saving) handleSave(); });
 
   const updateVar = (id: string, field: keyof EnvironmentVariable, val: any) => {
     setDirty(true);

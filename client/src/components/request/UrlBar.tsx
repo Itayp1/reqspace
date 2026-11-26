@@ -1,5 +1,6 @@
 import type React from 'react';
 import { matchesShortcut } from '../../utils/shortcuts';
+import { saveShortcutClaimed } from '../../hooks/useSaveShortcut';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRequestStore } from '../../store/requestStore';
 import { useAuthStore } from '../../store/authStore';
@@ -244,7 +245,7 @@ export function UrlBar() {
     const r: any = activeRequest;
     // Collection and folder scripts run before the request and may define variables it uses.
     const { foldersByCollection } = useCollectionStore.getState();
-    const folders = (foldersByCollection[activeRequest.collectionId] ?? []) as Folder[];
+    const folders = (foldersByCollection[activeRequest.collectionId ?? ''] ?? []) as Folder[];
     const scripts = [col, ...folderChainClosestFirst(activeRequest.folderId, folders)]
       .map(g => ({ label: 'Parent', fields: { preRequestScript: g?.preRequestScript, testScript: g?.testScript } }));
     const found = findMissingVariables(
@@ -366,7 +367,7 @@ export function UrlBar() {
         return acc;
       }, {});
 
-      const sendCookies = useSettingsStore.getState().settings.sendCookies !== false;
+      const sendCookies = useSettingsStore.getState().settings.sendCookies === true;
       const cookieVal = sendCookies ? useCookieStore.getState().getCookiesHeaderForUrl(resolvedUrl) : '';
       if (cookieVal && !reqHeaders['Cookie'] && !reqHeaders['cookie']) {
         reqHeaders['Cookie'] = cookieVal;
@@ -732,6 +733,7 @@ export function UrlBar() {
 
       const matchShortcut = (shortcut: string) => matchesShortcut(e, shortcut);
 
+      if (matchShortcut(saveShortcut) && saveShortcutClaimed()) return; // an open editor/modal saves itself
       if (matchShortcut(saveShortcut)) {
         e.preventDefault();
         handleSaveClick(false);

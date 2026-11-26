@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, expectWorkspaceListed } from './helpers';
 
 // SOCK-1: a socket event must mutate the observer's store in place — no
 // HTTP. Before this task, SocketSync.tsx's handleUpdate refetched the whole
@@ -33,7 +34,7 @@ test('a rename from another user updates the sidebar with zero HTTP requests', a
   await pageA.getByTestId('new-workspace-btn').click();
   await pageA.getByTestId('prompt-input').fill(wsName);
   await pageA.getByTestId('prompt-submit').click();
-  await expect(pageA.getByTestId('workspace-select')).toContainText(wsName);
+  await expectWorkspaceListed(pageA, wsName);
 
   await pageA.getByTestId('new-collection-empty-btn').click();
   await pageA.getByTestId('prompt-input').fill('Sock Collection');
@@ -49,14 +50,14 @@ test('a rename from another user updates the sidebar with zero HTTP requests', a
   await pageA.getByTestId('close-workspace-modal').click();
 
   await pageB.reload();
-  await expect(pageB.getByTestId('workspace-select')).toContainText(wsName);
+  await expectWorkspaceListed(pageB, wsName);
   // FIX-9: fetchCollectionsData applies whichever response lands last with
   // no staleness guard. Switching workspace before the mount effect's fetch
   // for B's own default workspace has settled lets the two race, and the
   // default's (empty) result can win and clobber "Sock WS"'s data. Wait for
   // the mount fetch to settle first so only one fetch is ever in flight.
   await expect(pageB.getByText(/no collections yet/i).or(pageB.getByTestId('node-container').first())).toBeVisible();
-  await pageB.getByTestId('workspace-select').selectOption({ label: wsName });
+  await selectWorkspace(pageB, { label: wsName });
   await expect(pageB.getByTestId('node-Sock Collection')).toBeVisible();
   // The workspace switch's own fetchCollectionsData issues per-collection
   // folder/request fetches after the collections list itself resolves (and

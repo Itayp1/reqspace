@@ -1,5 +1,5 @@
 import { test, expect, type Page } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, selectWorkspace, activeWorkspaceId } from './helpers';
 
 /**
  * Request comments had no coverage, and Delete never worked: the server
@@ -117,7 +117,7 @@ test.describe('Request comments', () => {
     await owner.getByTestId('login-password').fill('password123');
     await owner.getByTestId('login-submit').click();
     await expect(owner.getByTestId('workspace-select')).toBeVisible();
-    const workspaceId = await owner.getByTestId('workspace-select').inputValue();
+    const workspaceId = await activeWorkspaceId(owner);
 
     // A second user, invited as an editor so they can open the request.
     const mateEmail = `commentmate_${ts}@example.com`;
@@ -141,7 +141,7 @@ test.describe('Request comments', () => {
 
     // The teammate reloads into the shared workspace and reads the comment.
     await mate.reload();
-    await mate.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(mate, workspaceId);
     await expect(mate.getByTestId(`node-${COLLECTION}`)).toBeVisible();
     await mate.getByTestId(`node-${COLLECTION}`).click();
     await mate.getByTestId('node-Commented Request').click();

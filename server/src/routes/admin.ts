@@ -12,11 +12,13 @@ import { FpErrorRepository } from '../repositories/FpErrorRepository';
 import { CascadeRepository } from '../repositories/CascadeRepository';
 import { listErrorsQuerySchema } from '../schemas/errors.schemas';
 import { isValidId } from '../utils/ids';
+import { buildDump, encryptDump, decryptDump, previewImport, applyImport, TransferError } from '../utils/systemTransfer';
 import { superAdminCache, workspaceRoleCache } from '../utils/cache';
 import { likeAnyColumn, MAX_SEARCH_LENGTH } from '../utils/escapeLike';
 import { isPrivateOrReservedHost, SsrfBlockedError } from '../utils/ssrf';
 import { Op, fn, col } from 'sequelize';
 import { OAUTH_PROVIDERS, OAUTH_HOST_FIELD, configKey, missingOAuthFields } from '../utils/oauthProviders';
+import { testRedis } from '../utils/redisAdapter';
 
 const router = Router();
 router.use(authenticate, requireSuperAdmin);
@@ -280,6 +282,7 @@ function maskConfigSecrets(config: any) {
     if (masked.auth?.[key]?.clientSecret) masked.auth[key].clientSecret = SECRET_MASK;
   }
   if (masked.proxy?.password) masked.proxy.password = SECRET_MASK;
+  if (masked.server?.redis?.password) masked.server.redis.password = SECRET_MASK;
   return masked;
 }
 
@@ -295,6 +298,7 @@ router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequ
     if (update.auth?.[key]?.clientSecret === SECRET_MASK) delete update.auth[key].clientSecret;
   }
   if (update.proxy?.password === SECRET_MASK) delete update.proxy.password;
+  if (update.server?.redis?.password === SECRET_MASK) delete update.server.redis.password;
   // An enabled provider needs its OAuth URL hostname, whether sent now or already stored.
   const stored = await SystemConfigRepository.getConfig();
   const noHost = OAUTH_PROVIDERS.filter((id) => {
@@ -312,11 +316,29 @@ router.put('/config', validate(schemas.updateConfigSchema), async (req: AuthRequ
     }
   }
 
+  // Saving an enabled Redis config requires that it connects.
+  if (update.server?.redis) {
+    const redis = { ...stored?.server.redis, ...update.server.redis };
+    if (redis.enabled) {
+      const failure = await testRedis(redis);
+      if (failure) return res.status(400).json({ message: `Redis connection failed: ${failure}` });
+    }
+  }
+
   const config = await SystemConfigRepository.updateConfig(update);
   await logAudit(req.user!._id as any, 'admin.config.update', {
     ip: req.ip, details: { fields: Object.keys(req.body) },
   });
   return res.json(maskConfigSecrets(config));
+});
+
+// "Test Connection" on the Redis settings; a masked password means "use the stored one".
+router.post('/test-redis', validate(schemas.testRedisSchema), async (req: AuthRequest, res: Response) => {
+  const body = { ...req.body, enabled: true };
+  if (body.password === SECRET_MASK) body.password = (await SystemConfigRepository.getConfig())?.server.redis.password ?? '';
+  const failure = await testRedis(body);
+  if (failure) return res.status(400).json({ message: `Redis connection failed: ${failure}` });
+  return res.json({ message: `Connected to ${body.host}:${body.port}` });
 });
 
 // "Test Connection" on the SMTP settings. Takes the form's current values, so
@@ -374,6 +396,52 @@ async function runSmtpTest(req: AuthRequest, res: Response) {
     transporter.close();
   }
 }
+
+// ── Whole-system export / import ────────────────────────────────────────────
+// The file is encrypted with a password the admin chooses (it carries password hashes, secret variables,
+// OAuth/SMTP secrets and client certificates). Secrets sealed with this server's CERT_ENCRYPTION_KEY are
+// written in plaintext *inside* the encrypted file and sealed again with the target server's key.
+const transferErr = (res: Response, e: unknown) => {
+  if (e instanceof TransferError) return res.status(e.status).json({ message: e.message });
+  throw e;
+};
+const transferPassword = (req: AuthRequest): string | null => {
+  const raw = req.headers['x-transfer-password'];
+  const pw = typeof raw === 'string' ? Buffer.from(raw, 'base64').toString('utf8') : '';
+  return pw.length >= 8 ? pw : null;
+};
+
+router.post('/system/export', validate(schemas.systemExportSchema), async (req: AuthRequest, res: Response) => {
+  const { password, includeHistory } = req.body ?? {};
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ message: 'Choose a password of at least 8 characters.' });
+  try {
+    const file = await encryptDump(await buildDump({ includeHistory: includeHistory === true }), password);
+    await logAudit(req.user!._id as any, 'admin.export.system', { ip: req.ip, details: { includeHistory: includeHistory === true } });
+    res.setHeader('Content-Disposition', `attachment; filename="reqspace-system-${new Date().toISOString().slice(0, 10)}.rqsx"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    return res.send(file);
+  } catch (e) { return transferErr(res, e); }
+});
+
+// The body is the raw file (parsed by express.raw in index.ts, which allows far more than the JSON limit).
+router.post('/system/import/preview', validate(schemas.systemImportSchema), async (req: AuthRequest, res: Response) => {
+  const pw = transferPassword(req);
+  if (!pw || !Buffer.isBuffer(req.body)) return res.status(400).json({ message: 'A file and its password are required.' });
+  try {
+    return res.json(await previewImport(await decryptDump(req.body, pw), req.query.mode === 'merge' ? 'merge' : 'replace'));
+  } catch (e) { return transferErr(res, e); }
+});
+
+router.post('/system/import', validate(schemas.systemImportSchema), async (req: AuthRequest, res: Response) => {
+  const pw = transferPassword(req);
+  if (!pw || !Buffer.isBuffer(req.body)) return res.status(400).json({ message: 'A file and its password are required.' });
+  const mode = req.query.mode === 'merge' ? 'merge' : 'replace';
+  try {
+    const result = await applyImport(await decryptDump(req.body, pw), { mode, applyConfig: req.query.applyConfig === 'true' });
+    await logAudit(req.user!._id as any, 'admin.import.system', { ip: req.ip, details: { mode, ...result } });
+    return res.json(result);
+  } catch (e) { return transferErr(res, e); }
+});
 
 router.get('/export/:workspaceId', async (req: AuthRequest, res: Response) => {
   const workspaceId = req.params.workspaceId;

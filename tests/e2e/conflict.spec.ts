@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures';
+import { selectWorkspace, expectWorkspaceListed } from './helpers';
 
 test.describe('Conflict Resolution', () => {
   test('User B gets overwrite prompt when saving an outdated request', async ({ browser }) => {
@@ -33,7 +34,7 @@ test.describe('Conflict Resolution', () => {
     await pageA.getByTestId('new-workspace-btn').click();
     await pageA.getByTestId('prompt-input').fill(`WS_${timestamp}`);
     await pageA.getByTestId('prompt-submit').click();
-    await expect(pageA.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
+    await expectWorkspaceListed(pageA, `WS_${timestamp}`);
 
     // 4. User A invites User B
     await pageA.getByTestId('workspace-settings-btn').click();
@@ -49,8 +50,8 @@ test.describe('Conflict Resolution', () => {
 
     // 5. User B switches to the workspace
     await pageB.reload();
-    await expect(pageB.getByTestId('workspace-select')).toContainText(`WS_${timestamp}`);
-    await pageB.getByTestId('workspace-select').selectOption({ label: `WS_${timestamp}` });
+    await expectWorkspaceListed(pageB, `WS_${timestamp}`);
+    await selectWorkspace(pageB, { label: `WS_${timestamp}` });
 
     // 6. User A creates and saves a request. The save modal can't create a
     // collection itself (its "Save to..." list is just "No collections

@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, selectWorkspace, expectWorkspaceListed } from './helpers';
 
 /**
  * Three collection context-menu actions that had no coverage: View
@@ -46,10 +46,10 @@ test.describe('Collection Actions', () => {
       await page.getByTestId('new-workspace-btn').click();
       await page.getByTestId('prompt-input').fill(name);
       await page.getByTestId('prompt-submit').click();
-      await expect(page.getByTestId('workspace-select')).toContainText(name);
+      await expectWorkspaceListed(page, name);
     }
     // The last one created is the active one — build the collection there.
-    await expect(page.getByTestId('workspace-select')).toContainText(SOURCE_WS);
+    await expectWorkspaceListed(page, SOURCE_WS);
 
     await page.getByTestId('new-collection-empty-btn').click();
     await page.getByTestId('prompt-input').fill(COLLECTION);
@@ -92,7 +92,7 @@ test.describe('Collection Actions', () => {
 
   test('View Documentation renders every request, including nested ones', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: SOURCE_WS });
+    await selectWorkspace(page, { label: SOURCE_WS });
     await expect(page.getByTestId(`node-${COLLECTION}`)).toBeVisible();
 
     await openMenu(page, COLLECTION);
@@ -119,7 +119,7 @@ test.describe('Collection Actions', () => {
 
   test('Copy to Workspace copies a collection into another workspace', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: SOURCE_WS });
+    await selectWorkspace(page, { label: SOURCE_WS });
     await expect(page.getByTestId(`node-${COLLECTION}`)).toBeVisible();
 
     // duplicateCollection copies what the store has loaded, so expand the
@@ -146,7 +146,7 @@ test.describe('Collection Actions', () => {
 
     // ...and a "Copy of" collection is in the target workspace, carrying both
     // the root request and the folder with its own request.
-    await page.getByTestId('workspace-select').selectOption({ label: TARGET_WS });
+    await selectWorkspace(page, { label: TARGET_WS });
     const copied = page.getByTestId(`node-Copy of ${COLLECTION}`);
     await expect(copied).toBeVisible();
     await copied.click();
@@ -157,7 +157,7 @@ test.describe('Collection Actions', () => {
 
   test('Copy to Workspace copies a single request into a chosen collection', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: SOURCE_WS });
+    await selectWorkspace(page, { label: SOURCE_WS });
     await page.getByTestId(`node-${COLLECTION}`).click();
     await expect(page.getByTestId('node-Root Request')).toBeVisible();
 
@@ -182,7 +182,7 @@ test.describe('Collection Actions', () => {
 
   test('Export downloads the collection as JSON with its requests', async ({ page }) => {
     await login(page);
-    await page.getByTestId('workspace-select').selectOption({ label: SOURCE_WS });
+    await selectWorkspace(page, { label: SOURCE_WS });
     await expect(page.getByTestId(`node-${COLLECTION}`)).toBeVisible();
 
     await openMenu(page, COLLECTION);

@@ -6,7 +6,7 @@ import { X, Download, Puzzle, Copy, Check } from 'lucide-react';
  * Modal that appears when the user tries to send a request but the
  * Reqspace Transport extension is not installed.
  *
- * The modal provides a download of the packaged extension (crx)
+ * The modal provides a download of the packaged extension (zip, to be extracted)
  * and step-by-step install instructions.
  */
 export function ExtensionDownloadModal() {
@@ -71,19 +71,19 @@ export function ExtensionDownloadModal() {
 
           {/* Download button */}
           <a
-            href={`/extension/reqspace-transport.crx?origin=${encodeURIComponent(window.location.origin)}`}
-            download="reqspace-transport.crx"
+            href="/extension/reqspace-transport.zip"
+            download="reqspace-transport.zip"
             className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-primary hover:bg-primary/90 text-white font-semibold rounded transition-colors text-sm focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
             <Download size={16} aria-hidden="true" />
-            Download Extension (.crx)
+            Download Extension (.zip)
           </a>
 
           {/* Install instructions */}
           <div className="bg-background border border-border rounded-lg p-4 space-y-3">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-widest">Install Steps</p>
             {[
-              { n: '1', text: 'Download the .crx file above' },
+              { n: '1', text: <>Download the .zip file above and <span className="font-semibold">extract it</span> to a folder (Chrome blocks installing a .crx from outside the Web Store)</> },
               { n: '2', text: <>Open a new tab and paste{' '}
                 <button
                   type="button"
@@ -95,7 +95,7 @@ export function ExtensionDownloadModal() {
                 </button>
                 {copied && <span className="text-xs text-text-muted"> copied</span>}</> },
               { n: '3', text: 'Enable Developer Mode (toggle top-right)' },
-              { n: '4', text: 'Drag the .crx file into the page and confirm' },
+              { n: '4', text: 'Click "Load unpacked" and select the extracted folder' },
               { n: '5', text: <>Open the extension's Options and add this site's address to the allowed origins: <code className="text-text bg-border px-1.5 py-0.5 rounded text-[11px]">{window.location.origin}</code></> },
             ].map(({ n, text }) => (
               <div key={n} className="flex items-start gap-3">
@@ -118,6 +118,13 @@ export function ExtensionDownloadModal() {
           >
             <Download size={16} aria-hidden="true" />
             Or download the Desktop app (Windows)
+          </a>
+          <a
+            href="https://github.com/Itayp1/reqspace/releases/latest/download/reqSpace-Portable.exe"
+            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-border text-text font-medium rounded hover:bg-border transition-colors text-sm focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <Download size={16} aria-hidden="true" />
+            Desktop app, standalone (Windows, no install)
           </a>
         </div>
 

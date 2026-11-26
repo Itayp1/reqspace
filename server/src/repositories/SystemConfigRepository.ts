@@ -29,6 +29,8 @@ export interface ISystemConfigRecord {
   history: {
     maxRequestBodyKB: number;
     maxTotalPerUserMB: number;
+    /** Cap per user within one workspace, oldest entries are dropped first; 0 = off, absent = 10. */
+    maxTotalPerWorkspaceMB?: number;
     /** Per-user cap on stored entries; 0 or absent = unlimited. */
     maxRecords?: number;
     /** Entries older than this many days are purged; 0 or absent = keep forever. */
@@ -73,6 +75,18 @@ export interface IServerSettings {
   trustProxy: string;
   /** Record 401/403 responses (other than login/me/logout) in the error log. */
   captureAuthFailures: boolean;
+  /** Socket.IO Redis adapter so realtime events reach every pod. Read once at server start. */
+  redis: IRedisSettings;
+}
+
+export interface IRedisSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  tls: boolean;
+  db: number;
 }
 
 const DEFAULT_SERVER_SETTINGS: IServerSettings = {
@@ -90,6 +104,7 @@ const DEFAULT_SERVER_SETTINGS: IServerSettings = {
   allowedOrigins: [],
   trustProxy: '',
   captureAuthFailures: true,
+  redis: { enabled: false, host: '', port: 6379, username: '', password: '', tls: false, db: 0 },
 };
 
 function normalizeServer(raw: any): IServerSettings {
@@ -98,6 +113,7 @@ function normalizeServer(raw: any): IServerSettings {
     ...DEFAULT_SERVER_SETTINGS,
     ...s,
     rateLimit: { ...DEFAULT_SERVER_SETTINGS.rateLimit, ...(s.rateLimit || {}) },
+    redis: { ...DEFAULT_SERVER_SETTINGS.redis, ...(s.redis || {}) },
   };
 }
 
@@ -136,13 +152,14 @@ function normalizeAuth(auth: any) {
 // next save / by migration 020.
 const OAUTH_KEYS = ['googleOAuth', 'githubOAuth', 'microsoftOAuth', 'customOAuth'] as const;
 
-function mapSecrets(auth: any, proxy: any, fn: (v: string) => string) {
+function mapSecrets(auth: any, proxy: any, fn: (v: string) => string, server?: any) {
   const apply = (obj: any, field: string) => {
     if (obj && typeof obj[field] === 'string' && obj[field]) obj[field] = fn(obj[field]);
   };
   for (const key of OAUTH_KEYS) apply(auth?.[key], 'clientSecret');
   apply(auth?.smtp, 'pass');
   apply(proxy, 'password');
+  apply(server?.redis, 'password');
 }
 
 /** Seals a secret; without a usable key it is stored as-is outside production. */
@@ -156,8 +173,8 @@ export function sealSecret(value: string): string {
   }
 }
 
-export function sealConfigSecrets(auth: any, proxy: any) {
-  mapSecrets(auth, proxy, sealSecret);
+export function sealConfigSecrets(auth: any, proxy: any, server?: any) {
+  mapSecrets(auth, proxy, sealSecret, server);
 }
 
 function sqlToRecord(c: SqlSystemConfig): ISystemConfigRecord {
@@ -172,13 +189,17 @@ function sqlToRecord(c: SqlSystemConfig): ISystemConfigRecord {
       return '';
     }
   });
+  const server = normalizeServer(c.server ? JSON.parse(c.server) : null);
+  mapSecrets(null, null, (v) => {
+    try { return open(v); } catch { return ''; }
+  }, server);
   return {
     _id: c.id,
     id: c.id,
     auth,
     history: JSON.parse(c.history),
     proxy,
-    server: normalizeServer(c.server ? JSON.parse(c.server) : null),
+    server,
   };
 }
 
@@ -198,6 +219,7 @@ const DEFAULT_CONFIG = {
   history: {
     maxRequestBodyKB: 1024,
     maxTotalPerUserMB: 100,
+    maxTotalPerWorkspaceMB: 10,
     cleanupPolicy: 'fifo' as const,
   },
   proxy: {
@@ -257,13 +279,14 @@ export const SystemConfigRepository = {
         ...current.server,
         ...(data.server || {}),
         rateLimit: { ...current.server.rateLimit, ...(data.server?.rateLimit || {}) },
+        redis: { ...current.server.redis, ...(data.server?.redis || {}) },
       },
     };
 
     const existing = await SqlSystemConfig.findOne();
     if (!existing) return null;
 
-    sealConfigSecrets(merged.auth, merged.proxy);
+    sealConfigSecrets(merged.auth, merged.proxy, merged.server);
     existing.auth = JSON.stringify(merged.auth);
     existing.history = JSON.stringify(merged.history);
     existing.proxy = JSON.stringify(merged.proxy);

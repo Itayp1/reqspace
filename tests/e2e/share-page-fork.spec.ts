@@ -1,5 +1,5 @@
 import { test, expect, type Page } from './fixtures';
-import { startNewRequest } from './helpers';
+import { startNewRequest, selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from './helpers';
 
 /**
  * The last three uncovered surfaces:
@@ -162,7 +162,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
     const ownerCtx = await browser.newContext();
     const owner = await ownerCtx.newPage();
     await register(owner, 'Fork Owner', `forkowner_${ts}@example.com`);
-    const workspaceId = await owner.getByTestId('workspace-select').inputValue();
+    const workspaceId = await activeWorkspaceId(owner);
 
     await owner.getByTestId('new-collection-empty-btn').click();
     await owner.getByTestId('prompt-input').fill('Viewer Collection');
@@ -190,7 +190,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
     await owner.getByTestId('close-workspace-modal').click();
 
     await viewer.reload();
-    await viewer.getByTestId('workspace-select').selectOption(workspaceId);
+    await selectWorkspace(viewer, workspaceId);
     await expect(viewer.getByTestId('node-Viewer Collection')).toBeVisible();
     await viewer.getByTestId('node-Viewer Collection').click();
     await viewer.getByTestId('node-Viewer Request').click();
@@ -230,7 +230,7 @@ test.describe('Shared page, viewer fork, fork options', () => {
     await owner.getByTestId('new-workspace-btn').click();
     await owner.getByTestId('prompt-input').fill(`Fork Source ${ts}`);
     await owner.getByTestId('prompt-submit').click();
-    await expect(owner.getByTestId('workspace-select')).toContainText(`Fork Source ${ts}`);
+    await expectWorkspaceListed(owner, `Fork Source ${ts}`);
 
     await owner.getByTestId('new-collection-empty-btn').click();
     await owner.getByTestId('prompt-input').fill('Forkable Collection');
@@ -273,8 +273,8 @@ test.describe('Shared page, viewer fork, fork options', () => {
     // Reload first, so everything below is read back from the server.
     const personal = "Fork Options's Workspace";
     await owner.reload();
-    await expect(owner.getByTestId('workspace-select')).toContainText(personal);
-    await owner.getByTestId('workspace-select').selectOption({ label: personal });
+    await expectWorkspaceListed(owner, personal);
+    await selectWorkspace(owner, { label: personal });
 
     await expect(owner.getByTestId('node-Forked With Options')).toBeVisible();
 

@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { loginUi } from './helpers';
+import { loginUi, selectWorkspace } from './helpers';
 import { PERF, readPerfState, wsName, colName, folderName } from './perf-seed';
 
 /**
@@ -19,9 +19,11 @@ test.describe('Global search latency under load', () => {
     const w = Math.floor(PERF.workspaces / 2), c = Math.floor(PERF.collections / 2), f = 3;
 
     await loginUi(page, email, PERF.password);
-    const options = await page.getByTestId('workspace-select').locator('option').count();
+    await page.getByTestId('workspace-select').click();
+    const options = await page.getByRole('option').count();
+    await page.keyboard.press('Escape');
     expect(options).toBeGreaterThanOrEqual(PERF.workspaces);
-    await page.getByTestId('workspace-select').selectOption({ label: wsName(w) });
+    await selectWorkspace(page, { label: wsName(w) });
 
     await page.getByTestId(`node-${colName(w, c)}`).click();
     await expect(page.getByTestId(`node-${folderName(w, c, f)}`)).toBeVisible();

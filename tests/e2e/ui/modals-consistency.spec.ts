@@ -11,7 +11,7 @@ test('New Workspace is an inline name field, no dialog', async ({ page }) => {
   await expect(input).toHaveAccessibleName('Workspace name');
   await input.fill('Inline WS');
   await input.press('Enter');
-  await expect(page.getByTestId('workspace-select').locator('option:checked')).toHaveText('Inline WS');
+  await expect(page.getByTestId('workspace-select')).toHaveText('Inline WS');
 });
 
 test('Run dialog title has no colon', async ({ page }) => {

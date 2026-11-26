@@ -6,7 +6,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireWorkspaceRole } from '../middleware/rbac';
 import { requireRoleOnCollection } from '../middleware/resolveWorkspace';
 import { Op } from 'sequelize';
-import { SqlHistory } from '../db/sql-models';
+import { SqlHistory, SqlUser } from '../db/sql-models';
 import { sanitizeRequestSnapshot } from '../utils/historySnapshot';
 import { UserRepository } from '../repositories/UserRepository';
 import { RequestRepository } from '../repositories/RequestRepository';
@@ -99,10 +99,10 @@ router.delete('/history/:id', async (req: AuthRequest, res: Response) => {
 
   await item.destroy();
 
-  const bodySize = Buffer.byteLength(JSON.parse(item.responseData)?.body ?? '', 'utf8');
+  const bodySize = item.responseSizeBytes || 0;
   const user = await UserRepository.findById(req.user!._id || req.user!.id);
   if (user) {
-    await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, user.historyUsedBytes - bodySize) } as any);
+    await adjustUsage(user.id, -bodySize);
   }
   return res.json({ message: 'Deleted' });
 });
@@ -120,7 +120,7 @@ router.delete('/history', async (req: AuthRequest, res: Response) => {
   await SqlHistory.destroy({ where: { userId, workspaceId } });
   const user = await UserRepository.findById(userId);
   if (user) {
-    await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, user.historyUsedBytes - freed) } as any);
+    await adjustUsage(user.id, -freed);
   }
   return res.json({ message: 'History cleared' });
 });
@@ -131,7 +131,7 @@ router.delete('/workspaces/:workspaceId/history', requireWorkspaceRole('viewer')
   await SqlHistory.destroy({ where: { userId: req.user!._id || req.user!.id, workspaceId: req.params.workspaceId } });
   const user = await UserRepository.findById(req.user!._id || req.user!.id);
   if (user) {
-    await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, user.historyUsedBytes - freed) } as any);
+    await adjustUsage(user.id, -freed);
   }
   return res.json({ message: 'History cleared' });
 });
@@ -230,68 +230,110 @@ export async function saveHistoryEntry(
     bodyTruncated = true;
   }
 
-  const bodySize = Buffer.byteLength(body, 'utf8');
   const requestSnapshot = sanitizeRequestSnapshot(data.requestSnapshot, maxBodyKB);
-
-  // GC: remove oldest entries if over limit
-  let usedBytes = user.historyUsedBytes ?? 0;
-  if (usedBytes + bodySize > maxTotalMB) {
-    const historyList = await SqlHistory.findAll({ 
-      attributes: ['id', 'responseSizeBytes'],
-      where: { userId }, 
-      order: [['createdAt', 'ASC']] 
-    });
-    
-    let toDeleteIds = [];
-    for (const h of historyList) {
-      if (usedBytes + bodySize <= maxTotalMB) break;
-      toDeleteIds.push(h.id);
-      usedBytes -= (h.responseSizeBytes || 0);
-    }
-    
-    if (toDeleteIds.length > 0) {
-      await SqlHistory.destroy({ where: { id: toDeleteIds } });
-    }
-  }
-
-  // Age and count caps from System Settings (0 / unset = off). Applied before
-  // the insert so the new entry always survives its own pruning.
-  const retentionDays = config?.history.retentionDays ?? 0;
-  if (retentionDays > 0) {
-    await SqlHistory.destroy({ where: { userId, createdAt: { [Op.lt]: new Date(Date.now() - retentionDays * 86_400_000) } } });
-  }
-  const maxRecords = config?.history.maxRecords ?? 0;
-  if (maxRecords > 0) {
-    const stale = await SqlHistory.findAll({
-      attributes: ['id'],
-      where: { userId },
-      order: [['createdAt', 'DESC']],
-      offset: maxRecords - 1,
-      raw: true,
-    });
-    if (stale.length > 0) await SqlHistory.destroy({ where: { id: stale.map((h: any) => h.id) } });
-  }
-
-  await SqlHistory.create({
-    userId,
-    workspaceId,
-    method: data.requestSnapshot.method as string || 'GET',
-    url: data.requestSnapshot.url as string || '',
-    statusCode: data.responseStatus,
-    duration: data.responseTime,
-    requestData: JSON.stringify(requestSnapshot),
-    responseData: JSON.stringify({
-      status: data.responseStatus,
-      statusText: data.responseStatusText,
-      headers: data.responseHeaders,
-      body,
-      bodyTruncated,
-      responseTime: data.responseTime,
-      size: data.responseSize,
-      testResults: data.testResults,
-    }),
-    responseSizeBytes: bodySize
+  const requestJson = JSON.stringify(requestSnapshot);
+  const responseJson = JSON.stringify({
+    status: data.responseStatus,
+    statusText: data.responseStatusText,
+    headers: data.responseHeaders,
+    body,
+    bodyTruncated,
+    responseTime: data.responseTime,
+    size: data.responseSize,
+    testResults: data.testResults,
   });
+  // Stored size of the whole entry (not just the body), so many small responses can't pile up unbounded.
+  const bodySize = Buffer.byteLength(requestJson, 'utf8') + Buffer.byteLength(responseJson, 'utf8');
 
-  await UserRepository.update(user.id, { historyUsedBytes: Math.max(0, usedBytes + bodySize) } as any);
+  // Pruning is serialised per user+workspace (check-then-delete would otherwise overshoot under bursts) and
+  // must never lose the entry being saved. `freed` is every byte removed here, for one atomic counter update.
+  let freed = 0;
+  const key = `${userId}|${workspaceId}`;
+  const prior = pruneLocks.get(key) ?? Promise.resolve();
+  const run = prior.catch(() => undefined).then(async () => {
+    try {
+      // Per user (all workspaces). The counter on the user row can drift, so confirm with the real sum before deleting.
+      if ((user.historyUsedBytes ?? 0) + bodySize > maxTotalMB) {
+        const real = (await SqlHistory.sum('responseSizeBytes', { where: { userId } })) || 0;
+        if (real + bodySize > maxTotalMB) freed += await evictOldest({ userId }, real + bodySize - maxTotalMB);
+      }
+
+      // Per user and workspace: oldest entries go first. Evicting down to 90% of the cap means the
+      // scan below runs about once per hundreds of inserts instead of on each one.
+      const cap = (config?.history.maxTotalPerWorkspaceMB ?? 10) * 1024 * 1024;
+      if (cap > 0) {
+        const total = (await SqlHistory.sum('responseSizeBytes', { where: { userId, workspaceId } })) || 0;
+        if (total + bodySize > cap) freed += await evictOldest({ userId, workspaceId }, total + bodySize - Math.floor(cap * 0.9));
+      }
+
+      // Age and count caps from System Settings (0 / unset = off). Applied before
+      // the insert so the new entry always survives its own pruning.
+      const retentionDays = config?.history.retentionDays ?? 0;
+      if (retentionDays > 0) {
+        const old = { userId, createdAt: { [Op.lt]: new Date(Date.now() - retentionDays * 86_400_000) } };
+        const bytes = (await SqlHistory.sum('responseSizeBytes', { where: old })) || 0;
+        if (bytes > 0 || (await SqlHistory.count({ where: old })) > 0) { await SqlHistory.destroy({ where: old }); freed += bytes; }
+      }
+      const maxRecords = config?.history.maxRecords ?? 0;
+      if (maxRecords > 0 && (await SqlHistory.count({ where: { userId } })) >= maxRecords) {
+        const stale = await SqlHistory.findAll({
+          attributes: ['id', 'responseSizeBytes'], where: { userId }, order: [['createdAt', 'DESC'], ['id', 'DESC']], offset: maxRecords - 1, raw: true,
+        }) as Array<{ id: string; responseSizeBytes: number }>;
+        await destroyIds(stale.map(h => h.id));
+        freed += stale.reduce((n, h) => n + (h.responseSizeBytes || 0), 0);
+      }
+    } catch (e) {
+      console.error('History pruning failed; saving the entry anyway', e);
+    }
+
+    await SqlHistory.create({
+      userId,
+      workspaceId,
+      method: data.requestSnapshot.method as string || 'GET',
+      url: data.requestSnapshot.url as string || '',
+      statusCode: data.responseStatus,
+      duration: data.responseTime,
+      requestData: requestJson,
+      responseData: responseJson,
+      responseSizeBytes: bodySize
+    });
+  });
+  pruneLocks.set(key, run);
+  try { await run; } finally { if (pruneLocks.get(key) === run) pruneLocks.delete(key); }
+
+  // Atomic: concurrent saves each add their own delta instead of overwriting one another's absolute value.
+  await adjustUsage(user.id, bodySize - freed);
+}
+
+const pruneLocks = new Map<string, Promise<unknown>>();
+
+// IN-lists of thousands of ids are slow or rejected by some databases (MSSQL, Db2, SQLite statement length).
+async function destroyIds(ids: string[]) {
+  for (let i = 0; i < ids.length; i += 500) await SqlHistory.destroy({ where: { id: ids.slice(i, i + 500) } });
+}
+
+/** Deletes the oldest entries matching `where`, in batches, until at least `needBytes` are freed. Returns the bytes freed. */
+async function evictOldest(where: Record<string, string>, needBytes: number): Promise<number> {
+  let freed = 0;
+  while (freed < needBytes) {
+    const batch = await SqlHistory.findAll({
+      attributes: ['id', 'responseSizeBytes'], where, order: [['createdAt', 'ASC'], ['id', 'ASC']], limit: 200, raw: true,
+    }) as Array<{ id: string; responseSizeBytes: number }>;
+    if (batch.length === 0) break;
+    const drop: string[] = [];
+    for (const h of batch) {
+      if (freed >= needBytes) break;
+      drop.push(h.id);
+      freed += h.responseSizeBytes || 0;
+    }
+    await destroyIds(drop);
+    if (drop.length < batch.length) break;
+  }
+  return freed;
+}
+
+/** Adds `delta` to the user's stored-history counter in one statement (never below 0). */
+export async function adjustUsage(userId: string, delta: number) {
+  if (delta !== 0) await SqlUser.increment('historyUsedBytes', { by: delta, where: { id: userId } });
+  await SqlUser.update({ historyUsedBytes: 0 }, { where: { id: userId, historyUsedBytes: { [Op.lt]: 0 } } });
 }

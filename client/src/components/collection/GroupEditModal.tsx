@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useCollectionStore, type Folder } from '../../store/collectionStore';
@@ -6,6 +6,7 @@ import api from '../../api/axios';
 import { ScriptEditor } from '../request/ScriptEditor';
 import { AuthEditor } from '../request/AuthEditor';
 import type { RequestAuth } from '../../store/requestStore';
+import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 
 interface GroupEditModalProps {
   type: 'collection' | 'folder';
@@ -42,6 +43,9 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const handleSaveRef = useRef<() => void>(() => {});
+  useSaveShortcut(() => { if (!loading) handleSaveRef.current(); });
+
   if (!item) return null;
 
   const handleUpdateVar = (index: number, field: string, val: any) => {
@@ -77,6 +81,7 @@ export const GroupEditModal: React.FC<GroupEditModalProps> = ({ type, id, name, 
       setLoading(false);
     }
   };
+  handleSaveRef.current = handleSave;
 
   return createPortal(
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[200]" onClick={onClose}>

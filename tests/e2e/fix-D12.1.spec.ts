@@ -47,6 +47,8 @@ test('[D12.1] Set-Cookie from a response is captured into the jar, shown, and se
   });
 
   await registerUser(page, 'd121');
+  await page.request.put('/api/auth/settings', { data: { sendCookies: true } }); // off by default
+  await page.reload();
   await page.getByTestId('create-request-btn').click();
   const url = page.getByTestId('request-url-input');
   await expect(url).toBeVisible();
