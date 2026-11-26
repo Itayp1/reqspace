@@ -63,6 +63,9 @@ test.describe('Full CRUD / Rename Matrix', () => {
     await page.getByTestId('env-var-key-0').fill('old_var');
     await page.getByTestId('env-var-initial-0').fill('value1');
     await page.getByTestId('env-save-btn').click();
+    // The button is also disabled while the save is in flight, so wait for the confirmation:
+    // editing before it lands is overwritten when the save finishes and clears the dirty flag.
+    await expect(page.getByText('Environment saved')).toBeVisible();
     await expect(page.getByTestId('env-save-btn')).toBeDisabled(); // saved: clean again
     // Rename Variable
     await page.getByTestId('env-var-key-0').fill('renamed_var');

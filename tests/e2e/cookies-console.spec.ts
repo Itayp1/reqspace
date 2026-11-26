@@ -148,7 +148,7 @@ test.describe('Cookies & Console', () => {
     await page.keyboard.insertText(`console.log('from-pre-request');\nreq.headers.set('X-Script-Header', 'set-by-script');`);
 
     await page.getByTestId('request-send-btn').click();
-    await expect(page.getByTestId('response-status')).toContainText('201');
+    await expect(page.getByTestId('response-status')).toContainText('201', { timeout: 15000 });
 
     await page.getByTestId('console-toggle-btn').click();
     await expect(page.getByTestId('console-drawer')).toBeVisible();

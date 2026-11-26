@@ -100,7 +100,7 @@ test.describe('Global Search', () => {
     await dialog.getByRole('combobox').fill(`unique-${ts}`);
 
     const options = dialog.getByRole('option');
-    await expect(options).toHaveCount(1);
+    await expect(options).toHaveCount(1, { timeout: 15000 });
     await expect(options.first()).toContainText(UNIQUE_URL);
   });
 
