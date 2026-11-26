@@ -25,7 +25,9 @@ jobs:
 
       - name: Compute version
         id: ver
-        run: echo "v=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "v=$(node -p "require('./package.json').version.split('.').slice(0,2).join('.')").${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "pkg=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -37,6 +39,7 @@ jobs:
             type=ref,event=branch
             type=sha,format=short
             type=raw,value=${{ steps.ver.outputs.v }}
+            type=raw,value=${{ steps.ver.outputs.pkg }}
 
       - name: Build and push Docker Image
         uses: docker/build-push-action@v5
