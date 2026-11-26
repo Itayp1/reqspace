@@ -499,8 +499,8 @@ export function UrlBar() {
 
       // Manually save history if enabled
       recordHistory({
-        // The server rejects huge history bodies (413); keep only the metadata for >5MB responses.
-        responseBody: (res.size || 0) > 5 * 1024 * 1024 ? '[Response too large to store in history]' : responseBody,
+        // Bodies over 512KB are not stored in history (the server rejects huge ones with 413); keep only a note with the size.
+        responseBody: (res.size || 0) > 512 * 1024 ? `[Response body not saved to history: ${((res.size || 0) / (1024 * 1024)).toFixed(1)} MB, over the 512 KB limit]` : responseBody,
         responseStatus: res.status,
         responseStatusText: res.statusText,
         responseHeaders: res.headers,

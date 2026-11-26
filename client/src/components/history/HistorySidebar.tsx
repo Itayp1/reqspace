@@ -108,6 +108,9 @@ export default function HistorySidebar() {
 
   const handleReplay = (item: any) => {
     setActiveRequest(requestFromHistory(item));
+    // Show the saved response too; sending again replaces it.
+    const s = useRequestStore.getState();
+    if (item.responseSnapshot?.status !== undefined) s.setResponseForTab(s.activeTabId!, { ...item.responseSnapshot, fromHistory: true });
   };
 
   const handleSaveFromHistory = (item: any, e: React.MouseEvent) => {

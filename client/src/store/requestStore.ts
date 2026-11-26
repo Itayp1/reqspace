@@ -115,6 +115,7 @@ export interface ResponseData {
   size: number;
   testResults?: Array<{ name: string; passed: boolean; error?: string }>;
   visualizerData?: { template: string; data?: any };
+  fromHistory?: boolean;
 }
 
 interface RequestStore {

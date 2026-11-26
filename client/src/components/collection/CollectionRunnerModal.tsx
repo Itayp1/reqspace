@@ -302,7 +302,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           const responseBody = res.body || '';
           recordRunnerHistory(
             { method: req.method || 'GET', url: appliedAuth.url, headers: appliedAuth.headers, body: requestBody },
-            { responseBody, responseStatus: statusCode, responseStatusText: res.statusText || '', responseHeaders: res.headers || {}, responseTime: duration, responseSize: res.size || 0 },
+            { responseBody: (res.size || 0) > 512 * 1024 ? `[Response body not saved to history: ${((res.size || 0) / (1024 * 1024)).toFixed(1)} MB, over the 512 KB limit]` : responseBody, responseStatus: statusCode, responseStatusText: res.statusText || '', responseHeaders: res.headers || {}, responseTime: duration, responseSize: res.size || 0 },
           );
 
           let testPassed = statusCode >= 200 && statusCode < 400;

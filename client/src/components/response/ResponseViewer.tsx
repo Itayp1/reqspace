@@ -5,7 +5,7 @@ import { useRequestStore } from '../../store/requestStore';
 import { useCookieStore } from '../../store/cookieStore';
 import type { CookieItem } from '../../store/cookieStore';
 import Editor from '../common/LazyEditor';
-import { Download, Loader2, Search, Cookie, Copy, Check, WrapText, ChevronDown } from 'lucide-react';
+import { Download, Loader2, Search, Cookie, Copy, Check, WrapText, ChevronDown, Info } from 'lucide-react';
 import { CookieManagerModal } from '../common/CookieManagerModal';
 
 type TabType = 'body' | 'cookies' | 'headers' | 'test_results' | 'visualizer';
@@ -176,6 +176,10 @@ export const ResponseViewer: React.FC = () => {
     setForceRenderLarge(false);
   }, [activeRequest?._id, activeRequest?.tabId]);
 
+  const notSavedMatch = /^\[Response body not saved to history: ([\d.]+) MB, over the 512 KB limit\]$/.exec(body || '');
+  const isNotSavedToHistory = !!notSavedMatch;
+  const notSavedSize = notSavedMatch?.[1];
+
   const isLargeResponse = !!size && size > 5 * 1024 * 1024;
 
   const displayBody = useMemo(() => {
@@ -267,6 +271,11 @@ export const ResponseViewer: React.FC = () => {
               {status} {statusText}
             </span>
           </div>
+          {activeResponse?.fromHistory && (
+            <span data-testid="response-from-history" title="Saved response; send the request to refresh" className="px-1.5 py-0.5 rounded bg-surface border border-border text-[11px] text-text-muted">
+              From history
+            </span>
+          )}
           <div className="flex items-center space-x-1.5">
             <span className="text-text-muted">Time:</span>
             <span className="text-text tabular-nums">{responseTime}&nbsp;ms</span>
@@ -406,6 +415,16 @@ export const ResponseViewer: React.FC = () => {
                 <object data={`data:application/pdf;base64,${activeResponse?.body}`} type="application/pdf" className="w-full h-full">
                   <p>PDF cannot be displayed. <a href="#" onClick={(e) => { e.preventDefault(); handleDownload(); }}>Download</a> instead.</p>
                 </object>
+              </div>
+            ) : isNotSavedToHistory ? (
+              <div className="w-full h-full flex items-center justify-center p-6">
+                <div role="status" data-testid="history-body-not-saved" className="bg-surface p-5 rounded-lg border border-border max-w-md text-center">
+                  <Info className="w-5 h-5 text-text-muted mx-auto mb-2" aria-hidden="true" />
+                  <h3 className="text-text font-semibold mb-1">Too large to save{notSavedSize ? `: ${notSavedSize} MB` : ''}</h3>
+                  <p className="text-sm text-text-muted text-pretty">
+                    The response was over the 512&nbsp;KB history limit, so only its status, time, size and headers were kept. Send the request again to see the body.
+                  </p>
+                </div>
               </div>
             ) : bodyMode === 'preview' && isHtml ? (
               <iframe
