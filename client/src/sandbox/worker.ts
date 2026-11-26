@@ -1,8 +1,19 @@
+import './nodeShim';
 import { assert, expect } from 'chai';
 import _ from 'lodash';
 import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
+import Ajv from 'ajv';
+import * as uuidLib from 'uuid';
+import * as nodeAssert from 'assert';
+import * as nodeBuffer from 'buffer';
+import * as nodeEvents from 'events';
+import * as nodeUtil from 'util';
+import * as nodePath from 'path-browserify';
+import * as nodeUrl from 'url';
+import * as nodeQuerystring from 'querystring-es3';
+import * as nodeStringDecoder from 'string_decoder';
 import { buildRequest, buildResponse, requestMods } from './pmApi';
 import { resolveDynamicVars } from '../utils/dynamicVars';
 
@@ -34,6 +45,20 @@ function safeString(value: any): string {
   }
   return out.length > MAX_LOG_LEN ? out.slice(0, MAX_LOG_LEN) + '… [truncated]' : out;
 }
+
+// require() / pm.require(): Postman's bundled libraries plus browser builds of the basic Node modules.
+// shortcut: no npm:/package-library loading, only this fixed list.
+const MODULES: Record<string, any> = {
+  lodash: _, moment, uuid: uuidLib, 'crypto-js': CryptoJS, chai: { assert, expect }, ajv: Ajv,
+  assert: (nodeAssert as any).default || nodeAssert, buffer: nodeBuffer, events: (nodeEvents as any).default || nodeEvents,
+  util: (nodeUtil as any).default || nodeUtil, path: (nodePath as any).default || nodePath, url: nodeUrl,
+  querystring: (nodeQuerystring as any).default || nodeQuerystring, string_decoder: nodeStringDecoder,
+};
+const requireModule = (name: string) => {
+  const key = String(name).replace(/^node:/, '');
+  if (Object.prototype.hasOwnProperty.call(MODULES, key)) return MODULES[key];
+  throw new Error(`Cannot find module '${name}'. Available: ${Object.keys(MODULES).join(', ')}`);
+};
 
 const callbacks = new Map<string, (err: any, res: any) => void>();
 
@@ -139,6 +164,7 @@ self.onmessage = async (e) => {
       response: pmResponse,
       test,
       expect: expect,
+      require: requireModule,
       sendRequest: (req: any, callback: (err: any, res: any) => void) => {
          const id = uuidv4();
          callbacks.set(id, callback);
@@ -176,14 +202,7 @@ self.onmessage = async (e) => {
         warn: (...args: any[]) => consoleLines.push({ level: 'warn', args: args.map(safeString) }),
         error: (...args: any[]) => consoleLines.push({ level: 'error', args: args.map(safeString) }),
       },
-      require: (moduleName: string) => {
-        if (moduleName === 'lodash') return _;
-        if (moduleName === 'moment') return moment;
-        if (moduleName === 'uuid') return { v4: uuidv4 };
-        if (moduleName === 'crypto-js') return CryptoJS;
-        if (moduleName === 'chai') return { assert, expect };
-        throw new Error(`Module ${moduleName} not found`);
-      }
+      require: requireModule,
     };
 
     const keys = Object.keys(sandboxScope);
