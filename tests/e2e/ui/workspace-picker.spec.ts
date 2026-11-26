@@ -16,7 +16,8 @@ test('workspace picker filters by typing and switches workspace on pick', async 
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   const options = page.getByRole('listbox', { name: 'Workspaces' }).getByRole('option');
-  await expect(options).toHaveCount(3);
+  // Other specs leave public workspaces visible to everyone, so only our own are asserted.
+  await expect(options.filter({ hasText: String(ts) })).toHaveCount(2);
 
   await page.getByTestId('workspace-search').fill(`beta ${ts}`);
   await expect(options).toHaveCount(1);
