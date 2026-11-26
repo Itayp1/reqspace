@@ -1,15 +1,9 @@
-import './nodeShim';
 import { assert, expect } from 'chai';
 import _ from 'lodash';
-import * as luxon from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
 import Ajv from 'ajv';
 import * as uuidLib from 'uuid';
-import * as nodeBuffer from 'buffer';
-import * as nodeEvents from 'events';
-import * as nodeUtil from 'util';
-import * as nodePath from 'path-browserify';
 import { buildRequest, buildResponse, requestMods } from './pmApi';
 import { resolveDynamicVars } from '../utils/dynamicVars';
 
@@ -42,12 +36,9 @@ function safeString(value: any): string {
   return out.length > MAX_LOG_LEN ? out.slice(0, MAX_LOG_LEN) + '… [truncated]' : out;
 }
 
-// require() / pm.require(): Postman-style bundled libraries (luxon instead of the deprecated moment) plus browser builds of buffer, events, util and path.
-// shortcut: no npm:/package-library loading, only this fixed list.
+// require() / pm.require(): the libraries already bundled. Add more here only when a script needs them.
 const MODULES: Record<string, any> = {
-  lodash: _, luxon, uuid: uuidLib, 'crypto-js': CryptoJS, chai: { assert, expect }, ajv: Ajv,
-  buffer: nodeBuffer, events: (nodeEvents as any).default || nodeEvents,
-  util: (nodeUtil as any).default || nodeUtil, path: (nodePath as any).default || nodePath,
+  lodash: _, uuid: uuidLib, 'crypto-js': CryptoJS, chai: { assert, expect }, ajv: Ajv,
 };
 const requireModule = (name: string) => {
   const key = String(name).replace(/^node:/, '');
