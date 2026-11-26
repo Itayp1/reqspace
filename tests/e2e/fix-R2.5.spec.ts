@@ -33,3 +33,18 @@ test.describe('extension crx download', () => {
     expect(buf.includes(Buffer.from('manifest.json'))).toBeTruthy();
   });
 });
+
+test.describe('extension crx zip download', () => {
+  test('/extension/reqspace-transport-crx.zip is a zip holding the .crx', async () => {
+    const ctx = await pwRequest.newContext({
+      baseURL: API_URL,
+      extraHTTPHeaders: { 'X-Forwarded-For': `10.${230 + Math.floor(Math.random() * 20)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` },
+    });
+    const res = await ctx.get('/extension/reqspace-transport-crx.zip');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toMatch(/zip/);
+    const buf = await res.body();
+    expect(buf.subarray(0, 4).toString('hex')).toBe('504b0304');
+    expect(buf.includes(Buffer.from('reqspace-transport.crx'))).toBeTruthy();
+  });
+});

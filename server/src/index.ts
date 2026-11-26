@@ -9,7 +9,7 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 import compression from 'compression';
 import path from 'path';
-import { zipDirectory } from './utils/zipDir';
+import { zipDirectory, zipFiles } from './utils/zipDir';
 import { loadOrCreateKey, zipToCrx } from './utils/crx';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
@@ -380,7 +380,7 @@ app.get('/extension/reqspace-transport.zip', (_req, res) => {
 });
 
 // Signed CRX3 built from the same zip; the key persists next to the DB so the extension ID stays stable.
-app.get('/extension/reqspace-transport.crx', async (req, res) => {
+app.get(['/extension/reqspace-transport.crx', '/extension/reqspace-transport-crx.zip'], async (req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const fs = require('fs');
   const hasDir = fs.existsSync(path.join(extensionDirPath, 'manifest.json'));
@@ -398,8 +398,14 @@ app.get('/extension/reqspace-transport.crx', async (req, res) => {
     : fs.readFileSync(extensionZipPath);
   const keyDir = process.env.DB_STORAGE_PATH ? path.dirname(process.env.DB_STORAGE_PATH) : path.resolve(__dirname, '../..');
   const key = loadOrCreateKey(process.env.EXTENSION_KEY_PATH || path.join(keyDir, 'extension.pem'));
+  const crx = zipToCrx(zip, key);
+  // The zipped variant: browsers/antivirus often block a direct .crx download, a zip holding it goes through.
+  if (req.path.endsWith('.zip')) {
+    res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="reqspace-transport-crx.zip"' });
+    return res.send(zipFiles([{ name: 'reqspace-transport.crx', data: crx }]));
+  }
   res.set({ 'Content-Type': 'application/x-chrome-extension', 'Content-Disposition': 'attachment; filename="reqspace-transport.crx"' });
-  return res.send(zipToCrx(zip, key));
+  return res.send(crx);
 });
 
 // Catch unmatched /api/* routes before the SPA fallback to return a JSON 404

@@ -25,12 +25,18 @@ function listFiles(dir: string, prefix = ''): string[] {
 
 /** Zips a directory (deflate, no dependencies) so dev setups can serve the extension without `zip`. */
 export function zipDirectory(dir: string, transform?: (rel: string, data: Buffer) => Buffer): Buffer {
+  return zipFiles(listFiles(dir).map((rel) => {
+    const data = fs.readFileSync(path.join(dir, rel));
+    return { name: rel, data: transform ? transform(rel, data) : data };
+  }));
+}
+
+/** Zips in-memory files, e.g. a lone .crx that browsers would otherwise block as a direct download. */
+export function zipFiles(files: { name: string; data: Buffer }[]): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
-  for (const rel of listFiles(dir)) {
-    let data: Buffer = fs.readFileSync(path.join(dir, rel));
-    if (transform) data = transform(rel, data);
+  for (const { name: rel, data } of files) {
     const comp = zlib.deflateRawSync(data);
     const name = Buffer.from(rel, 'utf8');
     const crc = crc32(data);

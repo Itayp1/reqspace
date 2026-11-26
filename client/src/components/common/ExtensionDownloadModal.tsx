@@ -78,12 +78,20 @@ export function ExtensionDownloadModal() {
             <Download size={16} aria-hidden="true" />
             Download Extension (.zip)
           </a>
+          <a
+            href="/extension/reqspace-transport-crx.zip"
+            download="reqspace-transport-crx.zip"
+            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-border text-text font-medium rounded hover:bg-border transition-colors text-sm focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <Download size={16} aria-hidden="true" />
+            Download Extension (.crx in a .zip)
+          </a>
 
           {/* Install instructions */}
           <div className="bg-background border border-border rounded-lg p-4 space-y-3">
             <p className="text-xs font-semibold text-text-muted uppercase tracking-widest">Install Steps</p>
             {[
-              { n: '1', text: <>Download the .zip file above and <span className="font-semibold">extract it</span> to a folder (Chrome blocks installing a .crx from outside the Web Store)</> },
+              { n: '1', text: <>Download the first .zip above and <span className="font-semibold">extract it</span> to a folder (Chrome blocks installing a .crx from outside the Web Store; the .crx zip is for other tools or managed installs)</> },
               { n: '2', text: <>Open a new tab and paste{' '}
                 <button
                   type="button"
