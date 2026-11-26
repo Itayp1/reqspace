@@ -327,6 +327,7 @@ export function UrlBar() {
           return acc;
         }, {}),
         body: rawBodyMode === 'raw' ? ((activeRequest.body as any)?.raw ?? '') : undefined,
+        id: activeRequest._id, name: activeRequest.name, bodyDef: activeRequest.body, auth: activeRequest.auth,
       };
       const preResult = await runPreRequestScript(preScripts.join('\n\n'), colId, undefined, localVariables, origRequest);
 
@@ -442,6 +443,10 @@ export function UrlBar() {
           reqHeaders[k] = resolveAllVariables(String(v), colId, undefined, localVariables);
         });
       }
+      mods.removedHeaders?.forEach((k) => {
+        const ex = Object.keys(reqHeaders).find((hk) => hk.toLowerCase() === k.toLowerCase());
+        if (ex) delete reqHeaders[ex];
+      });
       if (mods?.body !== undefined && typeof requestBody === 'string' && bodyMode === 'raw') requestBody = mods.body;
       if (preResult?.headerWrites) {
         Object.entries(preResult.headerWrites).forEach(([k, v]) => {
@@ -516,7 +521,10 @@ export function UrlBar() {
         headers: res.headers || {},
         body: responseBody,
         time: responseTime,
-      }, colId, undefined, localVariables);
+      }, colId, undefined, localVariables, {
+        ...origRequest, url: reqPayload.url, method: reqPayload.method, headers: reqPayload.headers,
+        body: typeof requestBody === 'string' ? requestBody : undefined,
+      });
 
       const testResults = [
         ...(preResult?.testResults || []),

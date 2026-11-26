@@ -17,6 +17,13 @@ import { notifyHistoryUpdated } from '../../utils/historySync';
 import { findMissingVariables, type MissingVariable } from '../../utils/missingVariables';
 import { MissingVariablesModal } from './MissingVariablesModal';
 
+// pm.request for the runner's scripts: the saved request (variables unresolved).
+const runnerRequest = (req: any) => ({
+  url: req.url || '', method: req.method || 'GET', id: req._id, name: req.name, bodyDef: req.body, auth: req.auth,
+  headers: (req.headers || []).reduce((acc: Record<string, string>, h: any) => { if (h.key && h.enabled) acc[h.key] = h.value; return acc; }, {}),
+  body: req.body?.mode === 'raw' ? (req.body.raw ?? '') : undefined,
+});
+
 interface CollectionRunnerModalProps {
   collectionId: string;
   collectionName: string;
@@ -242,7 +249,7 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
           for (const f of chainRootFirst) if (f.preRequestScript) preScripts.push(f.preRequestScript);
           if (req.preRequestScript) preScripts.push(req.preRequestScript);
           if (preScripts.length > 0) {
-            const preRes = await runPreRequestScript(preScripts.join('\n\n'), collectionId, iterationData, localVariables);
+            const preRes = await runPreRequestScript(preScripts.join('\n\n'), collectionId, iterationData, localVariables, runnerRequest(req));
             if (preRes && preRes.nextRequest !== undefined) nextReqName = preRes.nextRequest;
           }
 
@@ -318,7 +325,10 @@ export const CollectionRunnerModal: React.FC<CollectionRunnerModalProps> = ({
               headers: res.headers || {},
               body: responseBody,
               time: duration,
-            }, collectionId, iterationData, localVariables);
+            }, collectionId, iterationData, localVariables, {
+              ...runnerRequest(req), url: appliedAuth.url, method: req.method || 'GET', headers: appliedAuth.headers,
+              body: typeof requestBody === 'string' ? requestBody : undefined,
+            });
             
             if (scriptReturn?.nextRequest !== undefined) {
               nextReqName = scriptReturn.nextRequest;

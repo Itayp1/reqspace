@@ -63,4 +63,8 @@ describe('diffRequestMods', () => {
     expect(diffRequestMods(orig, { url: 'http://h/x?s=1', method: 'GET', headers: { A: '1', B: '2' }, body: 'c' }))
       .toEqual({ url: 'http://h/x?s=1', headers: { B: '2' }, body: 'c' });
   });
+  it('reports headers the script removed (case-insensitive)', () => {
+    expect(diffRequestMods(orig, { headers: {} })).toEqual({ removedHeaders: ['A'] });
+    expect(diffRequestMods(orig, { headers: { a: '1' } })).toEqual({ headers: { a: '1' } });
+  });
 });

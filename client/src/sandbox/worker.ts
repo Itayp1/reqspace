@@ -3,6 +3,7 @@ import _ from 'lodash';
 import moment from 'moment';
 import { v4 as uuidv4 } from 'uuid';
 import CryptoJS from 'crypto-js';
+import { buildRequest, buildResponse, requestMods } from './pmApi';
 
 const MAX_LOG_LEN = 10000;
 
@@ -83,54 +84,34 @@ self.onmessage = async (e) => {
       },
     });
 
-    // Response helpers (pm.response.json()/text()/headers.get()).
-    let pmResponse: any = response;
-    if (response) {
-      const rawHeaders = response.headers || {};
-      const findHeader = (name: string) => {
-        const k = Object.keys(rawHeaders).find((h) => h.toLowerCase() === String(name).toLowerCase());
-        return k === undefined ? undefined : rawHeaders[k];
-      };
-      const headers: any = { ...rawHeaders };
-      Object.defineProperty(headers, 'get', { value: findHeader, enumerable: false });
-      Object.defineProperty(headers, 'has', { value: (n: string) => findHeader(n) !== undefined, enumerable: false });
-      const text = () => typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
-      pmResponse = {
-        ...response,
-        headers,
-        text,
-        json: () => typeof response.body === 'string' ? JSON.parse(response.body) : response.body,
-        // Postman-style assertions; shortcut: only status / header / ok, add more when a snippet needs them.
-        to: {
-          have: {
-            status: (code: number) => { expect(response.code, 'response status').to.equal(code); },
-            header: (name: string) => { expect(findHeader(name), `response header "${name}"`).to.not.equal(undefined); },
-          },
-          be: {
-            get ok() { expect(response.code, 'response status').to.be.within(200, 299); return true; },
-          },
-        },
-      };
-    }
+    // pm.request / pm.response follow the Postman SDK (see pmApi.ts). The request is mutable in
+    // pre-request (changes go back to the host as requestMods) and the sent request in post-response.
+    const pmRequest = request ? buildRequest(request) : undefined;
+    const pmResponse = response ? buildResponse(response, pmRequest) : undefined;
 
-    // pm.request is a mutable copy; changes are returned to the host as requestMods.
-    const pmRequest: any = request ? { ...request, headers: { ...(request.headers || {}) } } : undefined;
+    let testIndex = 0;
+    const test: any = (name: string, fn: () => void) => {
+      testIndex++;
+      try {
+        fn();
+        testResults.push({ name, passed: true });
+      } catch (err: any) {
+        testResults.push({ name, passed: false, error: err.message });
+      }
+      return pm;
+    };
+    // shortcut: a skipped test is counted in index() but not listed in the results.
+    test.skip = () => { testIndex++; return pm; };
+    test.index = () => testIndex;
 
-    const pm = {
+    const pm: any = {
       environment: makeScope('environment', envState),
       globals: makeScope('globals', globState),
       collectionVariables: makeScope('collection', localState),
       variables: makeScope('local', localState),
       request: pmRequest,
       response: pmResponse,
-      test: (name: string, fn: () => void) => {
-        try {
-          fn();
-          testResults.push({ name, passed: true });
-        } catch (err: any) {
-          testResults.push({ name, passed: false, error: err.message });
-        }
-      },
+      test,
       expect: expect,
       sendRequest: (req: any, callback: (err: any, res: any) => void) => {
          const id = uuidv4();
@@ -206,7 +187,7 @@ self.onmessage = async (e) => {
       
       const checkDone = () => {
         if (callbacks.size === 0) {
-          postMessage({ type: 'result', variableWrites, testResults, consoleLines, visualizer, requestMods: pmRequest });
+          postMessage({ type: 'result', variableWrites, testResults, consoleLines, visualizer, requestMods: pmRequest && !response ? requestMods(pmRequest) : undefined });
         } else {
           setTimeout(checkDone, 50);
         }

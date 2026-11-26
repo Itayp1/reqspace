@@ -50,4 +50,21 @@ describe('sandbox worker', () => {
     expect(r.consoleLines[0].args.slice(0, 4)).toEqual(['Symbol(s)', 'undefined', 'null', '{"self":"[Circular]"}']);
     expect(r.consoleLines[0].args[4].length).toBeLessThan(10100);
   });
+
+  it('status assertions match the response class/code (positive cases the e2e 200 mock cannot show)', async () => {
+    const cases: Array<[number, string[]]> = [[100, ['info']], [204, ['success', 'withoutContent']], [302, ['redirection']], [202, ['accepted']], [400, ['clientError', 'error', 'badRequest']],
+      [401, ['unauthorized', 'unauthorised']], [403, ['forbidden']], [404, ['notFound']], [406, ['notAcceptable']], [429, ['rateLimited']], [500, ['serverError', 'error']]];
+    for (const [code, names] of cases) {
+      const r = await run(`${names.map((n) => `pm.test('${n}', () => { pm.response.to.be.${n}; pm.response.to.not.have.status(${code + 1}); });`).join('')}`,
+        { response: { code, status: 'X', responseTime: 1, headers: {}, body: '' } });
+      expect(r.testResults.filter((t: any) => !t.passed), `code ${code}`).toEqual([]);
+    }
+  });
+
+  it('pre-request removals and the not-supported members', async () => {
+    const r = await run(`pm.request.removeHeader('x-gone'); pm.test('t', () => pm.expect(() => pm.request.proxy).to.throw('pm.request.proxy is not supported'));`,
+      { request: { url: 'http://h/x', method: 'GET', headers: { 'X-Gone': '1', 'X-Stay': '2' } } });
+    expect(r.requestMods.headers).toEqual({ 'X-Stay': '2' });
+    expect(r.testResults).toEqual([{ name: 't', passed: true }]);
+  });
 });

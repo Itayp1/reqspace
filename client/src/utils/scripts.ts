@@ -4,6 +4,9 @@ import { useCollectionStore } from '../store/collectionStore';
 import { useConsoleStore } from '../store/consoleStore';
 import { sendRequest } from '../transport';
 
+/** What pm.request is built from. bodyDef/auth are the stored definitions (urlencoded, form-data, bearer...). */
+export type SandboxRequest = { url: string; method: string; headers: Record<string, string>; body?: any; id?: string; name?: string; bodyDef?: any; auth?: any };
+
 interface ScriptResult {
   nextRequest?: string;
   testResults: Array<{ name: string; passed: boolean; error?: string }>;
@@ -36,7 +39,7 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
   iterationData?: Record<string, any>;
   localVariables?: Map<string, string>;
   response?: any;
-  request?: { url: string; method: string; headers: Record<string, string>; body?: any };
+  request?: SandboxRequest;
 }): Promise<ScriptResult> {
   if (!script || !script.trim()) return { testResults: [] };
   
@@ -165,21 +168,21 @@ async function executeInSandbox(phase: 'pre-request' | 'test', script: string, o
   });
 }
 
-export async function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>(), request?: { url: string; method: string; headers: Record<string, string>; body?: any }) {
+export async function runPreRequestScript(script?: string, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>(), request?: SandboxRequest) {
   if (!script || !script.trim()) return undefined;
   return executeInSandbox('pre-request', script, { collectionId, iterationData, localVariables, request });
 }
 
-export async function runTestScript(script?: string, response?: any, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>()) {
+export async function runTestScript(script?: string, response?: any, collectionId?: string, iterationData?: Record<string, any>, localVariables = new Map<string, string>(), request?: SandboxRequest) {
   if (!script || !script.trim()) return undefined;
-  return executeInSandbox('test', script, { collectionId, iterationData, localVariables, response });
+  return executeInSandbox('test', script, { collectionId, iterationData, localVariables, response, request });
 }
 
-type ReqShape = { url: string; method: string; headers: Record<string, string>; body?: any };
+type ReqShape = SandboxRequest;
 
 /** Returns only the parts of pm.request a pre-request script actually changed. */
-export function diffRequestMods(original: ReqShape, mods?: Partial<ReqShape>): { url?: string; method?: string; headers?: Record<string, string>; body?: any } {
-  const out: { url?: string; method?: string; headers?: Record<string, string>; body?: any } = {};
+export function diffRequestMods(original: ReqShape, mods?: Partial<ReqShape>): { url?: string; method?: string; headers?: Record<string, string>; removedHeaders?: string[]; body?: any } {
+  const out: { url?: string; method?: string; headers?: Record<string, string>; removedHeaders?: string[]; body?: any } = {};
   if (!mods) return out;
   if (typeof mods.url === 'string' && mods.url !== original.url) out.url = mods.url;
   if (typeof mods.method === 'string' && mods.method !== original.method) out.method = mods.method;
@@ -189,6 +192,9 @@ export function diffRequestMods(original: ReqShape, mods?: Partial<ReqShape>): {
       if (original.headers[k] !== v) changed[k] = String(v);
     }
     if (Object.keys(changed).length) out.headers = changed;
+    const kept = new Set(Object.keys(mods.headers).map((k) => k.toLowerCase()));
+    const removed = Object.keys(original.headers).filter((k) => !kept.has(k.toLowerCase()));
+    if (removed.length) out.removedHeaders = removed;
   }
   if (mods.body !== undefined && mods.body !== original.body) out.body = mods.body;
   return out;
