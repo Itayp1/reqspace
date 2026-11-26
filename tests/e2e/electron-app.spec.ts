@@ -124,6 +124,45 @@ test.describe('Electron desktop app', () => {
     }
   });
 
+  test('[T5.4] moving between pages of the identity provider (login form, MFA) stays inside the window', async () => {
+    const idp = createServer((_req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }).end('<title>mock idp</title>'); });
+    await new Promise<void>((r) => idp.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(idp.address() as AddressInfo).port}`;
+    const admin = await apiAsAdmin();
+    await admin.put('/api/admin/config', { data: { auth: { customOAuth: { enabled: true, clientId: 'c', authorizeUrl: `${base}/authorize`, tokenUrl: `${base}/token`, userinfoUrl: `${base}/userinfo` } } } });
+    try {
+      const app = await launchDesktopApp(userData);
+      const page = await app.firstWindow();
+      await page.waitForLoadState('domcontentloaded');
+      const opened = await recordExternalOpens(app);
+
+      await expect(async () => {
+        await page.evaluate((u) => { setTimeout(() => { window.location.href = u; }, 0); }, `${base}/authorize?client_id=c`);
+      }).toPass();
+      await expect.poll(() => page.url(), { timeout: 15000 }).toContain(`${base}/authorize`);
+
+      // A second page of the same IdP (e.g. the login form's target) must not jump to the system browser.
+      await page.evaluate((u) => { setTimeout(() => { window.location.href = u; }, 0); }, `${base}/login-step`);
+      await expect.poll(() => page.url(), { timeout: 15000 }).toContain(`${base}/login-step`);
+      expect(await opened()).toEqual([]);
+      await app.close();
+    } finally {
+      await admin.put('/api/admin/config', { data: { auth: { customOAuth: { enabled: false } } } });
+      await new Promise<void>((r) => idp.close(() => r()));
+    }
+  });
+
+  test('the login screen offers "Work offline instead"', async () => {
+    const app = await launchDesktopApp(userData);
+    const page = await app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(async () => {
+      await page.evaluate(() => { setTimeout(() => { window.location.href = '/login'; }, 0); });
+    }).toPass();
+    await expect(page.getByTestId('login-work-offline')).toBeVisible();
+    await app.close();
+  });
+
   test('[T5.4] signing in through a custom OAuth provider returns the user to the app, logged in', async () => {
     const idp = await startMockIdp();
     const email = `electron_oidc_${Date.now()}@example.com`;
