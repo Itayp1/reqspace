@@ -1,6 +1,6 @@
 {
   "name": "reqspace",
-  "version": "1.6.13",
+  "version": "1.6.14",
   "description": "reqSpace Desktop App",
   "main": "main.js",
   "scripts": {

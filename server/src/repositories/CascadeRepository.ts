@@ -10,6 +10,7 @@ import {
   SqlLocalVariable,
   SqlUserProfileVariable,
   SqlSharedLink,
+  SqlWorkspaceInvite,
   SqlCollectionFork,
   SqlForkItemHash,
   SqlWorkspace,
@@ -90,6 +91,7 @@ export const CascadeRepository = {
       await cleanupForkRows(collectionIds);
     }
     await SqlSharedLink.destroy({ where: { workspaceId } });
+    await SqlWorkspaceInvite.destroy({ where: { workspaceId } });
     await SqlCollection.destroy({ where: { workspaceId } });
     await SqlEnvironment.destroy({ where: { workspaceId } });
     await SqlGlobalEnvironment.destroy({ where: { workspaceId } });

@@ -232,6 +232,18 @@ export class SqlForkItemHash extends Model {
 // ──────────────────────────────────────────────────────────────────────────────
 // FP ERRORS (client and server faults, reviewed in the admin screen)
 // ──────────────────────────────────────────────────────────────────────────────
+// -------------------------------------------------
+// WORKSPACE INVITES (pending until the invitee next signs in or registers)
+// -------------------------------------------------
+export class SqlWorkspaceInvite extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare email: string;
+  declare role: string;
+  declare invitedBy: string;
+  declare createdAt: Date;
+}
+
 export class SqlFpError extends Model {
   declare id: string;
   declare source: string;
@@ -456,6 +468,15 @@ export function initSqlModels() {
     repeats: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   }, { sequelize: sq, tableName: 'fperrors', timestamps: true, createdAt: 'createdAt', updatedAt: false,
     indexes: [{ fields: ['createdAt'] }, { fields: ['fingerprint'] }] });
+
+  SqlWorkspaceInvite.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    email: { type: DataTypes.STRING(255), allowNull: false },
+    role: { type: DataTypes.STRING(20), allowNull: false },
+    invitedBy: { type: DataTypes.STRING(36), allowNull: false },
+  }, { sequelize: sq, tableName: 'workspace_invites', timestamps: true, updatedAt: false,
+    indexes: [{ fields: ['email'] }, { fields: ['workspaceId', 'email'], unique: true }] });
 }
 
 

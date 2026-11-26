@@ -183,10 +183,9 @@ test.describe('Shared page, viewer fork, fork options', () => {
     await owner.getByTestId('workspace-settings-btn').click();
     await owner.getByTestId('workspace-members-tab').click();
     await owner.getByTestId('user-autocomplete-input').fill(viewerEmail);
-    await owner.getByTestId('user-autocomplete-result').first().click();
     await owner.getByTestId('workspace-invite-role').selectOption('viewer');
     await owner.getByTestId('workspace-invite-btn').click();
-    await expect(owner.getByTestId('member-email').filter({ hasText: viewerEmail })).toBeVisible();
+    await expect(owner.getByTestId('invite-email').filter({ hasText: viewerEmail })).toBeVisible();
     await owner.getByTestId('close-workspace-modal').click();
 
     await viewer.reload();

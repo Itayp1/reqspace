@@ -52,16 +52,9 @@ test('a viewer attempting an editor-only action sees an explicit permission mess
 
   await pageOwner.getByTestId('workspace-settings-btn').click();
   await pageOwner.getByTestId('workspace-members-tab').click();
-  // Search by name, not email: UserRepository.search's escapeLike escapes
-  // '_' as '\_' for a Sequelize Op.like, which only means anything to a LIKE
-  // clause with an explicit ESCAPE '\' — Postgres/MySQL default to that,
-  // SQLite does not, so any query containing '_' (as this email does) never
-  // matches on SQLite. Verified directly against a live SQLite-backed
-  // server. Real, separate bug — filed, not fixed, as FIX-8.
-  await pageOwner.getByTestId('user-autocomplete-input').fill(viewerName);
-  await pageOwner.getByTestId('user-autocomplete-result').first().click();
+  await pageOwner.getByTestId('user-autocomplete-input').fill(viewerEmail);
   await pageOwner.getByTestId('workspace-invite-btn').click();
-  await expect(pageOwner.getByTestId('member-email').filter({ hasText: viewerEmail })).toBeVisible();
+  await expect(pageOwner.getByTestId('invite-email').filter({ hasText: viewerEmail })).toBeVisible();
   await pageOwner.getByTestId('close-workspace-modal').click();
 
   // The UI now hides editor-only actions from viewers, so to still exercise the

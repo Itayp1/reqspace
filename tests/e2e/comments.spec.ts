@@ -133,10 +133,9 @@ test.describe('Request comments', () => {
     await owner.getByTestId('workspace-settings-btn').click();
     await owner.getByTestId('workspace-members-tab').click();
     await owner.getByTestId('user-autocomplete-input').fill(mateEmail);
-    await owner.getByTestId('user-autocomplete-result').first().click();
     await owner.getByTestId('workspace-invite-role').selectOption('editor');
     await owner.getByTestId('workspace-invite-btn').click();
-    await expect(owner.getByTestId('member-email').filter({ hasText: mateEmail })).toBeVisible();
+    await expect(owner.getByTestId('invite-email').filter({ hasText: mateEmail })).toBeVisible();
     await owner.getByTestId('close-workspace-modal').click();
 
     // The teammate reloads into the shared workspace and reads the comment.

@@ -14,7 +14,11 @@ router.get('/search', authenticate, async (req: AuthRequest, res: Response) => {
   if (q.length < 2) {
     return res.json([]);
   }
-  const users = await UserRepository.search(q);
+  // USER_DIRECTORY_GLOBAL=true (e.g. a company-internal server) lets everyone find everyone.
+  // Otherwise only people who share a workspace with the caller are searchable; super admins
+  // already see every account in the admin panel.
+  const global = /^(1|true|yes)$/i.test(process.env.USER_DIRECTORY_GLOBAL ?? '') || req.user!.isSuperAdmin;
+  const users = await UserRepository.search(q, global ? undefined : await UserRepository.coMemberIds(String(req.user!._id)));
   res.json(users);
 });
 

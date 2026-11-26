@@ -20,6 +20,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
   // old name.
   const edited = useRef({ name: false, description: false, isPublic: false });
   const [members, setMembers] = useState<any[]>([]);
+  const [invites, setInvites] = useState<Array<{ email: string; role: string }>>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -39,6 +40,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
         if (!edited.current.description) setDescription(res.data.description || '');
         if (!edited.current.isPublic) setIsPublic(res.data.isPublic || false);
         setMembers(res.data.members || []);
+        setInvites(res.data.invites || []);
         setActivityLogs(actRes.data || []);
       }).catch(err => console.error(err))
         .finally(() => setLoading(false));
@@ -49,10 +51,17 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
     try {
       const res = await api.get(`/workspaces/${activeWorkspace?._id}`);
       setMembers(res.data.members || []);
+      setInvites(res.data.invites || []);
     } catch (e) {
       console.error(e);
     }
   };
+
+  useEffect(() => {
+    const onChanged = (e: Event) => { if ((e as CustomEvent).detail === activeWorkspace?._id) refreshMembers(); };
+    window.addEventListener('workspace-members-changed', onChanged);
+    return () => window.removeEventListener('workspace-members-changed', onChanged);
+  }, [activeWorkspace?._id]);
 
   const handleUpdate = async () => {
     try {
@@ -74,6 +83,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
     try {
       await api.post(`/workspaces/${activeWorkspace?._id}/members`, { email: inviteEmail, role: inviteRole });
       await refreshMembers();
+      useToastStore.getState().addToast('success', `Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
     } catch (e: any) {
       const message = e.response?.data?.message || 'Failed to add member';
@@ -91,6 +101,17 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       onClose();
     } catch (e: any) {
       const message = e.response?.data?.message || 'Failed to delete workspace';
+      setError(message);
+      useToastStore.getState().addToast('error', message);
+    }
+  };
+
+  const cancelInvite = async (email: string) => {
+    try {
+      await api.delete(`/workspaces/${activeWorkspace?._id}/invites/${encodeURIComponent(email)}`);
+      await refreshMembers();
+    } catch (e: any) {
+      const message = e.response?.data?.message || 'Failed to cancel invite';
       setError(message);
       useToastStore.getState().addToast('error', message);
     }
@@ -283,6 +304,9 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                   </button>
                 </form>
               )}
+              {isOwner && (
+                <p className="text-xs text-text-muted -mt-4 mb-4">Suggestions show only people you already share a workspace with. To invite someone new, type their full email. They join the next time they sign in.</p>
+              )}
 
               <div className="border border-border rounded overflow-hidden">
                 <table className="w-full text-sm text-left">
@@ -331,6 +355,20 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                                 <Trash2 className="w-4 h-4" aria-hidden="true" />
                               </button>
                             )}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    {invites.map(i => (
+                      <tr key={i.email} data-testid="invite-row" className="border-b border-border last:border-0 hover:bg-surface">
+                        <td className="p-2 text-text-muted italic">Invited</td>
+                        <td className="p-2 text-text-muted" data-testid="invite-email">{i.email}</td>
+                        <td className="p-2 capitalize"><span className="p-1">{i.role} (pending)</span></td>
+                        {isOwner && (
+                          <td className="p-2">
+                            <button data-testid="invite-cancel-btn" aria-label={`Cancel invite for ${i.email}`} title="Cancel invite" onClick={() => cancelInvite(i.email)} className="text-text-muted hover:text-red-500 p-1 rounded focus-visible:ring-2 focus-visible:ring-primary">
+                              <Trash2 className="w-4 h-4" aria-hidden="true" />
+                            </button>
                           </td>
                         )}
                       </tr>
