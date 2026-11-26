@@ -21,7 +21,7 @@ import { ShareLinkModal } from './ShareLinkModal';
 import { ForkModal } from './ForkModal';
 import { useContextMenu } from '../common/ContextMenuProvider';
 import {
-  ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X, AlertTriangle, Pin
+  ChevronDown, ChevronRight, Folder as FolderIcon, MoreVertical, Plus, FilePlus, Search, X, AlertTriangle, Pin, Settings
 } from 'lucide-react';
 
 // ג”€ג”€ Shared Types ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
@@ -761,6 +761,18 @@ const CollectionNodeImpl = ({
             >
               <Pin size={12} aria-hidden="true" className={isPinned ? 'fill-current' : ''} />
             </button>
+            {canEdit && (
+              <button
+                type="button"
+                data-testid={`settings-${collection.name}`}
+                aria-label={`Settings for ${collection.name}`}
+                title="Collection Settings"
+                onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('edit-group', { detail: { type: 'collection', id: collection._id, name: collection.name } })); }}
+                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              >
+                <Settings size={12} aria-hidden="true" />
+              </button>
+            )}
             <ActionMenu options={menuOptions} />
           </div>
         )}

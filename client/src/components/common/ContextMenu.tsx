@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ContextMenuProps {
@@ -17,13 +17,18 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const [position, setPosition] = useState({ x, y });
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleResize = () => onClose();
     const handleClick = () => onClose();
     const handleScroll = () => onClose();
     const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // A right/middle click elsewhere fires no 'click', so also close on any press outside the menu, and on blur (alt-tab, iframe).
+    const handlePointerDown = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) onClose(); };
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handlePointerDown, true);
+    window.addEventListener('blur', handleResize);
     window.addEventListener('resize', handleResize);
     window.addEventListener('click', handleClick);
     window.addEventListener('scroll', handleScroll, true);
@@ -46,6 +51,8 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handlePointerDown, true);
+      window.removeEventListener('blur', handleResize);
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('click', handleClick);
       window.removeEventListener('scroll', handleScroll, true);
@@ -54,6 +61,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
 
   return createPortal(
     <div
+      ref={menuRef}
       role="menu"
       className="fixed z-[9999] w-40 py-1 max-h-[calc(100vh-8px)] overflow-y-auto bg-background border border-border shadow-xl rounded-md"
       style={{ left: position.x, top: position.y }}
