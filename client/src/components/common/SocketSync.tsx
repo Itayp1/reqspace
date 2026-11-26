@@ -99,6 +99,9 @@ export function SocketSync() {
       auth.setWorkspaces(auth.workspaces.map(patch));
       if (auth.activeWorkspace?._id === p._id) auth.setActiveWorkspace(patch(auth.activeWorkspace));
     });
+    // An invite was redeemed: an open members list swaps the pending row for the member.
+    socket.on('workspace:members_changed', (p: { workspaceId: string }) =>
+      window.dispatchEvent(new CustomEvent('workspace-members-changed', { detail: p.workspaceId })));
     socket.on('workspace:reordered', (payload) => useCollectionStore.getState().applyWorkspaceReordered(payload));
 
     socket.on('environment:created', (env) => useEnvironmentStore.getState().applyEnvironmentUpserted(env));

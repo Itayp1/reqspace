@@ -1,5 +1,5 @@
 import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
-import { SqlUser } from '../db/sql-models';
+import { SqlUser, SqlWorkspace } from '../db/sql-models';
 import { getSequelize } from '../db/sequelize';
 import { QueryTypes, Op } from 'sequelize';
 import bcrypt from 'bcryptjs';
@@ -125,10 +125,27 @@ export const UserRepository = {
     return !!u;
   },
 
-  async search(query: string): Promise<Pick<IUserRecord, '_id' | 'name' | 'email' | 'avatar'>[]> {
+  /** Ids of everyone who shares a workspace (as a member, not via a public workspace) with the user. */
+  async coMemberIds(userId: string): Promise<string[]> {
+    // The LIKE only narrows the rows read; membership is checked on the parsed JSON.
+    const rows = await SqlWorkspace.findAll({ attributes: ['members'], where: { members: { [Op.like]: `%${userId}%` } } });
+    const ids = new Set<string>([userId]);
+    for (const w of rows) {
+      const members: Array<{ userId: string }> = typeof w.members === 'string' ? JSON.parse(w.members || '[]') : (w.members || []);
+      if (members.some(m => String(m.userId) === userId)) members.forEach(m => ids.add(String(m.userId)));
+    }
+    return [...ids];
+  },
+
+  /**
+   * Prefix search on name or email. With `withinIds`, only those users are searched; the
+   * route passes the caller's co-members so the directory can't be harvested by strangers.
+   */
+  async search(query: string, withinIds?: string[]): Promise<Pick<IUserRecord, '_id' | 'name' | 'email' | 'avatar'>[]> {
     // Escaped here as well as at the route, so a second caller cannot skip it.
     const term = escapeLike(String(query).slice(0, MAX_SEARCH_LENGTH));
     if (!term) return [];
+    if (withinIds && !withinIds.length) return [];
     const pattern = `${term}%`;
     // Sequelize's `{ [Op.like]: pattern }` doesn't add an ESCAPE clause, and
     // sqlite (unlike postgres/mysql) has no implicit default escape
@@ -140,8 +157,8 @@ export const UserRepository = {
     // MySQL reads a backslash inside a string literal as an escape, so its ESCAPE literal needs two.
     const escChar = getSequelize().getDialect() === 'mysql' ? '\\\\' : '\\';
     const users = await getSequelize().query(
-      `SELECT id, name, email, avatar FROM users WHERE LOWER(name) LIKE LOWER(:pattern) ESCAPE '${escChar}' OR LOWER(email) LIKE LOWER(:pattern) ESCAPE '${escChar}' LIMIT 10`,
-      { replacements: { pattern }, type: QueryTypes.SELECT }
+      `SELECT id, name, email, avatar FROM users WHERE (LOWER(name) LIKE LOWER(:pattern) ESCAPE '${escChar}' OR LOWER(email) LIKE LOWER(:pattern) ESCAPE '${escChar}')${withinIds ? ' AND id IN (:withinIds)' : ''} LIMIT 10`,
+      { replacements: withinIds ? { pattern, withinIds } : { pattern }, type: QueryTypes.SELECT }
     ) as Array<{ id: string; name: string; email: string; avatar: string | null }>;
     return users.map(u => ({
       _id: u.id,

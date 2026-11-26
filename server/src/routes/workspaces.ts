@@ -74,7 +74,10 @@ router.post('/', validate(schemas.createWorkspaceSchema), async (req: AuthReques
 router.get('/:id', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
   const workspace = await WorkspaceRepository.findById(req.params.id);
   if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
-  return res.json({ ...workspace, members: await enrichMembers(workspace.members) });
+  // Pending invite emails were typed by an owner; only owners see them.
+  const isOwner = req.user!.isSuperAdmin || (req as AuthRequest & { workspaceRole?: UserRole }).workspaceRole === 'owner';
+  const invites = isOwner ? await WorkspaceRepository.listInvites(req.params.id) : [];
+  return res.json({ ...workspace, members: await enrichMembers(workspace.members), invites });
 });
 
 router.get('/:id/activity', requireWorkspaceRole('viewer'), async (req: AuthRequest, res: Response) => {
@@ -251,33 +254,36 @@ router.post(
       return res.status(403).json({ message: 'Cannot assign role equal or higher than your own' });
     }
 
-    // Exact lookup by email/username — no regex, so no ReDoS (CR#10).
-    const targetUser = await UserRepository.findByEmail(String(email).toLowerCase());
-    if (!targetUser) return res.status(404).json({ message: 'User not found' });
-
-    if (workspace.members.some((m) => String(m.userId) === String(targetUser._id))) {
+    // Every invite is pending, whether or not the email has an account, and the reply is the
+    // same either way — so inviting can't be used to find out who is registered.
+    // A pending invite becomes a membership on the invitee's next request (see authenticate).
+    const normalized = String(email).toLowerCase();
+    const existing = await UserRepository.findByEmail(normalized);
+    if (existing && workspace.members.some((m) => String(m.userId) === String(existing._id))) {
       return res.status(409).json({ message: 'User already a member' });
     }
 
-    const members: IWorkspaceMemberRecord[] = [
-      ...workspace.members,
-      {
-        userId: String(targetUser._id),
-        role: role as UserRole,
-        joinedAt: new Date(),
-        invitedBy: String(req.user!._id),
-      },
-    ];
-    await WorkspaceRepository.update(req.params.id, { members });
-    workspaceRoleCache.delete(`${String(targetUser._id)}:${req.params.id}`);
-    logAudit(String(req.user!._id), 'workspace.member.add', {
+    await WorkspaceRepository.upsertInvite(req.params.id, normalized, role, String(req.user!._id));
+    logAudit(String(req.user!._id), 'workspace.member.invite', {
       targetType: 'Workspace', targetId: req.params.id, ip: req.ip,
-      details: { targetUserId: String(targetUser._id), email: targetUser.email, role },
+      details: { email: normalized, role },
     });
 
-    return res.status(201).json({ message: 'Member added', member: { userId: targetUser._id, role } });
+    return res.status(201).json({ message: 'Invitation sent', invite: { email: normalized, role } });
   }
 );
+
+// ── DELETE /api/workspaces/:id/invites/:email – Cancel a pending invite ─────
+router.delete('/:id/invites/:email', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
+  const email = String(req.params.email).toLowerCase();
+  if (!(await WorkspaceRepository.deleteInvite(req.params.id, email))) {
+    return res.status(404).json({ message: 'Invite not found' });
+  }
+  logAudit(String(req.user!._id), 'workspace.invite.cancel', {
+    targetType: 'Workspace', targetId: req.params.id, ip: req.ip, details: { email },
+  });
+  return res.json({ message: 'Invite cancelled' });
+});
 
 // ── PUT /api/workspaces/:id/members/:userId – Change role ───────────────────
 router.put(

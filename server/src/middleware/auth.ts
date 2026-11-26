@@ -4,6 +4,7 @@ import { UserRepository, IUserRecord } from '../repositories/UserRepository';
 import { SystemConfigRepository, getServerSettings } from '../repositories/SystemConfigRepository';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { getJwtSecret } from '../utils/secrets';
+import { workspaceRoleCache } from '../utils/cache';
 
 export type AuthUser = IUserRecord;
 
@@ -172,6 +173,18 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
     if ((payload.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
       clearAuthCookie(res);
       return res.status(401).json({ message: 'Session invalidated' });
+    }
+
+    // Invites are pending for everyone (so the inviter can't tell whether an email has an
+    // account); they become memberships on the invitee's first request after the invite.
+    const joined = await WorkspaceRepository.redeemInvites(String(user._id), user.email);
+    if (joined.length) {
+      const { emitToUser, emitToWorkspace } = await import('../socketUtils');
+      for (const wsId of joined) {
+        workspaceRoleCache.delete(`${String(user._id)}:${wsId}`);
+        emitToUser(String(user._id), 'workspace:added', { workspaceId: wsId });
+        emitToWorkspace(wsId, 'workspace:members_changed', { workspaceId: wsId });
+      }
     }
 
     // Auto-refresh: if token expires within refreshHours, issue new token

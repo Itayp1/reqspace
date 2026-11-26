@@ -59,10 +59,9 @@ test.describe('RBAC Roles', () => {
     await pageA.getByTestId('workspace-settings-btn').click();
     await pageA.getByTestId('workspace-members-tab').click();
     await pageA.getByTestId('user-autocomplete-input').fill(userBEmail);
-    await pageA.getByTestId('user-autocomplete-result').first().click();
     await pageA.getByTestId('workspace-invite-role').selectOption('viewer');
     await pageA.getByTestId('workspace-invite-btn').click();
-    await expect(pageA.getByTestId('member-email').filter({ hasText: userBEmail })).toBeVisible();
+    await expect(pageA.getByTestId('invite-email').filter({ hasText: userBEmail })).toBeVisible();
     await pageA.getByTestId('close-workspace-modal').click();
 
     // User B refreshes and switches to workspace

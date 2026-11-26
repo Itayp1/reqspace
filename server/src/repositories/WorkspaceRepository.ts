@@ -1,5 +1,5 @@
 import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
-import { SqlWorkspace } from '../db/sql-models';
+import { SqlWorkspace, SqlWorkspaceInvite } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface IWorkspaceMemberRecord {
@@ -85,6 +85,37 @@ export const WorkspaceRepository = {
     if (data.members) patch.members = JSON.stringify(data.members);
     await SqlWorkspace.update(patch, { where: { id } });
     return this.findById(id);
+  },
+
+  /** Saves a pending invite, or changes its role if one is already pending for that email. */
+  async upsertInvite(workspaceId: string, email: string, role: string, invitedBy: string): Promise<void> {
+    const existing = await SqlWorkspaceInvite.findOne({ where: { workspaceId, email } });
+    if (existing) await existing.update({ role, invitedBy });
+    else await SqlWorkspaceInvite.create({ workspaceId, email, role, invitedBy });
+  },
+
+  async listInvites(workspaceId: string): Promise<Array<{ email: string; role: string; invitedAt: Date }>> {
+    const invites = await SqlWorkspaceInvite.findAll({ where: { workspaceId }, order: [['createdAt', 'ASC']] });
+    return invites.map(i => ({ email: i.email, role: i.role, invitedAt: i.createdAt }));
+  },
+
+  async deleteInvite(workspaceId: string, email: string): Promise<boolean> {
+    return (await SqlWorkspaceInvite.destroy({ where: { workspaceId, email } })) > 0;
+  },
+
+  /** Turns the user's pending invites into memberships; returns the ids of the workspaces joined. */
+  async redeemInvites(userId: string, email: string): Promise<string[]> {
+    const invites = await SqlWorkspaceInvite.findAll({ where: { email: email.toLowerCase() } });
+    const joined: string[] = [];
+    for (const inv of invites) {
+      // Delete first: only the request that removes the row adds the member, so parallel requests can't add it twice.
+      if (!(await SqlWorkspaceInvite.destroy({ where: { id: inv.id } }))) continue;
+      const ws = await this.findById(inv.workspaceId);
+      if (!ws || ws.members.some(m => String(m.userId) === userId)) continue;
+      await this.update(ws.id, { members: [...ws.members, { userId, role: inv.role, joinedAt: new Date(), invitedBy: inv.invitedBy }] });
+      joined.push(ws.id);
+    }
+    return joined;
   },
 
   async delete(id: string): Promise<void> {

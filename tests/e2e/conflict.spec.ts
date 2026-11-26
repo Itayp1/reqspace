@@ -40,12 +40,11 @@ test.describe('Conflict Resolution', () => {
     await pageA.getByTestId('workspace-settings-btn').click();
     await pageA.getByTestId('workspace-members-tab').click();
     await pageA.getByTestId('user-autocomplete-input').fill(emailB);
-    await pageA.getByTestId('user-autocomplete-result').first().click();
     // Invite role defaults to 'viewer' — User B needs to edit and save the
     // request later in this test, which a viewer can't do.
     await pageA.getByTestId('workspace-invite-role').selectOption('editor');
     await pageA.getByTestId('workspace-invite-btn').click();
-    await expect(pageA.getByTestId('member-email').filter({ hasText: emailB })).toBeVisible();
+    await expect(pageA.getByTestId('invite-email').filter({ hasText: emailB })).toBeVisible();
     await pageA.getByTestId('close-workspace-modal').click();
 
     // 5. User B switches to the workspace

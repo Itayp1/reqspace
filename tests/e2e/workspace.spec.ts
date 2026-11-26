@@ -93,11 +93,9 @@ test.describe('Workspace Management', () => {
     await ownerPage.click('[data-testid="workspace-settings-btn"]');
     await ownerPage.getByTestId('workspace-members-tab').click();
     await ownerPage.fill('[data-testid="user-autocomplete-input"]', memberEmail);
-    await ownerPage.waitForSelector('[data-testid="user-autocomplete-result"]');
-    await ownerPage.click('[data-testid="user-autocomplete-result"]');
     await ownerPage.selectOption('[data-testid="workspace-invite-role"]', 'editor');
     await ownerPage.click('[data-testid="workspace-invite-btn"]');
-    await expect(ownerPage.locator('[data-testid="member-email"]').filter({ hasText: memberEmail })).toBeVisible();
+    await expect(ownerPage.getByTestId('invite-email').filter({ hasText: memberEmail })).toBeVisible();
     
     // Member refreshes and switches to workspace
     await memberPage.reload();

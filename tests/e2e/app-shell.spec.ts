@@ -83,15 +83,16 @@ test.describe('App shell', () => {
     await page.getByTestId('workspace-settings-btn').click();
     await page.getByTestId('workspace-members-tab').click();
     await page.getByTestId('user-autocomplete-input').fill(memberEmail);
-    await page.getByTestId('user-autocomplete-result').first().click();
     await page.getByTestId('workspace-invite-role').selectOption('viewer');
     await page.getByTestId('workspace-invite-btn').click();
-    const row = page.getByTestId('member-row').filter({ hasText: memberEmail });
-    await expect(row.getByTestId('member-role-select')).toHaveValue('viewer');
+    await expect(page.getByTestId('invite-email').filter({ hasText: memberEmail })).toBeVisible();
 
+    // The member's first request redeems the pending invite; the open members list picks it up live.
     const memberApi = await apiAs(memberEmail);
     const roleOf = async () => ((await (await memberApi.get('/api/workspaces')).json()) as any[]).find(w => w._id === wsId)?.myRole;
     expect(await roleOf()).toBe('viewer');
+    const row = page.getByTestId('member-row').filter({ hasText: memberEmail });
+    await expect(row.getByTestId('member-role-select')).toHaveValue('viewer');
 
     const put = page.waitForResponse(r => r.url().includes('/members/') && r.request().method() === 'PUT');
     await row.getByTestId('member-role-select').selectOption('editor');

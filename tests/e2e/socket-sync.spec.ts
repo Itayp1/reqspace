@@ -42,11 +42,10 @@ test.describe('WebSocket Sync', () => {
     await pageA.getByTestId('workspace-members-tab').click();
     
     await pageA.getByTestId('user-autocomplete-input').fill(emailB);
-    await pageA.getByTestId('user-autocomplete-result').first().click();
     await pageA.getByTestId('workspace-invite-role').selectOption('editor'); // viewers get a read-only URL field
     await pageA.getByTestId('workspace-invite-btn').click();
     
-    await expect(pageA.getByTestId('member-email').filter({ hasText: emailB })).toBeVisible();
+    await expect(pageA.getByTestId('invite-email').filter({ hasText: emailB })).toBeVisible();
     await pageA.getByTestId('close-workspace-modal').click();
 
     // 5. User B switches to the workspace
