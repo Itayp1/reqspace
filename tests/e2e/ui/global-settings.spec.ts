@@ -1,4 +1,5 @@
-import { test, expect } from '../fixtures';
+import { test, expect, API_URL } from '../fixtures';
+import { request as pwRequest } from '@playwright/test';
 import { registerUser } from '../helpers';
 
 /**
@@ -133,4 +134,93 @@ test('Global Settings is a dialog and Escape closes it', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('global-settings-close-btn')).toHaveCount(0);
+});
+
+test.describe('Settings API, shortcuts and certificates form', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  let seq = 0;
+  async function newUser(prefix: string) {
+    const email = `${prefix}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}@example.com`;
+    const ctx = await pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': `10.${200 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` } });
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+    expect(res.status(), 'register').toBe(201);
+    return { ctx, email };
+  }
+
+  test('[P2.2] PUT /auth/settings rejects negative and non-numeric timeouts', async () => {
+    const { ctx } = await newUser('p22');
+    expect((await ctx.put('/api/auth/settings', { data: { timeout: -5 } })).status()).toBe(400);
+    expect((await ctx.put('/api/auth/settings', { data: { timeout: 'abc' } })).status()).toBe(400);
+    expect((await ctx.put('/api/auth/settings', { data: { timeout: 5000 } })).status()).toBe(200);
+  });
+
+  test('[SETTINGS-KEYS] PUT /auth/settings accepts every client key and persists it', async () => {
+    const { ctx } = await newUser('skeys');
+    const patch = {
+      followRedirects: false, verifySsl: false, sendNoCacheHeader: true, encodeUrl: false, timeout: 1234,
+      proxyEnabled: true, proxyUrl: 'http://127.0.0.1:8080', noProxy: 'localhost', proxyAuthEnabled: true,
+      proxyUsername: 'u', proxyPassword: 'p', saveHistory: false, sendCookies: false,
+      shortcuts: { send: 'ctrl+enter' },
+    };
+    const res = await ctx.put('/api/auth/settings', { data: patch });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    for (const [k, v] of Object.entries(patch)) expect(body[k], k).toEqual(v);
+    const me = await (await ctx.get('/api/auth/me')).json();
+    const s = (me.user ?? me).settings ?? {};
+    expect(s.sendCookies).toBe(false);
+    expect(s.saveHistory).toBe(false);
+  });
+
+  test.describe('P2.4 offline', () => {
+    test.use({ allowFpErrors: [/Network Error|500|boom/] });
+    test('[P2.4] a failed settings save rolls the value back and shows an error toast', async ({ page }) => {
+      await registerUser(page, 'p24');
+      await page.getByTestId('settings-btn').click();
+      await expect(page.locator('#followRedirects')).toBeChecked();
+      await page.route('**/auth/settings', (r) => r.request().method() === 'PUT' ? r.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"boom"}' }) : r.fallback());
+      // click(), not uncheck(): uncheck() verifies the box changed, but the failed save rolls it back at once.
+      await page.locator('#followRedirects').click();
+      await expect(page.getByTestId('toast-error').first()).toBeVisible();
+      await expect(page.locator('#followRedirects')).toBeChecked();
+    });
+  });
+
+  test('[P3.5] shortcuts can be rebound, collisions are refused, Reset restores defaults', async ({ page }) => {
+    await registerUser(page, 'p35');
+    await page.getByTestId('settings-btn').click();
+    const send = page.getByTestId('shortcut-send-input');
+    const save = page.getByTestId('shortcut-save-input');
+    const search = page.getByTestId('shortcut-search-input');
+    await save.fill('ctrl+shift+s');
+    await expect(page.getByTestId('shortcut-save-error')).toBeHidden();
+    await save.blur();
+    await expect(save).toHaveValue('ctrl+shift+s');
+    await send.fill('ctrl+k'); // collides with search
+    await expect(page.getByTestId('shortcut-send-error')).toBeVisible();
+    await send.blur();
+    await expect(send).toHaveValue('ctrl+enter');
+    await search.fill('alt+j');
+    await page.getByTestId('shortcuts-reset-btn').click();
+    await expect(search).toHaveValue('ctrl+k');
+    await expect(save).toHaveValue('ctrl+s');
+  });
+
+  test('[P3.7] browser-reserved shortcuts (ctrl+t, ctrl+w) are rejected', async ({ page }) => {
+    await registerUser(page, 'p37');
+    await page.getByTestId('settings-btn').click();
+    for (const k of ['ctrl+t', 'ctrl+w']) {
+      await page.getByTestId('shortcut-save-input').fill(k);
+      await expect(page.getByTestId('shortcut-save-error')).toContainText(/reserved/i);
+    }
+  });
+
+  test('[P4.10] a plain browser does not offer the client certificates form (Desktop only)', async ({ page }) => {
+    await registerUser(page, 'p410');
+    await page.getByTestId('settings-btn').click();
+    await expect(page.getByText('Client Certificates (mTLS)')).toHaveCount(0);
+    await expect(page.getByTestId('cert-add-btn')).toHaveCount(0);
+  });
 });

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '../fixtures';
-import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed, registerUser, createCollectionUi, addViaMenu, startNewRequest } from '../helpers';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed, openNodeMenu, registerUser, createCollectionUi, addViaMenu, startNewRequest } from '../helpers';
+import { makeUser, makeWorkspace } from './invite-helpers';
 
 test.describe('RBAC Roles', () => {
   test('Viewer cannot edit, Editor can edit', async ({ browser }) => {
@@ -289,5 +290,45 @@ test.describe('Viewer fork offer', () => {
 
     await ownerCtx.close();
     await viewerCtx.close();
+  });
+});
+
+test.describe('Viewer demotion and tree menu', () => {
+  const menuItem = (page: Page, re: RegExp) => page.locator('[data-testid^="action-menu-"]', { hasText: re }).first();
+
+  test.describe('tree menu for a viewer', () => {
+    test.use({ allowFpErrors: [/Network Error/] });
+
+    test('[C1.8] a viewer is not offered editing actions in the tree menu', async ({ page }) => {
+      const owner = await makeUser('c18o');
+      const viewerEmail = await registerUser(page, 'c18v');
+      const wsId = await makeWorkspace(owner.ctx);
+      expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: viewerEmail, role: 'viewer' } })).status()).toBe(201);
+      await owner.ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'ViewerCol' } });
+      await page.reload();
+      await selectWorkspace(page, wsId);
+      await expect(page.getByTestId('node-ViewerCol')).toBeVisible();
+      await openNodeMenu(page, 'ViewerCol');
+      for (const re of [/new request/i, /new folder/i, /rename/i, /delete/i, /duplicate/i]) {
+        await expect(menuItem(page, re), String(re)).toHaveCount(0);
+      }
+    });
+  });
+
+  test.describe('API', () => {
+    // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+    test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+    test('[D6.2] after a viewer-demotion, writes answer 403 immediately', async () => {
+      const owner = await makeUser('d62o');
+      const member = await makeUser('d62m');
+      const wsId = await makeWorkspace(owner.ctx);
+      await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: member.email, role: 'editor' } });
+      const col = await (await owner.ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C' } })).json();
+      const colId = col.id ?? col._id;
+      expect((await member.ctx.post(`/api/collections/${colId}/requests`, { data: { name: 'ok', method: 'GET', url: 'http://x' } })).status()).toBe(201);
+      await owner.ctx.put(`/api/workspaces/${wsId}/members/${member.id}`, { data: { role: 'viewer' } });
+      expect((await member.ctx.post(`/api/collections/${colId}/requests`, { data: { name: 'no', method: 'GET', url: 'http://x' } })).status()).toBe(403);
+    });
   });
 });

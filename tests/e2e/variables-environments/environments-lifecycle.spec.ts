@@ -1,4 +1,5 @@
-import { test, expect } from '../fixtures';
+import { test, expect, API_URL } from '../fixtures';
+import { request as pwRequest } from '@playwright/test';
 import { registerUser, apiAs, expectToast, selectWorkspace, activeWorkspaceId } from '../helpers';
 
 /**
@@ -141,4 +142,43 @@ test('QA-73: env created while the Rename prompt is open stays in the list', asy
   await page.getByTestId('prompt-submit').click();
   await expect(page.getByTestId('env-node-Env One Renamed')).toBeVisible();
   await expect(page.getByTestId('env-node-Env Two')).toBeVisible();
+});
+
+test.describe('Environments API: duplicate names and secrets', () => {
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const ip = () => `10.${150 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+  const v = (key: string, val: string, extra: Record<string, unknown> = {}) => ({ key, value: val, initialValue: val, currentValue: val, enabled: true, ...extra });
+
+  async function newUser(prefix: string) {
+    const email = `${uniq(prefix)}@example.com`;
+    const ctx = await pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA', email, password: 'password123' } });
+    expect(res.status()).toBe(201);
+    return { ctx, email };
+  }
+
+  test('[G3.3] copying an environment twice into the same workspace gives unique names', async () => {
+    const { ctx } = await newUser('g33');
+    const ws = (await (await ctx.post('/api/workspaces', { data: { name: uniq('ws') } })).json());
+    const wsId = ws.id ?? ws._id;
+    const env = await (await ctx.post(`/api/workspaces/${wsId}/environments`, { data: { name: 'Src', variables: [] } })).json();
+    const id = env.id ?? env._id;
+    const a = await (await ctx.post(`/api/environments/${id}/duplicate`, { data: {} })).json();
+    const b = await (await ctx.post(`/api/environments/${id}/duplicate`, { data: {} })).json();
+    expect(a.name).not.toBe(b.name);
+  });
+
+  test('[G4.2] secret variable values are not returned to a read-only member', async () => {
+    const owner = await newUser('g42o');
+    const viewer = await newUser('g42v');
+    const ws = (await (await owner.ctx.post('/api/workspaces', { data: { name: uniq('ws') } })).json());
+    const wsId = ws.id ?? ws._id;
+    expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: viewer.email, role: 'viewer' } })).ok()).toBeTruthy();
+    await owner.ctx.post(`/api/workspaces/${wsId}/environments`, { data: { name: 'S', variables: [v('sec', 'TOPSECRET', { isSecret: true, type: 'secret' })] } });
+    const asViewer = await (await viewer.ctx.get(`/api/workspaces/${wsId}/environments`)).text();
+    expect(asViewer).not.toContain('TOPSECRET');
+    const asOwner = await (await owner.ctx.get(`/api/workspaces/${wsId}/environments`)).text();
+    expect(asOwner).toContain('TOPSECRET');
+  });
 });

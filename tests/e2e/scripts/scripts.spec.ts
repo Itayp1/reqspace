@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, type Page } from '../fixtures';
 import { startNewRequest, expectWorkspaceListed } from '../helpers';
-import { mockServer, scene } from '../scene';
+import { mockServer, scene, envVar } from '../scene';
 
 test.describe('Script Execution', () => {
   test.describe.configure({ mode: 'serial' });
@@ -531,4 +531,79 @@ test('Collection Runner: pm.iterationData is the data row and wins over environm
   const h = Object.fromEntries(Object.entries(sent.headers).map(([k, v]) => [k.toLowerCase(), v]));
   expect(JSON.parse(h['x-data'] as string)).toEqual({ dk: 'dv', pv: 'fromdata' });
   expect(h).toMatchObject({ 'x-prec': 'fromdata', 'x-env': 'fromenv', 'x-has': 'true' });
+});
+
+test.describe('Pre-request and test scripts: variables, pm.request, pm.response', () => {
+  test('[F1.1] environment/globals/collection/local variables set by a script are used in the same request', async ({ page }) => {
+    const seen = await mockServer(page);
+    await scene(page, {
+      url: 'https://mock.test/x?a={{a}}&b={{b}}&c={{c}}',
+      preRequestScript: "pm.environment.set('a','1'); pm.globals.set('b','2'); pm.collectionVariables.set('c','3'); pm.variables.set('d','4');",
+    }, [envVar('seedv', 's')]);
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    const u = new URL(seen.at(-1)!.url);
+    expect([u.searchParams.get('a'), u.searchParams.get('b'), u.searchParams.get('c')]).toEqual(['1', '2', '3']);
+  });
+
+  test('[F1.2] pm.request url/headers changed by a pre-request script are what gets sent', async ({ page }) => {
+    const seen = await mockServer(page);
+    await scene(page, { preRequestScript: "pm.request.url = pm.request.url + '?scripted=1'; pm.request.headers['X-Scripted'] = 'yes';" });
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    expect(seen.at(-1)!.url).toContain('scripted=1');
+    expect(seen.at(-1)!.headers['x-scripted']).toBe('yes');
+  });
+
+  test('[F1.4] pm.environment.unset removes the variable before {{var}} is resolved', async ({ page }) => {
+    const seen = await mockServer(page);
+    await scene(page, { url: 'https://mock.test/x?q={{f14var}}', preRequestScript: "pm.environment.unset('f14var');" }, [envVar('f14var', 'seedval')]);
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    expect(decodeURIComponent(seen.at(-1)!.url)).not.toContain('seedval');
+  });
+
+  test('[F2.2] pm.response json()/text()/headers.get()/code/responseTime work; bad JSON throws inside pm.test', async ({ page }) => {
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+    await page.route('https://mock.test/**', async (route) => {
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"a":{"b":7}}', headers: { ...cors, 'x-custom': 'cv' } });
+    });
+    await scene(page, {
+      testScript: [
+        "pm.test('json', () => pm.expect(pm.response.json().a.b).to.equal(7));",
+        "pm.test('text', () => pm.expect(pm.response.text()).to.include('\"b\":7'));",
+        "pm.test('header', () => pm.expect(pm.response.headers.get('X-Custom')).to.equal('cv'));",
+        "pm.test('code', () => pm.expect(pm.response.code).to.equal(200));",
+        "pm.test('time', () => pm.expect(pm.response.responseTime).to.be.a('number'));",
+        "pm.test('bad json handled', () => { pm.expect(() => JSON.parse('{x')).to.throw(); });",
+      ].join('\n'),
+    });
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    await page.getByTestId('response-tab-test_results').click();
+    const items = page.getByTestId('test-result-item');
+    await expect(items).toHaveCount(6);
+    for (let i = 0; i < 6; i++) await expect(items.nth(i).getByTestId('test-result-status')).toHaveText('PASS');
+  });
+
+  test('[F4.6] console.log of circular objects, Symbol, undefined and huge values does not crash the script', async ({ page }) => {
+    const seen = await mockServer(page);
+    await scene(page, {
+      preRequestScript: "const o={}; o.self=o; console.log(o, Symbol('s'), undefined, null, function(){}); console.log('x'.repeat(50000)); console.log('last-line-ran');",
+    });
+    await page.getByTestId('console-toggle-btn').click();
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    expect(seen.length).toBe(1);
+    await expect(page.getByTestId('console-drawer')).toContainText('last-line-ran');
+  });
+
+  test('[G5.2] pm.collectionVariables.set is usable by the same run (documented as run-scoped)', async ({ page }) => {
+    const seen = await mockServer(page);
+    await scene(page, { url: 'https://mock.test/x?cv={{cv}}', preRequestScript: "pm.collectionVariables.set('cv','run-val'); pm.test('get', () => pm.expect(pm.collectionVariables.get('cv')).to.equal('run-val'));" });
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    expect(seen.at(-1)!.url).toContain('cv=run-val');
+  });
 });

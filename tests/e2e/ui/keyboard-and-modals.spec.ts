@@ -1,5 +1,7 @@
 import { test, expect } from '../fixtures';
 import { registerUser } from '../helpers';
+import fs from 'fs';
+import path from 'path';
 
 /** Ctrl+S saved only requests and environments; profile variables and workspace settings ignored it. */
 test('Ctrl+S saves profile variables', async ({ page }) => {
@@ -34,4 +36,28 @@ test('New Workspace is an inline name field, no dialog', async ({ page }) => {
   await input.fill('Inline WS');
   await input.press('Enter');
   await expect(page.getByTestId('workspace-select')).toHaveText('Inline WS');
+});
+
+test.describe('Modal and menu keyboard handling (source checks)', () => {
+  const ROOT = path.join(__dirname, '..', '..', '..');
+  const src = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+
+  test('[V3.4] ContextMenu closes on Escape, outside click and scroll, and clamps to the viewport', async () => {
+    const s = src('client/src/components/common/ContextMenu.tsx');
+    expect(s).toMatch(/key === 'Escape'/);
+    expect(s).toMatch(/mousedown|click/);
+    expect(s).toMatch(/scroll/);
+    expect(s).toMatch(/innerWidth|innerHeight/);
+  });
+
+  test('[V3.5] Confirm modal and inline name field: Enter confirms, Escape cancels, double submit is blocked', async () => {
+    const c = src('client/src/components/common/ConfirmModal.tsx');
+    expect(c).toMatch(/key === 'Escape'/);
+    expect(c).toMatch(/key === 'Enter'/);
+    expect(c).toMatch(/double/i);
+    const p = src('client/src/components/common/InlineNameInput.tsx');
+    expect(p).toMatch(/key === 'Escape'/);
+    expect(p).toMatch(/key === 'Enter'/);
+    expect(p).toMatch(/doneRef/);
+  });
 });

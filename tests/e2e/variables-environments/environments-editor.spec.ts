@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures';
 import { registerUser, expectToast, selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from '../helpers';
+import { mockServer, scene, envVar } from '../scene';
 
 test.describe('Environments Operations', () => {
   // Run serially to reuse state
@@ -192,4 +193,39 @@ test.describe('environment selector UX', () => {
     await select.selectOption({ label: 'EnvB' });
     await expect(page.getByTestId('env-select').locator('option:checked')).toHaveText('EnvB');
   });
+});
+
+test('environment tab: adding a row and never filling it leaves the tab clean', async ({ page }) => {
+  await registerUser(page, 'dirtyenv');
+  await page.getByTestId('tab-environments').click();
+  await page.getByTestId('new-env-btn').click();
+  await page.getByTestId('prompt-input').fill('Dirty Env');
+  await page.getByTestId('prompt-input').press('Enter');
+  await expect(page.getByTestId('env-node-Dirty Env')).toBeVisible();
+  await page.getByTestId('add-env-var-btn').click();
+  await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
+  await expect(page.getByTestId('env-save-btn')).toBeDisabled();
+});
+
+test('[G1.5] the selected environment survives a page reload', async ({ page }) => {
+  await mockServer(page);
+  await scene(page, {}, [envVar('k', 'v')]);
+  const chosen = await page.getByTestId('env-select').inputValue();
+  expect(chosen).not.toBe('');
+  await page.reload();
+  await expect(page.getByTestId('workspace-select')).toBeVisible();
+  await expect(page.getByTestId('env-select')).toHaveValue(chosen);
+});
+
+test('[G1.6] an unsaved edit in the environment editor is flagged and closing the tab asks first', async ({ page }) => {
+  await mockServer(page);
+  await scene(page, {}, [envVar('k', 'orig')]);
+  await page.getByTestId('tab-environments').click();
+  await page.getByTestId('env-node-EnvA').click();
+  await page.getByTestId('env-var-initial-0').fill('draft');
+  await expect(page.getByTestId('dirty-indicator').first()).toBeVisible();
+  const tab = page.locator('[data-testid^="tab-"]:not([role="tab"])', { hasText: 'EnvA' });
+  await tab.hover();
+  await tab.getByRole('button').last().click();
+  await expect(page.getByText('Unsaved Changes').first()).toBeVisible();
 });

@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures';
 import { registerUser, createCollectionUi, addViaMenu, treeNode, openNodeMenu, apiAs, selectWorkspace, activeWorkspaceId } from '../helpers';
+import { mockServer, scene } from '../scene';
 
 async function openMissingModal(page: Page, name: string) {
   await page.route('https://mvt.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
@@ -110,4 +111,13 @@ test.describe('missing-variable modal UX', () => {
     await expect.poll(() => hits).toBe(2);
     await expect(page.getByTestId('missing-variables-modal')).toHaveCount(0);
   });
+});
+
+test('[I3.6] a URL with an unresolved {{variable}} is flagged in the console', async ({ page }) => {
+  await mockServer(page);
+  await scene(page, { url: 'https://mock.test/x/{{nope_undefined}}' });
+  await page.getByTestId('console-toggle-btn').click();
+  await page.getByTestId('request-send-btn').click();
+  await page.getByRole('button', { name: 'Run Anyway' }).click();
+  await expect(page.getByTestId('console-unresolved-var').first()).toBeVisible();
 });

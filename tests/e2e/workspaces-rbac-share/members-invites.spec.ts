@@ -307,3 +307,35 @@ test('a registered user is found by typing their full email', async () => {
   const found = await res.json() as Array<{ email: string }>;
   expect(found.map(u => u.email)).toContain(email.toLowerCase());
 });
+
+test('[B4.7] member search is debounced: typing 5 chars quickly fires one /users/search', async ({ page }) => {
+  await registerUser(page, 'b47');
+  const searches: string[] = [];
+  await page.route('**/api/users/search**', async route => {
+    searches.push(new URL(route.request().url()).searchParams.get('q') || '');
+    await route.continue();
+  });
+  await page.getByTestId('workspace-settings-btn').click();
+  await page.getByTestId('workspace-members-tab').click();
+  const input = page.getByPlaceholder(/email|user/i).first();
+  await input.click();
+  await input.pressSequentially('abcde', { delay: 30 });
+  await page.waitForTimeout(900);
+  expect(searches.length, `queries: ${searches.join(',')}`).toBeLessThanOrEqual(1);
+});
+
+test.describe('Leaving a workspace', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  test('[B6.3] an editor or viewer can leave a workspace on their own', async () => {
+    const owner = await makeUser('b63o');
+    const editor = await makeUser('b63e');
+    const viewer = await makeUser('b63v');
+    const wsId = await makeWorkspace(owner.ctx);
+    await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: editor.email, role: 'editor' } });
+    await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: viewer.email, role: 'viewer' } });
+    expect((await editor.ctx.delete(`/api/workspaces/${wsId}/members/${editor.id}`)).status()).toBe(200);
+    expect((await viewer.ctx.delete(`/api/workspaces/${wsId}/members/${viewer.id}`)).status()).toBe(200);
+  });
+});

@@ -68,3 +68,36 @@ test.describe('Tabs, history and theme', () => {
     await expect.poll(() => html.evaluate(el => el.classList.contains('dark'))).toBe(!startsDark);
   });
 });
+
+test.describe('Theme follows the system and the editor', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  test('[P5.2] first visit follows prefers-color-scheme (light and dark), then the choice persists', async ({ browser }) => {
+    for (const scheme of ['light', 'dark'] as const) {
+      const ctx = await browser.newContext({ colorScheme: scheme });
+      const page = await ctx.newPage();
+      await registerUser(page, 'p52');
+      const html = page.locator('html');
+      await expect.poll(() => html.evaluate((el) => el.classList.contains('dark'))).toBe(scheme === 'dark');
+      await page.reload();
+      await expect(page.getByTestId('workspace-select')).toBeVisible();
+      await expect.poll(() => html.evaluate((el) => el.classList.contains('dark'))).toBe(scheme === 'dark');
+      await ctx.close();
+    }
+  });
+
+  test('[P5.3] the Monaco editor follows the theme switch live', async ({ page }) => {
+    await registerUser(page, 'p53');
+    await page.getByTestId('create-request-btn').click();
+    await page.getByTestId('req-tab-pre-request-script').click();
+    const monaco = page.locator('.monaco-editor').first();
+    await expect(monaco).toBeVisible({ timeout: 20000 });
+    const html = page.locator('html');
+    const startsDark = await html.evaluate((el) => el.classList.contains('dark'));
+    const isDarkEditor = () => monaco.evaluate((el) => el.classList.contains('vs-dark'));
+    expect(await isDarkEditor()).toBe(startsDark);
+    await page.getByRole('button', { name: startsDark ? 'Switch to light mode' : 'Switch to dark mode' }).click();
+    await expect.poll(isDarkEditor).toBe(!startsDark);
+  });
+});

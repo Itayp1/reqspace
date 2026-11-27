@@ -137,7 +137,7 @@ test.describe('Share link M1.4', () => {
     return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
   }
 
-  test('[M1.4] share link exposes no server-side request execution (no proxy, so no SSRF surface)', async () => {
+  test('[M1.4] share link exposes no server-side request execution (no proxy, so no SSRF surface)', async ({ baseURL }) => {
     const owner = await anon();
     const email = `m14_${Date.now()}_${Math.floor(Math.random() * 1e5)}@example.com`;
     expect((await owner.post('/api/auth/register', { data: { name: 'QA', email, password: 'password123' } })).status()).toBe(201);
@@ -160,11 +160,29 @@ test.describe('Share link M1.4', () => {
       for (const ctx of [viewer, owner]) {
         const res = await ctx.post(`/api/share/${link.shortId}/${path}`, {
           data: { method: 'GET', url: 'http://127.0.0.1:1/admin' },
-          headers: { origin: 'http://localhost:5173' },
+          headers: { origin: new URL(baseURL!).origin },
         });
         expect([401, 403, 404], `${path} -> ${res.status()}`).toContain(res.status());
         expect(res.status()).not.toBeLessThan(400);
       }
     }
   });
+});
+
+test('BUG-03: an existing share link is still visible (and revocable) after the dialog is reopened', async ({ page }) => {
+  await registerUser(page, 'bugshare');
+  await createCollectionUi(page, 'Shared Later');
+  await openNodeMenu(page, 'Shared Later');
+  await page.getByTestId('action-menu-share-via-link').click();
+  await page.getByTestId('share-link-generate-btn').click();
+  await expect(page.getByTestId('share-link-result')).toBeVisible();
+  await page.getByTestId('share-link-modal').getByRole('button', { name: 'Done' }).click();
+
+  await openNodeMenu(page, 'Shared Later');
+  await page.getByTestId('action-menu-share-via-link').click();
+  await expect(page.getByTestId('share-link-modal')).toBeVisible();
+  // The dialog lists links created earlier ("Active links") and lets the owner revoke them.
+  await expect(page.getByTestId('share-link-existing-row')).toHaveCount(1);
+  await page.getByTestId('share-link-existing-revoke').click();
+  await expect(page.getByTestId('share-link-existing-row')).toHaveCount(0);
 });

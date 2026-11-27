@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures';
 import { registerUser, apiAs, selectWorkspace, activeWorkspaceId } from '../helpers';
 
@@ -191,5 +192,70 @@ test.describe('Environment quick look: copy and inline edit', () => {
     await expect(viewerPage.getByRole('button', { name: 'Copy api_host value' })).toBeVisible();
     await expect(viewerPage.getByRole('button', { name: 'Edit api_host value' })).toHaveCount(0);
     await viewerPage.close();
+  });
+});
+
+test('unresolved variable is not error-red: dashed underline plus tooltip', async ({ page }) => {
+  await registerUser(page, 'requx');
+  await page.getByTestId('new-tab-btn').click();
+  await page.getByTestId('request-url-input').fill('{{nope}}/x');
+  const span = page.locator('span', { hasText: '{{nope}}' }).first();
+  await expect(span).toHaveClass(/decoration-dashed/);
+  await expect(span).not.toHaveClass(/text-red-500/);
+  await expect(page.getByTestId('request-url-input')).toHaveAttribute('title', /Undefined variable: nope/);
+});
+
+test.describe('{{ autocomplete in the URL', () => {
+  /** Fresh account, landed on a new empty request tab. */
+  async function newRequestPage(page: Page, prefix = 'dfail') {
+    const email = await registerUser(page, prefix);
+    // Sending jar cookies is off by default.
+    await page.request.put('/api/auth/settings', { data: { sendCookies: true } });
+    await page.reload();
+    await page.getByTestId('create-request-btn').click();
+    await expect(page.getByTestId('request-url-input')).toBeVisible();
+    return email;
+  }
+
+  async function personalWorkspaceId(page: Page): Promise<string> {
+    const wss = await (await page.request.get('/api/workspaces')).json();
+    const list = Array.isArray(wss) ? wss : wss.workspaces;
+    const ws = list.find((w: any) => w.isPersonal) ?? list[0];
+    return ws.id ?? ws._id;
+  }
+
+  async function createEnv(page: Page, name: string, vars: Record<string, string>) {
+    const wsId = await personalWorkspaceId(page);
+    const res = await page.request.post(`/api/workspaces/${wsId}/environments`, {
+      data: { name, variables: Object.entries(vars).map(([key, v]) => ({ key, initialValue: v, currentValue: v, enabled: true, type: 'default' })) },
+    });
+    expect(res.ok(), 'create env').toBeTruthy();
+    await page.reload();
+    await page.getByTestId('env-select').selectOption({ label: name });
+    await ensureRequestTab(page);
+  }
+
+  /** After a reload: make sure an empty request tab is open. */
+  async function ensureRequestTab(page: Page) {
+    const url = page.getByTestId('request-url-input');
+    await page.waitForTimeout(1500);
+    if (!(await url.isVisible().catch(() => false))) {
+      const cr = page.getByTestId('create-request-btn');
+      if (await cr.isVisible().catch(() => false)) await cr.click();
+      else await page.getByTestId('new-tab-btn').click();
+    }
+    await expect(url).toBeVisible();
+  }
+
+  test('[D1.11] {{ autocomplete: ArrowDown + Enter inserts the variable', async ({ page }) => {
+    await newRequestPage(page);
+    await createEnv(page, 'AutoEnv', { baseUrl: 'http://x', other: 'y' });
+    const input = page.getByTestId('request-url-input');
+    await input.click();
+    await input.fill('');
+    await input.pressSequentially('{{');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(input).toHaveValue(/^\{\{\w+\}\}$/);
   });
 });

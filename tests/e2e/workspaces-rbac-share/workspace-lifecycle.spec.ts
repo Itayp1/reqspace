@@ -1,5 +1,6 @@
-import { test, expect, request as pwRequest } from '../fixtures';
+import { test, expect, request as pwRequest, API_URL } from '../fixtures';
 import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from '../helpers';
+import { makeUser } from './invite-helpers';
 
 test.describe('Workspace Management', () => {
   // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
@@ -59,11 +60,10 @@ test.describe('Workspace duplicate', () => {
   // the 403 for a non-owner is provoked on purpose
   test.use({ allowFpErrors: [/server-auth|status code 403/] });
 
-  const BASE = process.env.REQSPACE_API_URL || 'http://localhost:3005';
   const ip = () => `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.2.2`;
 
   async function user(name: string) {
-    const ctx = await pwRequest.newContext({ baseURL: BASE, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+    const ctx = await pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
     const email = `${name}${Date.now()}${Math.floor(Math.random() * 1000)}@example.com`;
     expect((await ctx.post('/api/auth/register', { data: { name, email, password: 'password123' } })).ok()).toBeTruthy();
     expect((await ctx.post('/api/auth/login', { data: { email, password: 'password123' } })).ok()).toBeTruthy();
@@ -100,5 +100,31 @@ test.describe('Workspace duplicate', () => {
 
     // Only owners may duplicate.
     expect((await editor.ctx.post(`/api/workspaces/${ws._id}/duplicate`, { data: { name: 'Nope' } })).status()).toBe(403);
+  });
+});
+
+test.describe('Workspace API rules', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  test('[B1.5] a personal workspace cannot be deleted', async () => {
+    const { ctx } = await makeUser('b15');
+    const list = await (await ctx.get('/api/workspaces')).json();
+    const arr: any[] = Array.isArray(list) ? list : list.workspaces;
+    const personal = arr.find((w) => w.isPersonal);
+    expect(personal, 'registration creates a personal workspace').toBeTruthy();
+    const res = await ctx.delete(`/api/workspaces/${personal.id ?? personal._id}`);
+    expect([400, 403, 409]).toContain(res.status());
+  });
+
+  test('[B2.2] a public workspace is listed for users who are not members', async () => {
+    const owner = await makeUser('b22o');
+    const res = await owner.ctx.post('/api/workspaces', { data: { name: `pub_${Date.now()}`, isPublic: true } });
+    const ws = await res.json();
+    const id = ws.id ?? ws._id;
+    const other = await makeUser('b22x');
+    const list = await (await other.ctx.get('/api/workspaces')).json();
+    const arr: any[] = Array.isArray(list) ? list : list.workspaces;
+    expect(arr.some((w) => (w.id ?? w._id) === id)).toBe(true);
   });
 });
