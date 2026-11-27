@@ -1,4 +1,4 @@
-import { test, expect, API_URL } from '../fixtures';
+import { test, expect, API_URL, fetchFpErrorsSince } from '../fixtures';
 import net, { type AddressInfo } from 'net';
 import { apiAsAdmin } from '../helpers';
 
@@ -11,6 +11,16 @@ test.describe('CORS loopback origin', () => {
       const res = await request.get(`${API_URL}/api/auth/config`, { headers: { Origin: origin } });
       expect(res.headers()['access-control-allow-origin'], origin).toBe(origin);
     }
+  });
+
+  test('any localhost or 127.0.0.1 port passes the state-changing origin check, a foreign origin does not', async ({ request }) => {
+    // A wrong-credentials login reaches the route (401) only if the Origin check let it through; a blocked one answers 403.
+    const login = (origin: string) => request.post(`${API_URL}/api/auth/login`, { headers: { Origin: origin }, data: { email: 'nobody', password: 'wrong-password' } });
+    for (const origin of ['http://localhost:61234', 'http://127.0.0.1:61234']) {
+      expect((await login(origin)).status(), origin).not.toBe(403);
+    }
+    expect((await login('http://evil.example')).status()).toBe(403);
+    expect((await login('https://localhost:61234')).status(), 'only plain http loopback').toBe(403);
   });
 
   test('an unrelated origin is still refused', async ({ request }) => {
@@ -103,5 +113,38 @@ test.describe('Redis settings', () => {
         await new Promise<void>((r) => srv.close(() => r()));
       }
     });
+  });
+});
+
+test.describe('App shell', () => {
+  test.describe('database outage', () => {
+    // The client reports the 503 from /api/health like any other failed API
+    // call. The test asserts that report and then deletes it, so the table is
+    // empty again; the allowance only matters if it fails before the cleanup.
+    test.use({ allowFpErrors: ['/api/health'] });
+
+  test('a database outage shows the database-error screen instead of a broken app', async ({ page, fpErrorsApi }) => {
+    const since = new Date();
+    await page.route('**/api/health', (route) => route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'error', dbType: 'sqlite', dbError: 'SQLITE_CANTOPEN: unable to open database file' }),
+    }));
+    await page.goto('/');
+    await expect(page.getByText('Database Connection Error')).toBeVisible();
+    await expect(page.getByText('SQLITE_CANTOPEN: unable to open database file')).toBeVisible();
+    await page.getByText('How to fix this').click();
+    await expect(page.getByText('Common fixes:')).toBeVisible();
+
+    // The failed health check reached fperrors (the client reporting path
+    // works), and is cleared so the run leaves the table empty.
+    let fingerprint = '';
+    await expect.poll(async () => {
+      const group = (await fetchFpErrorsSince(fpErrorsApi, since)).find(g => g.kind === 'api' && g.route === '/api/health');
+      fingerprint = group?.fingerprint ?? '';
+      return group?.message ?? '';
+    }).toContain('503');
+    expect((await fpErrorsApi.delete(`/api/admin/errors/${fingerprint}`)).ok()).toBeTruthy();
+  });
   });
 });

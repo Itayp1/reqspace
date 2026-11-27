@@ -54,10 +54,13 @@ let dbType: string = 'unknown';
 
 // Browser origins allowed outside production: the Vite dev server plus the admin's
 // "Allowed origins" setting. Read per request so a change applies without a restart.
-const devClientPort = process.env.CLIENT_PORT || '5173';
-const devOrigins = () => [`http://localhost:${devClientPort}`, `http://127.0.0.1:${devClientPort}`, ...getServerSettings().allowedOrigins];
+// Any loopback port counts as a dev client (parallel Vite/test clients), plus the admin's list.
+const isDevOrigin = (origin: string) => {
+  try { const u = new URL(origin); if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return true; } catch { /* malformed -> not allowed */ }
+  return getServerSettings().allowedOrigins.includes(origin);
+};
 const corsOrigin = (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) =>
-  cb(null, process.env.NODE_ENV === 'production' ? false : !!origin && devOrigins().includes(origin));
+  cb(null, process.env.NODE_ENV === 'production' ? false : !!origin && isDevOrigin(origin));
 
 // Socket.io
 export const io = new SocketIOServer(server, {
@@ -242,7 +245,7 @@ app.use('/api', (req, res, next) => {
   let originHost: string | null = null;
   try { originHost = new URL(origin).host; } catch { /* malformed -> rejected below */ }
   const fwdHost = req.app.get('trust proxy') ? req.get('x-forwarded-host') : undefined;
-  if (originHost && (originHost === req.get('host') || originHost === fwdHost || (!isProd && devOrigins().includes(origin)))) return next();
+  if (originHost && (originHost === req.get('host') || originHost === fwdHost || (!isProd && isDevOrigin(origin)))) return next();
   res.status(403).json({ message: 'Cross-origin request blocked' });
 });
 
