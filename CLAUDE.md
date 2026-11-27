@@ -22,8 +22,8 @@
 For every assigned bug, you MUST adhere to the following sequence:
 
 1. **Step 1 - Reproducing Test First**:
-   - Write a new Playwright test under `tests/e2e/reproductions/` reproducing the issue.
-   - Run the test (`pnpm exec playwright test tests/e2e/reproductions/<test_name>`).
+   - Write a new Playwright test in the matching world folder under `tests/e2e/<world>/` (see `docs/plans/e2e-worlds.md`) reproducing the issue; add it to the existing spec of that area when one fits.
+   - Run the test (`pnpm exec playwright test tests/e2e/<world>/<test_name>`).
    - The test **must fail** with an assertion error. If it passes or fails due to syntax/import errors, refine it until it accurately reproduces the bug.
 2. **Step 2 - Minimal Root-Cause Patch**:
    - Locate the defect in the source code.
