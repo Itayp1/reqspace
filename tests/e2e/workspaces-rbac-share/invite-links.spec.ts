@@ -1,146 +1,11 @@
-import { test, expect, API_URL, request as pwRequest, type APIRequestContext, type Page } from '../fixtures';
+import { test, expect } from '../fixtures';
 import { loginUi, registerUser, activeWorkspaceId } from '../helpers';
+import { PASSWORD, newCtx, makeUser, makeWorkspace, createLink, members, openSettingsTab } from './invite-helpers';
 import fs from 'fs';
 import path from 'path';
 
-// 4xx answers (410 gone, 404 unknown, 403) are the point of several tests; the browser reports them as failed API calls.
-test.use({ allowFpErrors: [/server-auth|status code 4\d\d|Request failed/i] });
-
-const PASSWORD = 'password123';
-let seq = 0;
-
-async function newCtx(): Promise<APIRequestContext> {
-  return pwRequest.newContext({
-    baseURL: API_URL,
-    extraHTTPHeaders: { 'X-Forwarded-For': `10.${200 + (seq++ % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}` },
-  });
-}
-
-/** A registered user with a logged-in API context. */
-async function makeUser(prefix: string) {
-  const ctx = await newCtx();
-  const email = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}@example.com`;
-  const reg = await ctx.post('/api/auth/register', { data: { name: `${prefix} user`, email, password: PASSWORD } });
-  expect(reg.ok(), 'register').toBeTruthy();
-  const login = await ctx.post('/api/auth/login', { data: { email, password: PASSWORD } });
-  expect(login.ok(), 'login').toBeTruthy();
-  const { user } = await login.json();
-  return { ctx, email, id: user.id as string };
-}
-
-async function makeWorkspace(ctx: APIRequestContext, name = `Links WS ${Date.now()}`): Promise<string> {
-  const res = await ctx.post('/api/workspaces', { data: { name } });
-  expect(res.status()).toBe(201);
-  return (await res.json())._id;
-}
-
-async function createLink(ctx: APIRequestContext, wsId: string, o: { role?: string; singleUse?: boolean; expiresIn?: string } = {}) {
-  const res = await ctx.post(`/api/workspaces/${wsId}/invite-links`, { data: { role: 'viewer', singleUse: false, expiresIn: '1h', ...o } });
-  expect(res.status()).toBe(201);
-  return (await res.json()) as { link: { id: string; role: string; singleUse: boolean; expiresAt: string }; token: string };
-}
-
-async function members(ctx: APIRequestContext, wsId: string) {
-  return (await (await ctx.get(`/api/workspaces/${wsId}`)).json()).members as Array<{ userId: { _id: string }; role: string }>;
-}
-
-async function openSettingsTab(page: Page, tab: 'workspace-members-tab' | 'workspace-links-tab') {
-  await page.getByTestId('workspace-settings-btn').click();
-  await page.getByTestId(tab).click();
-}
-
-test.describe('email validation, owner role, revoke', () => {
-  test('invalid email shows an inline error and sends nothing; a valid one becomes a pending invite', async ({ page }) => {
-    await registerUser(page, 'inv_owner');
-    await openSettingsTab(page, 'workspace-members-tab');
-    let posts = 0;
-    page.on('request', r => { if (r.method() === 'POST' && r.url().endsWith('/members')) posts++; });
-
-    await page.getByTestId('user-autocomplete-input').fill('not-an-email');
-    await page.getByTestId('workspace-invite-btn').click();
-    const err = page.getByTestId('workspace-invite-email-error');
-    await expect(err).toHaveText('Enter a valid email address, for example name@example.com.');
-    await expect(page.getByTestId('user-autocomplete-input')).toHaveAttribute('aria-invalid', 'true');
-    expect(posts).toBe(0);
-
-    const email = `pending_${Date.now()}@example.com`;
-    await page.getByTestId('user-autocomplete-input').fill(email);
-    await expect(err).toBeHidden();
-    await page.getByTestId('workspace-invite-btn').click();
-    await expect(page.getByTestId('invite-email').filter({ hasText: email })).toBeVisible();
-    await expect(page.getByTestId('invite-row')).toContainText('Viewer · pending');
-  });
-
-  test('server rejects a malformed email with 400', async () => {
-    const owner = await makeUser('inv_val');
-    const ws = await makeWorkspace(owner.ctx);
-    const res = await owner.ctx.post(`/api/workspaces/${ws}/members`, { data: { email: 'nope', role: 'viewer' } });
-    expect(res.status()).toBe(400);
-  });
-
-  test('an invited owner joins as owner; promote a member; the last owner cannot be demoted', async () => {
-    const owner = await makeUser('own_a');
-    const second = await makeUser('own_b');
-    const third = await makeUser('own_c');
-    const ws = await makeWorkspace(owner.ctx);
-
-    // Invite as owner (email is trimmed and lower-cased by the server); redeemed on the invitee's next request.
-    const inv = await owner.ctx.post(`/api/workspaces/${ws}/members`, { data: { email: `  ${second.email.toUpperCase()} `, role: 'owner' } });
-    expect(inv.status()).toBe(201);
-    expect((await second.ctx.get('/api/workspaces')).ok()).toBeTruthy();
-    expect((await members(owner.ctx, ws)).find(m => m.userId._id === second.id)?.role).toBe('owner');
-
-    // Promote a viewer to owner.
-    expect((await owner.ctx.post(`/api/workspaces/${ws}/members`, { data: { email: third.email, role: 'viewer' } })).ok()).toBeTruthy();
-    await third.ctx.get('/api/workspaces');
-    const promote = await owner.ctx.put(`/api/workspaces/${ws}/members/${third.id}`, { data: { role: 'owner' } });
-    expect(promote.ok()).toBeTruthy();
-    expect((await members(owner.ctx, ws)).filter(m => m.role === 'owner')).toHaveLength(3);
-
-    // Demote down to one owner, then the last one is protected.
-    expect((await owner.ctx.put(`/api/workspaces/${ws}/members/${third.id}`, { data: { role: 'viewer' } })).ok()).toBeTruthy();
-    expect((await owner.ctx.put(`/api/workspaces/${ws}/members/${second.id}`, { data: { role: 'viewer' } })).ok()).toBeTruthy();
-    const last = await owner.ctx.put(`/api/workspaces/${ws}/members/${owner.id}`, { data: { role: 'editor' } });
-    expect(last.status()).toBe(409);
-    expect((await last.json()).message).toMatch(/last owner/i);
-  });
-
-  test('UI: owner rows get a role select only when there is more than one owner', async ({ page }) => {
-    await registerUser(page, 'ui_owner');
-    const ws = await activeWorkspaceId(page);
-    const other = await makeUser('ui_owner2');
-    await page.request.post(`/api/workspaces/${ws}/members`, { data: { email: other.email, role: 'owner' } });
-    await openSettingsTab(page, 'workspace-members-tab');
-    await expect(page.getByTestId('member-role-text')).toHaveCount(1);
-    await other.ctx.get('/api/workspaces'); // redeems the invite
-    await page.getByTestId('close-workspace-modal').click();
-    await openSettingsTab(page, 'workspace-members-tab');
-    await expect(page.getByTestId('member-row')).toHaveCount(2);
-    await expect(page.getByTestId('member-role-select')).toHaveCount(2);
-    await expect(page.getByTestId('member-role-select').first().locator('option')).toHaveText(['Viewer', 'Editor', 'Owner']);
-  });
-
-  test('revoking an email invite asks for confirmation and the invitee does not join', async ({ page }) => {
-    await registerUser(page, 'rev_owner');
-    const ws = await activeWorkspaceId(page);
-    const invitee = await makeUser('rev_invitee');
-    await openSettingsTab(page, 'workspace-members-tab');
-    await page.getByTestId('user-autocomplete-input').fill(invitee.email);
-    await page.getByTestId('workspace-invite-btn').click();
-    const row = page.getByTestId('invite-row').filter({ hasText: invitee.email });
-    await expect(row).toBeVisible();
-
-    await row.getByTestId('invite-cancel-btn').click();
-    await page.getByTestId('confirm-cancel-btn').click(); // cancelling keeps the invite
-    await expect(row).toBeVisible();
-    await row.getByTestId('invite-cancel-btn').click();
-    await page.getByTestId('confirm-btn').click();
-    await expect(page.getByTestId('invite-row')).toHaveCount(0);
-
-    const list = await (await invitee.ctx.get('/api/workspaces')).json();
-    expect(list.some((w: any) => w._id === ws)).toBe(false);
-  });
-});
+// 4xx answers (410 gone, 404 unknown, 403) are the point of several tests; the browser reports 401/403 as failed API calls.
+test.use({ allowFpErrors: [/server-auth|status code 40[13]/] });
 
 test.describe('invite links API', () => {
   test('create returns the token once; accept adds the member with the link role', async () => {
@@ -327,26 +192,5 @@ test.describe('invite links UI', () => {
     await expect(page.getByTestId('invite-error')).toContainText('This invite was revoked');
     await page.getByTestId('invite-home-btn').click();
     await expect(page).toHaveURL(/\/$/);
-  });
-
-  test('"Join with Invite Link" in the workspace picker accepts a pasted link', async ({ page }) => {
-    const owner = await makeUser('pick_owner');
-    const ws = await makeWorkspace(owner.ctx, 'Picker Target');
-    const { token } = await createLink(owner.ctx, ws, { role: 'viewer', singleUse: true });
-    await registerUser(page, 'pick_joiner');
-
-    await page.getByTestId('workspace-select').click();
-    await page.getByTestId('workspace-join-link-btn').click();
-    await page.getByTestId('join-link-submit-btn').click();
-    await expect(page.getByTestId('join-link-error')).toHaveText('Paste an invite link or code.');
-    await page.getByTestId('join-link-input').fill('hello world');
-    await page.getByTestId('join-link-submit-btn').click();
-    await expect(page.getByTestId('join-link-error')).toContainText('does not look like an invite link');
-
-    await page.getByTestId('join-link-input').fill(`  http://localhost/invite/${token}?x=1  `);
-    await page.getByTestId('join-link-submit-btn').click();
-    await expect(page.getByTestId('invite-title')).toContainText('as Viewer');
-    await page.getByTestId('invite-join-btn').click();
-    await expect(page.getByTestId('workspace-select')).toHaveAttribute('data-value', ws);
   });
 });
