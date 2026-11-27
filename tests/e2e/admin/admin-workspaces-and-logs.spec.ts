@@ -56,13 +56,17 @@ test('the Workspaces tab renders and Manage Permissions adds, re-roles and remov
   await page.getByPlaceholder('email@example.com or Username').fill(EMAIL);
   await page.getByTestId('admin-perm-invite-role').selectOption('editor');
   await page.getByRole('button', { name: 'Add Member' }).click();
+  // The invite is pending until the invitee's next request; then reopen the modal to see the membership.
+  const check = await apiAs(EMAIL);
+  await check.get('/api/workspaces');
+  await page.getByTestId('admin-perm-close').click();
+  await page.getByTestId(`admin-manage-permissions-${wsName}`).click();
   const memberRow = page.locator('tr', { hasText: EMAIL });
   await expect(memberRow).toBeVisible();
   await expect(memberRow.locator('select')).toHaveValue('editor');
 
   await memberRow.locator('select').selectOption('viewer');
   await expect(memberRow.locator('select')).toHaveValue('viewer');
-  const check = await apiAs(EMAIL);
   const mine = await (await check.get('/api/workspaces')).json();
   expect(mine.find((w: any) => w._id === ws._id)?.myRole).toBe('viewer');
 

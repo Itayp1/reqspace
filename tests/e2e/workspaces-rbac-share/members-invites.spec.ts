@@ -317,7 +317,7 @@ test('[B4.7] member search is debounced: typing 5 chars quickly fires one /users
   });
   await page.getByTestId('workspace-settings-btn').click();
   await page.getByTestId('workspace-members-tab').click();
-  const input = page.getByPlaceholder(/email|user/i).first();
+  const input = page.getByTestId('user-autocomplete-input');
   await input.click();
   await input.pressSequentially('abcde', { delay: 30 });
   await page.waitForTimeout(900);

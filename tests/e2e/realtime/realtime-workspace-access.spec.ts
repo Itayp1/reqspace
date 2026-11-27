@@ -117,6 +117,7 @@ test.describe('workspace access over the socket', () => {
       const member = await newUser('b66m');
       const wsId = await seedWorkspace(owner.ctx);
       expect((await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: member.email, role: 'editor' } })).status()).toBe(201);
+      await member.ctx.get('/api/workspaces'); // a pending invite becomes a membership on the invitee's next request
       const col = await (await owner.ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C' } })).json();
       const sock = await connectSocket(await cookieFor(member.email), wsId);
       try {

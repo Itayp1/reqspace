@@ -42,6 +42,7 @@ test.describe('Workspace activity API', () => {
     const member = await makeUser('b55m');
     const wsId = await makeWorkspace(owner.ctx);
     await owner.ctx.post(`/api/workspaces/${wsId}/members`, { data: { email: member.email, role: 'viewer' } });
+    await member.ctx.get('/api/workspaces'); // a pending invite becomes a membership on the invitee's next request
     await owner.ctx.put(`/api/workspaces/${wsId}/members/${member.id}`, { data: { role: 'editor' } });
     const log: any[] = await (await owner.ctx.get(`/api/workspaces/${wsId}/activity`)).json();
     expect(log.some((l) => /role/i.test(l.action))).toBe(true);

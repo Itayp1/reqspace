@@ -75,6 +75,7 @@ test.describe('Workspace duplicate', () => {
     const editor = await user('dupeditor');
     const ws = await (await owner.ctx.post('/api/workspaces', { data: { name: 'Src' } })).json();
     await owner.ctx.post(`/api/workspaces/${ws._id}/members`, { data: { email: editor.email, role: 'editor' } });
+    await editor.ctx.get('/api/workspaces'); // a pending invite becomes a membership on the invitee's next request
     const col = await (await owner.ctx.post(`/api/workspaces/${ws._id}/collections`, { data: { name: 'Col' } })).json();
     const folder = await (await owner.ctx.post(`/api/collections/${col._id}/folders`, { data: { name: 'Fol' } })).json();
     await owner.ctx.post(`/api/collections/${col._id}/requests`, { data: { name: 'Req', method: 'GET', url: 'http://x', folderId: folder._id } });
