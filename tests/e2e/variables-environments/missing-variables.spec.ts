@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../fixtures';
-import { registerUser, createCollectionUi, addViaMenu, treeNode, openNodeMenu, apiAs, activeWorkspaceId } from '../helpers';
+import { registerUser, createCollectionUi, addViaMenu, treeNode, openNodeMenu, apiAs, selectWorkspace, activeWorkspaceId } from '../helpers';
 
 async function openMissingModal(page: Page, name: string) {
   await page.route('https://mvt.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
@@ -62,4 +62,52 @@ test('missing variable can be created in the global environment', async ({ page 
   const g = await (await api.get(`/api/workspaces/${wsId}/global-environment`)).json();
   expect(g.variables.map((v: any) => v.key)).toContain('seg');
   await api.dispose();
+});
+
+test('viewer: missing-variable modal offers Personal only', async ({ page, browser }) => {
+  const ownerEmail = await registerUser(page, 'mvowner');
+  const wsId = await activeWorkspaceId(page);
+  const owner = await apiAs(ownerEmail);
+  expect((await owner.post(`/api/workspaces/${wsId}/environments`, { data: { name: 'MV Env', variables: [] } })).ok()).toBeTruthy();
+  const col = await (await owner.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'MVV Col' } })).json();
+  const made = await owner.post(`/api/collections/${col.id ?? col._id}/requests`, { data: { name: 'MVV Req', method: 'GET', url: 'https://mvv.example.test/{{viewerVar}}' } });
+  expect(made.ok()).toBeTruthy();
+
+  const viewerPage = await browser.newPage();
+  const viewerEmail = await registerUser(viewerPage, 'mvviewer');
+  expect((await owner.post(`/api/workspaces/${wsId}/members`, { data: { email: viewerEmail, role: 'viewer' } })).ok()).toBeTruthy();
+  await viewerPage.reload();
+  await expect(viewerPage.getByTestId('workspace-select')).toBeVisible();
+  await selectWorkspace(viewerPage, wsId);
+
+  await viewerPage.route('https://mvv.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
+  await viewerPage.getByTestId('node-MVV Col').click();
+  await viewerPage.getByTestId('node-MVV Req').click();
+  await viewerPage.getByTestId('request-send-btn').click();
+
+  const scope = viewerPage.getByLabel('Scope for viewerVar');
+  await expect(scope).toHaveValue('profile');
+  for (const s of ['environment', 'collection', 'global']) {
+    await expect(scope.locator(`option[value="${s}"]`)).toBeDisabled();
+  }
+  await expect(viewerPage.getByTestId('missing-variables-modal')).toContainText('view-only access');
+  await viewerPage.close();
+});
+
+test.describe('missing-variable modal UX', () => {
+  test('sending a request with an undefined {{variable}} asks about it, and Run Anyway is remembered', async ({ page }) => {
+    await registerUser(page, 'missingvar');
+    let hits = 0;
+    await page.route('https://mv.example.test/**', (route) => { hits++; return route.fulfill({ status: 200, body: 'ok' }); });
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-url-input').fill('https://mv.example.test/{{phoneNumber}}');
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('missing-variables-modal')).toBeVisible();
+    await expect(page.getByTestId('missing-var-phoneNumber')).toBeVisible();
+    await page.getByRole('button', { name: 'Run Anyway' }).click();
+    await expect.poll(() => hits).toBe(1);
+    await page.getByTestId('request-send-btn').click();
+    await expect.poll(() => hits).toBe(2);
+    await expect(page.getByTestId('missing-variables-modal')).toHaveCount(0);
+  });
 });
