@@ -1,5 +1,6 @@
-import { test, expect, type Page } from '../fixtures';
-import { startNewRequest } from '../helpers';
+import { test, expect, API_URL, type Page } from '../fixtures';
+import { startNewRequest, registerUser } from '../helpers';
+import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/console\.error: Network Error/] });
@@ -237,4 +238,91 @@ test.describe('Auth types', () => {
     expect((await sent).headers()['authorization'])
       .toBe('Basic ' + Buffer.from('folderuser:folderpass').toString('base64'));
   });
+});
+
+test.describe('Auth tokens (mock server)', () => {
+  // the file-level allow list is for the other describes; these tests run strict
+  test.use({ allowFpErrors: [] });
+
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const ip = () => `10.${150 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+
+  type Seen = { url: string; method: string; headers: Record<string, string>; body: string | null };
+
+  /** Routes https://mock.test/** (answers CORS too) and records what the browser actually sent. */
+  async function mockServer(page: Page, respond?: (url: URL) => { status?: number; contentType?: string; body: string | Buffer; headers?: Record<string, string> }) {
+    const seen: Seen[] = [];
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+    await page.route('https://mock.test/**', async (route) => {
+      const r = route.request();
+      if (r.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      seen.push({ url: r.url(), method: r.method(), headers: r.headers(), body: r.postData() });
+      const out = respond ? respond(new URL(r.url())) : { body: '{"ok":true}' };
+      return route.fulfill({ status: out.status ?? 200, contentType: out.contentType ?? 'application/json', body: out.body, headers: { ...cors, ...(out.headers || {}) } });
+    });
+    return seen;
+  }
+
+  async function scene(page: Page, opts: { request: Record<string, unknown>; env?: Array<Record<string, unknown>>; reqName?: string }) {
+    await registerUser(page, 'efgi');
+    const wsList = await (await page.request.get('/api/workspaces')).json();
+    const list = Array.isArray(wsList) ? wsList : wsList.workspaces;
+    const ws = list.find((w: any) => w.isPersonal) ?? list[0];
+    const wsId = ws.id ?? ws._id;
+    const col = await (await page.request.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'Col' } })).json();
+    const colId = col.id ?? col._id;
+    const reqName = opts.reqName ?? 'Req';
+    const r = await page.request.post(`/api/collections/${colId}/requests`, { data: { name: reqName, method: 'GET', url: 'https://mock.test/x', ...opts.request } });
+    expect(r.ok(), 'create request ' + (await r.text())).toBeTruthy();
+    if (opts.env) {
+      const e = await page.request.post(`/api/workspaces/${wsId}/environments`, { data: { name: 'EnvA', variables: opts.env } });
+      expect(e.ok()).toBeTruthy();
+    }
+    await page.reload();
+    await expect(page.getByTestId('workspace-select')).toBeVisible();
+    await page.getByTestId('node-Col').click();
+    await page.getByTestId(`node-${reqName}`).click();
+    if (opts.env) await page.getByTestId('env-select').selectOption({ label: 'EnvA' });
+    return { wsId, colId };
+  }
+
+  const v = (key: string, val: string, extra: Record<string, unknown> = {}) => ({ key, value: val, initialValue: val, currentValue: val, enabled: true, ...extra });
+  const send = async (page: Page) => { await page.getByTestId('request-send-btn').click(); };
+  const status = (page: Page) => page.getByTestId('response-status');
+
+  async function anon(): Promise<APIRequestContext> {
+    return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+  }
+  async function newUser(prefix: string) {
+    const email = `${uniq(prefix)}@example.com`;
+    const ctx = await anon();
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA', email, password: 'password123' } });
+    expect(res.status()).toBe(201);
+    return { ctx, email };
+  }
+
+  test.describe('E — auth tokens', () => {
+    test('[E1.1] bearer token resolves {{token}} from the environment; an empty token sends no header', async ({ page }) => {
+      const seen = await mockServer(page);
+      await scene(page, { request: { auth: { type: 'bearer', bearer: { token: '{{tok}}' } } }, env: [v('tok', 'abc123')] });
+      await send(page);
+      await expect(status(page)).toContainText('200');
+      expect(seen.at(-1)!.headers['authorization']).toBe('Bearer abc123');
+      await page.getByTestId('req-tab-authorization').click();
+      await page.getByTestId('auth-bearer-token').fill('');
+      await send(page);
+      await expect.poll(() => seen.length).toBe(2);
+      expect(seen.at(-1)!.headers['authorization']).toBeUndefined();
+    });
+
+    test('[E4.2] a custom bearer prefix is sent in the Authorization header', async ({ page }) => {
+      const seen = await mockServer(page);
+      await scene(page, { request: { auth: { type: 'bearer', bearer: { token: 'tk', prefix: 'Token' } } } });
+      await send(page);
+      await expect(status(page)).toContainText('200');
+      expect(seen.at(-1)!.headers['authorization']).toBe('Token tk');
+    });
+  });
+
 });

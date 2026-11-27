@@ -1,4 +1,6 @@
 import { test, expect } from '../fixtures';
+import http from 'node:http';
+import { seedRequest } from '../requests/seed';
 import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { API_URL } from '../fixtures';
 import { registerUser, apiAsAdmin } from '../helpers';
@@ -95,4 +97,59 @@ test('[K4.6] DELETE /api/history requires a workspaceId and never wipes other wo
   expect((await ctx.delete(`/api/history?workspaceId=${wsA}`)).status()).toBe(200);
   expect(await count(ctx, wsA)).toBe(0);
   expect(await count(ctx, wsB)).toBe(1);
+});
+
+test('a 1MB response is not stored in history; history keeps only a size note', async ({ page }) => {
+  const item = JSON.stringify({ id: 1, name: 'x'.repeat(90) });
+  const body = '[' + Array(Math.ceil(1024 * 1024 / (item.length + 1))).fill(item).join(',') + ']';
+  const srv = http.createServer((_q, res) => {
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
+    res.end(body);
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(srv.address() as any).port}/mid`;
+  try {
+    await seedRequest(page, 'midresp', url);
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+
+    await page.getByTestId('tab-history').click();
+    await expect(page.getByTestId('history-item')).toHaveCount(1);
+    const wsList = await (await page.request.get('/api/workspaces')).json();
+    const list = Array.isArray(wsList) ? wsList : wsList.workspaces;
+    const ws = list.find((w: any) => w.isPersonal) ?? list[0];
+    const wsId = ws.id ?? ws._id;
+    const hist = await (await page.request.get(`/api/workspaces/${wsId}/history`)).json();
+    expect(hist.items).toHaveLength(1);
+    const stored = hist.items[0].responseSnapshot;
+    expect(stored.status).toBe(200);
+    expect(stored.body).toMatch(/not saved to history: 1\.0 MB, over the 512 KB limit/);
+  } finally {
+    srv.close();
+  }
+});
+
+test.describe('History filtering and clearing (API)', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  test('[K1.3] history can be filtered by status code', async () => {
+    const ctx = await newUser('k13');
+    const wsId = await newWorkspace(ctx);
+    await ctx.post(`/api/workspaces/${wsId}/history`, { data: entry });
+    await ctx.post(`/api/workspaces/${wsId}/history`, { data: { ...entry, responseStatus: 404 } });
+    const body = await (await ctx.get(`/api/workspaces/${wsId}/history?status=404`)).json();
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items.every((i: any) => i.statusCode === 404)).toBe(true);
+  });
+
+  test('[K4.4] clearing history is scoped to one workspace', async () => {
+    const ctx = await newUser('k44');
+    const wsA = await newWorkspace(ctx);
+    const wsB = await newWorkspace(ctx);
+    await ctx.post(`/api/workspaces/${wsA}/history`, { data: entry });
+    await ctx.post(`/api/workspaces/${wsB}/history`, { data: entry });
+    await ctx.delete(`/api/workspaces/${wsA}/history`);
+    expect((await (await ctx.get(`/api/workspaces/${wsB}/history`)).json()).items).toHaveLength(1);
+  });
 });

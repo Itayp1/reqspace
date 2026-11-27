@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { startNewRequest, registerUser } from '../helpers';
+import { startNewRequest, registerUser, apiAs } from '../helpers';
 
 /**
  * Global search (Ctrl+K) had no coverage at all. The modal is built on real
@@ -199,4 +199,28 @@ test('[global-search] picking a nested folder expands the tree to it', async ({ 
   await page.getByRole('dialog', { name: 'Global search' }).getByRole('combobox').fill('ColReveal');
   await page.getByRole('option', { name: 'collection: ColReveal' }).click();
   await expect(page.getByTestId('node-OuterReveal')).toBeVisible();
+});
+
+test.describe('Global search path and method', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  test('[P1.2] global search shows the Collection › Folder path and finds by method', async ({ page }) => {
+    const email = await registerUser(page, 'p12');
+    const api = await apiAs(email);
+    const wsId = (await (await api.get('/api/workspaces')).json()).find((w: any) => w.isPersonal)._id ?? undefined;
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'PathCol' } })).json();
+    const colId = col.id ?? col._id;
+    const folder = await (await api.post(`/api/collections/${colId}/folders`, { data: { name: 'PathFolder' } })).json();
+    await api.post(`/api/collections/${colId}/requests`, { data: { name: 'DeepReq', method: 'DELETE', url: 'http://x.test/zz', folderId: folder.id ?? folder._id } });
+    await page.reload();
+    await page.getByTestId('node-PathCol').click();
+    await expect(page.getByTestId('node-PathFolder')).toBeVisible();
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Global search' });
+    await dialog.getByRole('combobox').fill('DeepReq');
+    await expect(dialog.getByTestId('search-result-path').first()).toHaveText('PathCol › PathFolder');
+    await dialog.getByRole('combobox').fill('delete');
+    await expect(dialog.getByRole('option', { name: /request: DeepReq/ })).toBeVisible();
+  });
 });

@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures';
-import { startNewRequest, selectWorkspace, expectWorkspaceListed } from '../helpers';
+import type { Page } from '@playwright/test';
+import { startNewRequest, selectWorkspace, expectWorkspaceListed, registerUser, apiAs, openNodeMenu, treeNode } from '../helpers';
 
 /**
  * Three collection context-menu actions that had no coverage: View
@@ -197,5 +198,108 @@ test.describe('Collection Actions', () => {
     expect(serialised).toContain('Root Request');
     expect(serialised).toContain('https://api.example.com/v1/root');
     expect(serialised).toContain('Nested Request');
+  });
+});
+
+test.describe('Collection documentation and Copy to Workspace (UI)', () => {
+  test.use({ allowFpErrors: [/Network Error/] });
+
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const idOf = (o: any): string => o.id ?? o._id;
+
+  async function seedTreeUser(page: Page, prefix: string) {
+    const email = await registerUser(page, prefix);
+    const api = await apiAs(email);
+    const wsList = await (await api.get('/api/workspaces')).json();
+    const ws = wsList.find((w: any) => w.isPersonal) ?? wsList[0];
+    return { email, api, wsId: idOf(ws) };
+  }
+
+  const tabs = (page: Page, text: string) => page.locator('[data-testid^="tab-"]').filter({ hasText: text });
+  const menuItem = (page: Page, re: RegExp) => page.locator('[data-testid^="action-menu-"]', { hasText: re }).first();
+
+  test('[C9.5] collection documentation masks tokens and secrets until revealed', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c95');
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C95' } })).json();
+    await api.post(`/api/collections/${idOf(col)}/requests`, {
+      data: { name: 'Secret req', method: 'GET', url: 'https://s.test', headers: [{ key: 'Authorization', value: 'Bearer SUPERSECRETTOKEN123', enabled: true }] },
+    });
+    await page.reload();
+    await openNodeMenu(page, 'C95');
+    await menuItem(page, /documentation/i).click();
+    const modal = page.getByTestId('documentation-modal');
+    await expect(modal).toBeVisible();
+    await expect(modal.getByTestId('doc-request-Secret req')).toBeVisible();
+    await expect(modal).not.toContainText('SUPERSECRETTOKEN123');
+    await modal.getByTestId('doc-reveal-btn').first().click();
+    await expect(modal).toContainText('SUPERSECRETTOKEN123');
+  });
+
+  test('[C10.5] a failure part-way through Copy to Workspace leaves no partial collection', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c105');
+    const target = await (await api.post('/api/workspaces', { data: { name: uniq('Target') } })).json();
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C105' } })).json();
+    for (const n of ['r1', 'r2', 'r3']) {
+      await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: n, method: 'GET', url: `https://${n}.test` } });
+    }
+    await page.reload();
+    let posts = 0;
+    await page.route(/\/api\/collections\/[^/]+\/requests$/, async route => {
+      if (route.request().method() === 'POST' && ++posts === 2) return route.abort('failed');
+      return route.continue();
+    });
+    await openNodeMenu(page, 'C105');
+    await menuItem(page, /copy to/i).click();
+    await page.getByTestId('copy-target-workspace-select').selectOption(idOf(target));
+    await page.getByRole('button', { name: /^copy$/i }).click();
+    await page.waitForTimeout(1500);
+    const cols = await (await api.get(`/api/workspaces/${idOf(target)}/collections`)).json();
+    expect(cols.length, 'partial collection left in target').toBe(0);
+  });
+
+  test('[C10.6] Copy to Workspace dialog says variables/environments are not copied', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c106');
+    await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C106' } });
+    await page.reload();
+    await openNodeMenu(page, 'C106');
+    await menuItem(page, /copy to/i).click();
+    await expect(page.getByTestId('copy-to-workspace-modal')).toContainText(/environments?.*not copied/i);
+  });
+});
+
+test.describe('Copy to Workspace as a viewer', () => {
+  test('[D10.3] a viewer with an empty personal workspace can copy a request there (default writable target, auto collection)', async ({ page, browser }) => {
+    const ownerEmail = await registerUser(page, 'd103o');
+    const ctxV = await browser.newContext();
+    const pageV = await ctxV.newPage();
+    const viewerEmail = await registerUser(pageV, 'd103v');
+    const owner = await apiAs(ownerEmail);
+    const ws = await (await owner.post('/api/workspaces', { data: { name: `D103 ${Date.now()}` } })).json();
+    const wsId = ws.id ?? ws._id;
+    const col = await (await owner.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'D103Col' } })).json();
+    const r = await owner.post(`/api/collections/${col.id ?? col._id}/requests`, { data: { name: 'D103Req', method: 'GET', url: 'http://localhost/x', folderId: null } });
+    expect(r.ok(), await r.text()).toBeTruthy();
+    expect((await owner.post(`/api/workspaces/${wsId}/members`, { data: { email: viewerEmail, role: 'viewer' } })).ok()).toBeTruthy();
+
+    await pageV.reload();
+    await selectWorkspace(pageV, wsId);
+    await pageV.getByTestId('node-D103Col').click();
+    await expect(treeNode(pageV, 'D103Req')).toBeVisible();
+    await openNodeMenu(pageV, 'D103Req');
+    await pageV.getByTestId('action-menu-copy-to-workspace').click();
+    const modal = pageV.getByTestId('copy-to-workspace-modal');
+    await expect(modal).toBeVisible();
+    await expect(pageV.getByTestId('copy-target-workspace-select')).not.toHaveValue(wsId);
+    await pageV.getByTestId('copy-submit-btn').click();
+    await expect(modal).toBeHidden({ timeout: 10000 });
+
+    const vctx = await apiAs(viewerEmail);
+    const wss = await (await vctx.get('/api/workspaces')).json();
+    const list = Array.isArray(wss) ? wss : wss.workspaces;
+    const personal = list.find((w: any) => w.isPersonal);
+    const cols = await (await vctx.get(`/api/workspaces/${personal.id ?? personal._id}/collections`)).json();
+    expect(cols.length).toBeGreaterThan(0);
+    await ctxV.close();
   });
 });

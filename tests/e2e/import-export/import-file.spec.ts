@@ -1,4 +1,5 @@
-import { test, expect } from '../fixtures';
+import { test, expect, API_URL } from '../fixtures';
+import { request as pwRequest, type APIRequestContext, type Page } from '@playwright/test';
 import fs from 'fs';
 import { registerUser, treeNode, openNodeMenu, expectToast } from '../helpers';
 
@@ -191,5 +192,134 @@ test.describe('Import', () => {
     await page.getByTestId('import-submit').click();
     await expect(page.getByTestId('node-Renamed On Import')).toBeVisible();
     await expect(page.getByTestId('node-Original Name')).toHaveCount(0);
+  });
+});
+
+test.describe('Collection, OpenAPI and WSDL import (manual-test regressions)', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]|Error parsing data file/] });
+
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const ip = () => `10.${150 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+  const idOf = (o: any) => (o.id ?? o._id) as string;
+
+  async function anon(): Promise<APIRequestContext> {
+    return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+  }
+  async function newUser(prefix: string) {
+    const email = `${uniq(prefix)}@example.com`;
+    const ctx = await anon();
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+    expect(res.status(), 'register').toBe(201);
+    const wsList = await (await ctx.get('/api/workspaces')).json();
+    const ws = wsList.find((w: any) => w.isPersonal) ?? wsList[0];
+    const user = { ctx, email, wsId: idOf(ws) };
+    userByEmail.set(email, user);
+    return user;
+  }
+  type U = Awaited<ReturnType<typeof newUser>>;
+
+  /** Login rate limit (15/15min per IP) makes UI logins unusable here: reuse the API session cookie instead. */
+  const sessions = new Map<string, any[]>();
+  async function loginUi(page: Page, email: string) {
+    const u = userByEmail.get(email)!;
+    if (!sessions.has(email)) sessions.set(email, (await u.ctx.storageState()).cookies);
+    await page.context().addCookies(sessions.get(email)!);
+    await page.goto('/');
+    await expect(page.getByTestId('workspace-select')).toBeVisible();
+  }
+  const userByEmail = new Map<string, any>();
+
+
+    const postman = (name: string) => ({ info: { name, schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' }, item: [{ name: 'r', request: { method: 'GET', url: 'http://x.test' } }] });
+
+    const spec = `openapi: "3.0.0"
+info: { title: Sec API, version: "1" }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  schemas:
+    User:
+      type: object
+      properties: { name: { type: string }, age: { type: integer } }
+security: [ { bearerAuth: [] } ]
+paths:
+  /users:
+    post:
+      summary: Create user
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/User' }
+      responses: { '200': { description: ok } }
+`;
+    async function importOpenApiViaUi(page: Page, u: U) {
+      await loginUi(page, u.email);
+      await page.getByTestId('import-btn').click();
+      await page.getByTestId('import-tab-openapi').click();
+      await page.getByTestId('import-openapi-input').fill(spec);
+      await page.getByTestId('import-submit').click();
+      await expect.poll(async () => (await (await u.ctx.get(`/api/workspaces/${u.wsId}/collections`)).json()).length, {
+        message: 'import error: ' + (await page.getByTestId('import-error').textContent({ timeout: 100 }).catch(() => 'none')),
+        timeout: 8000,
+      }).toBe(1);
+      await page.waitForTimeout(1500);
+      const cols = await (await u.ctx.get(`/api/workspaces/${u.wsId}/collections`)).json();
+      const col = cols.find((c: any) => c.name === 'Sec API');
+      expect(col).toBeTruthy();
+      const reqs = await (await u.ctx.get(`/api/collections/${idOf(col)}/requests`)).json();
+      return { col, reqs };
+    }
+
+
+  test('[L1.9] importing the same file twice yields unique collection names', async () => {
+    const u = await newUser('l19');
+    for (let i = 0; i < 2; i++) {
+      const res = await u.ctx.post('/api/collections/import', { data: { workspaceId: u.wsId, collection: postman('Dup') } });
+      expect(res.ok(), await res.text()).toBeTruthy();
+    }
+    const cols = await (await u.ctx.get(`/api/workspaces/${u.wsId}/collections`)).json();
+    const names = cols.map((c: any) => c.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.length).toBe(2);
+  });
+
+  test('[L1.10] import dialog accepts multiple files', async ({ page }) => {
+    const u = await newUser('l110');
+    await loginUi(page, u.email);
+    await page.getByTestId('import-btn').click();
+    await expect(page.getByTestId('import-file-input')).toHaveAttribute('multiple', /.*/);
+  });
+
+  test('[L2.1] OpenAPI YAML import creates the request with servers/paths', async ({ page }) => {
+    const u = await newUser('l21');
+    const { reqs } = await importOpenApiViaUi(page, u);
+    expect(reqs.length).toBe(1);
+    expect(reqs[0].method).toBe('POST');
+    expect(reqs[0].url).toContain('/users');
+  });
+
+  test('[L2.3] OpenAPI import maps securitySchemes to request auth', async ({ page }) => {
+    const u = await newUser('l23');
+    const { col, reqs } = await importOpenApiViaUi(page, u);
+    const effective = reqs[0].auth?.type && reqs[0].auth.type !== 'none' ? reqs[0].auth : col.auth;
+    expect(effective?.type).toBe('bearer');
+  });
+
+  test('[L2.4] OpenAPI import resolves $ref in requestBody into a sample body', async ({ page }) => {
+    const u = await newUser('l24');
+    const { reqs } = await importOpenApiViaUi(page, u);
+    const raw = JSON.parse(reqs[0].body?.raw || '{}');
+    expect(Object.keys(raw)).toEqual(expect.arrayContaining(['name', 'age']));
+  });
+
+  test('[L4.5] WSDL import accepts pasted/uploaded document, not just URL', async ({ page }) => {
+    const u = await newUser('l45');
+    await loginUi(page, u.email);
+    await page.getByTestId('import-btn').click();
+    await page.getByTestId('import-tab-wsdl').click();
+    await expect(page.getByTestId('import-wsdl-text')).toBeVisible();
+    await expect(page.getByTestId('import-wsdl-file')).toBeAttached();
   });
 });

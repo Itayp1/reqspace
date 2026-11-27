@@ -1,6 +1,6 @@
 import { test, expect, API_URL } from '../fixtures';
 import { request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiAsAdmin } from '../helpers';
+import { apiAsAdmin, registerUser } from '../helpers';
 
 
 test.describe('Authentication', () => {
@@ -183,7 +183,7 @@ test.describe('session cookie dropped by the browser', () => {
 
 /**
  * (Admin-created users are always flagged mustChangePassword; the create schema rejects the field.)
- * A5.6 — while a user is flagged mustChangePassword, direct API calls (with a
+ * A5.6 ï¿½ while a user is flagged mustChangePassword, direct API calls (with a
  * valid session cookie) must be refused server-side with 403, except the few
  * endpoints the password-change flow itself needs.
  */
@@ -193,6 +193,15 @@ const ip = () => `10.${200 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Ma
 
 async function anon(): Promise<APIRequestContext> {
   return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+}
+
+async function newUser(prefix: string) {
+  const email = `${uniq(prefix)}@example.com`;
+  const ctx = await anon();
+  const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+  expect(res.status(), 'register').toBe(201);
+  const body = await res.json();
+  return { ctx, email, id: (body.user?.id ?? body.user?._id) as string };
 }
 
 test.describe('A5.6 forced password change enforced server-side', () => {
@@ -231,5 +240,40 @@ test.describe('A5.6 forced password change enforced server-side', () => {
     });
     expect(change.status(), 'change-password').toBe(200);
     expect((await ctx.get('/api/workspaces')).status(), 'after change').toBe(200);
+  });
+});
+
+test.describe('A â€” auth & accounts (UI / sockets)', () => {
+  test.use({ allowFpErrors: [/Network Error/] });
+
+  test('[A1.10] double-clicking Sign In sends a single login request', async ({ page }) => {
+    const { email } = await newUser('a110');
+    let logins = 0;
+    await page.route('**/api/auth/login', async route => {
+      logins++;
+      await new Promise(r => setTimeout(r, 400));
+      await route.continue();
+    });
+    await page.goto('/login');
+    await page.getByTestId('login-email').fill(email);
+    await page.getByTestId('login-password').fill('password123');
+    await page.getByTestId('login-submit').dblclick();
+    await expect(page.getByTestId('workspace-select')).toBeVisible();
+    expect(logins).toBe(1);
+  });
+
+  test('[A1.11] a signed-in user opening /login is sent to the app', async ({ page }) => {
+    await registerUser(page, 'a111');
+    await page.goto('/login');
+    await expect(page.getByTestId('workspace-select')).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
+  test('[A4.6] logging out while offline still clears the session and lands on /login', async ({ page }) => {
+    await registerUser(page, 'a46');
+    // The logout request fails at the network level (server unreachable).
+    await page.route('**/api/auth/logout', route => route.abort('internetdisconnected'));
+    await page.getByTestId('logout-btn').click();
+    await expect(page).toHaveURL(/\/login/);
   });
 });

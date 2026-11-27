@@ -1,5 +1,6 @@
-import { test, expect } from '../fixtures';
-import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, apiAs, startNewRequest } from '../helpers';
+import { test, expect, API_URL } from '../fixtures';
+import { request as pwRequest, type APIRequestContext, type Page } from '@playwright/test';
+import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, apiAs, startNewRequest, selectWorkspace } from '../helpers';
 
 /**
  * Sidebar tree operations that were broken or untested:
@@ -172,4 +173,170 @@ test('[QA-44] drag request onto sibling reorders and persists', async ({ page })
     const reqs: any[] = await (await page.request.get(`/api/collections/${cid}/requests`)).json();
     expect(reqs.sort((a, b) => a.order - b.order).map(r => r.name)).toEqual(['R-C', 'R-A', 'R-B']);
   }).toPass();
+});
+
+test.describe('Tree tabs, filter and duplicate (UI)', () => {
+  test.use({ allowFpErrors: [/Network Error/] });
+
+  const idOf = (o: any): string => o.id ?? o._id;
+
+  async function seedTreeUser(page: Page, prefix: string) {
+    const email = await registerUser(page, prefix);
+    const api = await apiAs(email);
+    const wsList = await (await api.get('/api/workspaces')).json();
+    const ws = wsList.find((w: any) => w.isPersonal) ?? wsList[0];
+    return { email, api, wsId: idOf(ws) };
+  }
+  const tabs = (page: Page, text: string) => page.locator('[data-testid^="tab-"]').filter({ hasText: text });
+  const menuItem = (page: Page, re: RegExp) => page.locator('[data-testid^="action-menu-"]', { hasText: re }).first();
+
+  test('[C2.4] renaming a request in the tree updates its open tab title', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c24');
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C24' } })).json();
+    await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: 'OldReq', method: 'GET', url: 'https://c24.test' } });
+    await page.reload();
+    await treeNode(page, 'C24').click();
+    await page.getByTestId('node-OldReq').click();
+    await expect(tabs(page, 'OldReq')).toHaveCount(1);
+    await treeNode(page, 'OldReq').dblclick();
+    await page.getByTestId('inline-rename-input').fill('NewReq');
+    await page.getByTestId('inline-rename-input').press('Enter');
+    await expect(page.getByTestId('node-NewReq')).toBeVisible();
+    await expect(tabs(page, 'NewReq')).toHaveCount(1);
+    await expect(tabs(page, 'OldReq')).toHaveCount(0);
+  });
+
+  test('[C3.1] deleting a request closes (or marks) its open tab, so Save cannot 404', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c31');
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C31' } })).json();
+    await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: 'Doomed', method: 'GET', url: 'https://c31.test' } });
+    await page.reload();
+    await treeNode(page, 'C31').click();
+    await page.getByTestId('node-Doomed').click();
+    await expect(tabs(page, 'Doomed')).toHaveCount(1);
+    await openNodeMenu(page, 'Doomed');
+    await menuItem(page, /delete/i).click();
+    await page.getByTestId('confirm-btn').click();
+    await expect(page.getByTestId('node-Doomed')).toHaveCount(0);
+    await expect(tabs(page, 'Doomed')).toHaveCount(0);
+  });
+
+  test('[C7.1] filter shows the matching request inside an auto-opened folder, and nothing unrelated', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c71');
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C71' } })).json();
+    const folder = await (await api.post(`/api/collections/${idOf(col)}/folders`, { data: { name: 'F1' } })).json();
+    await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: 'copy me', method: 'GET', url: 'https://a.test', folderId: idOf(folder) } });
+    await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: 'Health', method: 'GET', url: 'https://health.test' } });
+    await page.reload();
+    await page.getByPlaceholder('Filter requests...').fill('copy');
+    await expect(page.getByTestId('node-copy me')).toBeVisible();
+    await expect(page.getByTestId('node-Health')).toHaveCount(0);
+  });
+
+  test('[C7.2] tree filter is case-insensitive', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c72');
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C72' } })).json();
+    await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: 'lowercasereq', method: 'GET', url: 'https://l.test' } });
+    await page.reload();
+    await page.getByPlaceholder('Filter requests...').fill('LOWERCASE');
+    await expect(page.getByTestId('node-lowercasereq')).toBeVisible();
+  });
+
+  test('[C7.6] typing in the filter of a large tree stays responsive (<200ms per keystroke)', async ({ page }) => {
+    test.setTimeout(240_000);
+    const { api, wsId } = await seedTreeUser(page, 'c76');
+    const items = Array.from({ length: 2000 }, (_, i) => ({ name: `bulk request ${i}`, request: { method: 'GET', url: { raw: `https://bulk.test/${i}` } } }));
+    const imp = await api.post('/api/collections/import', {
+      data: { workspaceId: wsId, collection: { info: { name: 'Big', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' }, item: items } },
+    });
+    expect(imp.ok(), await imp.text()).toBeTruthy();
+    await page.reload();
+    await treeNode(page, 'Big').click();
+    await expect(page.getByTestId('node-bulk request 5')).toBeVisible();
+    const lat = await page.evaluate(async () => {
+      const el = document.querySelector('input[placeholder="Filter requests..."]') as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      const times: number[] = [];
+      let v = '';
+      for (const ch of 'bulk req') {
+        v += ch;
+        const t0 = performance.now();
+        setter.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+        times.push(performance.now() - t0);
+        await new Promise(r => setTimeout(r, 250));
+      }
+      return times;
+    });
+    const max = Math.max(...lat);
+    expect(max, `latencies ${lat.map(x => Math.round(x)).join(',')}`).toBeLessThan(200);
+  });
+
+  test('[C10.4] duplicating a request twice yields distinct names', async ({ page }) => {
+    const { api, wsId } = await seedTreeUser(page, 'c104');
+    const col = await (await api.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C104' } })).json();
+    await api.post(`/api/collections/${idOf(col)}/requests`, { data: { name: 'GetUser', method: 'GET', url: 'https://u.test' } });
+    await page.reload();
+    await treeNode(page, 'C104').click();
+    for (let i = 0; i < 2; i++) {
+      await openNodeMenu(page, 'GetUser');
+      await menuItem(page, /duplicate/i).click();
+      await expect(page.locator('[data-testid^="node-GetUser"]')).toHaveCount(i + 2);
+    }
+    const names = await page.locator('[data-testid^="node-GetUser"]').evaluateAll(els => els.map(e => e.getAttribute('data-testid')));
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+test.describe('Tree operations (API)', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const ip = () => `10.${200 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+
+  async function anon(): Promise<APIRequestContext> {
+    return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+  }
+
+  async function newUser(prefix: string) {
+    const email = `${uniq(prefix)}@example.com`;
+    const ctx = await anon();
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+    expect(res.status(), 'register').toBe(201);
+    const body = await res.json();
+    return { ctx, email, id: (body.user?.id ?? body.user?._id) as string };
+  }
+
+  async function newWorkspace(ctx: APIRequestContext, name = uniq('ws')) {
+    const res = await ctx.post('/api/workspaces', { data: { name } });
+    expect(res.ok(), 'create workspace').toBeTruthy();
+    const ws = await res.json();
+    return (ws.id ?? ws._id) as string;
+  }
+
+
+  test('[C2.2] renaming to an empty / whitespace-only name is rejected', async () => {
+    const { ctx } = await newUser('c22');
+    const wsId = await newWorkspace(ctx);
+    const col = await (await ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C' } })).json();
+    const colId = col.id ?? col._id;
+    expect((await ctx.put(`/api/collections/${colId}`, { data: { name: '   ' } })).status()).toBe(400);
+    expect((await ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: '   ' } })).status()).toBe(400);
+  });
+
+  test('[C3.5] deleting a request nested in a folder and one at the root both work', async () => {
+    const { ctx } = await newUser('c35');
+    const wsId = await newWorkspace(ctx);
+    const col = await (await ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C' } })).json();
+    const colId = col.id ?? col._id;
+    const folder = await (await ctx.post(`/api/collections/${colId}/folders`, { data: { name: 'F' } })).json();
+    const nested = await (await ctx.post(`/api/collections/${colId}/requests`, { data: { name: 'N', method: 'GET', url: 'http://x', folderId: folder.id ?? folder._id } })).json();
+    const root = await (await ctx.post(`/api/collections/${colId}/requests`, { data: { name: 'R', method: 'GET', url: 'http://x' } })).json();
+    expect((await ctx.delete(`/api/requests/${nested.id ?? nested._id}`)).status()).toBe(200);
+    expect((await ctx.delete(`/api/requests/${root.id ?? root._id}`)).status()).toBe(200);
+    expect((await ctx.get(`/api/requests/${nested.id ?? nested._id}`)).status()).toBe(404);
+  });
 });

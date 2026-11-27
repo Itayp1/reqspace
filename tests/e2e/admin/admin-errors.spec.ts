@@ -1,4 +1,5 @@
 import { test, expect, API_URL } from '../fixtures';
+import { request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { loginAdminUi, apiAsAdmin, expectToast } from '../helpers';
 
 async function openAdminTab(page: import('@playwright/test').Page, tab: string) {
@@ -115,4 +116,56 @@ test('resolving an error group with a 64-char fingerprint succeeds and writes it
   const fingerprint = 'a'.repeat(64);
   const res = await admin.delete(`/api/admin/errors/${fingerprint}`);
   expect(res.status(), await res.text()).toBe(200);
+});
+
+let seq2 = 0;
+const uniq = (p: string) => `${p}_${Date.now()}_${seq2++}_${Math.floor(Math.random() * 1e5)}`;
+const ip2 = () => `10.${150 + (seq2 % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+async function anon(): Promise<APIRequestContext> {
+  return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip2() } });
+}
+
+test.describe('Admin errors (API, rate limit)', () => {
+  test.use({ allowFpErrors: [/probe d+/] });
+
+  test('[Q7.5] POST /api/errors is rate limited when unauthenticated @ratelimit', async () => {
+    test.skip(process.env.DISABLE_RATE_LIMIT === 'true', 'needs the limiters on: DISABLE_RATE_LIMIT=false npx playwright test -g @ratelimit');
+    const ctx = await anon();
+    let limited = false;
+    for (let i = 0; i < 60 && !limited; i++) {
+      const res = await ctx.post('/api/errors', { data: { kind: 'window.error', message: `probe ${i}`, route: '/qa' } });
+      if (res.status() === 429) limited = true;
+    }
+    expect(limited).toBe(true);
+  });
+});
+
+test.describe('Admin errors (API, sort and dedupe)', () => {
+  test.use({ allowFpErrors: [/q74 dedupe probe/] });
+
+  test('[Q7.2] the errors list can be sorted and bounded by date', async () => {
+    const admin = await apiAsAdmin();
+    for (const q of ['sort=count&dir=desc', 'sort=firstSeen&dir=asc', `since=${encodeURIComponent(new Date(Date.now() - 3600_000).toISOString())}`, `until=${encodeURIComponent(new Date().toISOString())}`]) {
+      const res = await admin.get(`/api/admin/errors?${q}`);
+      expect(res.status(), q).toBe(200);
+    }
+  });
+
+  test.describe('Q7.4 dedupe', () => {
+    test('[Q7.4] the same client error reported repeatedly is one group with a total count', async () => {
+      const ctx = await anon();
+      const msg = `q74 dedupe probe ${uniq('m')}`;
+      const since = new Date(Date.now() - 1000).toISOString();
+      for (let i = 0; i < 5; i++) {
+        await ctx.post('/api/errors', { data: { kind: 'window.error', message: msg, route: '/qa-q74' } });
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+      const admin = await apiAsAdmin();
+      const body = await (await admin.get(`/api/admin/errors?since=${encodeURIComponent(since)}`)).json();
+      const groups: any[] = Array.isArray(body) ? body : body.groups ?? body.errors ?? body.items;
+      const mine = groups.filter((g) => String(g.message).includes(msg));
+      expect(mine).toHaveLength(1);
+      expect(mine[0].count).toBe(5);
+    });
+  });
 });

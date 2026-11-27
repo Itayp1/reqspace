@@ -1,5 +1,6 @@
-import { expandAdminSections, test, expect } from '../fixtures';
-import { startNewRequest, expectWorkspaceListed } from '../helpers';
+import { test, expect, API_URL, expandAdminSections } from '../fixtures';
+import { request as pwRequest, type APIRequestContext } from '@playwright/test';
+import { startNewRequest, expectWorkspaceListed, apiAsAdmin } from '../helpers';
 
 test.describe('Import / Export', () => {
   test('should export workspace data and import it successfully', async ({ page }) => {
@@ -103,5 +104,52 @@ test.describe('Import / Export', () => {
     
     // Check if imported collection exists
     await expect(page.locator(`text=Imported Collection ${ts}`)).toBeVisible();
+  });
+});
+
+test.describe('Admin dump import / export (API)', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]|Error parsing data file/] });
+
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const ip = () => `10.${150 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+  const idOf = (o: any) => (o.id ?? o._id) as string;
+
+  async function anon(): Promise<APIRequestContext> {
+    return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+  }
+  async function newUser(prefix: string) {
+    const email = `${uniq(prefix)}@example.com`;
+    const ctx = await anon();
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+    expect(res.status(), 'register').toBe(201);
+    const wsList = await (await ctx.get('/api/workspaces')).json();
+    const ws = wsList.find((w: any) => w.isPersonal) ?? wsList[0];
+    return { ctx, email, wsId: idOf(ws) };
+  }
+  async function mkCollection(ctx: APIRequestContext, wsId: string, name: string) {
+    const col = await (await ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name } })).json();
+    return { colId: idOf(col) };
+  }
+
+  test('[L5.3] importing a workspace dump into a non-empty workspace needs an explicit mode', async () => {
+    const admin = await apiAsAdmin();
+    const u = await newUser('l53');
+    await mkCollection(u.ctx, u.wsId, 'Existing');
+    const dump = await (await admin.get(`/api/admin/export/${u.wsId}`)).json();
+    const res = await admin.post(`/api/admin/import/${u.wsId}`, { data: dump });
+    expect(res.status()).toBe(409);
+    const cols = await (await u.ctx.get(`/api/workspaces/${u.wsId}/collections`)).json();
+    expect(cols.length).toBe(1);
+  });
+
+  test('[L5.5] workspace dump does not contain secret variable values in plaintext by default', async () => {
+    const admin = await apiAsAdmin();
+    const u = await newUser('l55');
+    const env = await u.ctx.post(`/api/workspaces/${u.wsId}/environments`, { data: { name: 'E', variables: [{ key: 'tok', value: 'S3CR3T-VALUE', isSecret: true, enabled: true }] } });
+    expect(env.ok(), await env.text()).toBeTruthy();
+    const text = await (await admin.get(`/api/admin/export/${u.wsId}`)).text();
+    expect(text).not.toContain('S3CR3T-VALUE');
   });
 });

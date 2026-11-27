@@ -261,3 +261,82 @@ test.describe('Admin settings that change the saved config', () => {
     await expect(page.getByText('Config saved')).toBeVisible();
   });
 });
+
+test.describe('Admin settings (API validation)', () => {
+  test.use({ allowFpErrors: [/probe d+/] });
+
+  test('[Q8.3] system config rejects negative / non-numeric / absurd values', async () => {
+    const admin = await apiAsAdmin();
+    for (const bad of [-1, 'x', 100000]) {
+      const res = await admin.put('/api/admin/config', { data: { auth: { jwtTtlDays: bad } } });
+      expect(res.status(), String(bad)).toBe(400);
+    }
+  });
+
+  test('[Q9.6] a double click on SMTP Test Connection does not run two checks', async () => {
+    const admin = await apiAsAdmin();
+    const [a, b] = await Promise.all([
+      admin.post('/api/admin/test-smtp', { data: { host: '127.0.0.1', port: 25 } }),
+      admin.post('/api/admin/test-smtp', { data: { host: '127.0.0.1', port: 25 } }),
+    ]);
+    // A coalesced / rejected duplicate answers 409 or 429; the first answers 400/200.
+    expect([a.status(), b.status()].some((s) => s === 409 || s === 429)).toBe(true);
+  });
+});
+
+test.describe('Admin settings (API history and SMTP)', () => {
+  test.use({ allowFpErrors: [/q74 dedupe probe/] });
+
+  test('[Q8.1] system config accepts history maxRecords / retentionDays and rejects negatives', async () => {
+    const admin = await apiAsAdmin();
+    const before = await (await admin.get('/api/admin/config')).json();
+    const ok = await admin.put('/api/admin/config', { data: { history: { maxRecords: 500, retentionDays: 30 } } });
+    expect(ok.status()).toBe(200);
+    const cfg = await (await admin.get('/api/admin/config')).json();
+    expect(cfg.history.maxRecords).toBe(500);
+    expect(cfg.history.retentionDays).toBe(30);
+    expect((await admin.put('/api/admin/config', { data: { history: { maxRecords: -1 } } })).status()).toBe(400);
+    await admin.put('/api/admin/config', { data: { history: { maxRecords: before.history?.maxRecords ?? 0, retentionDays: before.history?.retentionDays ?? 0 } } });
+  });
+
+  test('[Q9.1] SMTP test reports a detailed connection error and never echoes the password', async () => {
+    const admin = await apiAsAdmin();
+    const before = await (await admin.get('/api/admin/config')).json();
+    try {
+      await admin.put('/api/admin/config', { data: { proxy: { allowPrivateTargets: true } } });
+      const secret = 'S3cr3tPassw0rd!zz';
+      const res = await admin.post('/api/admin/test-smtp', { data: { host: '127.0.0.1', port: 1, user: 'u', pass: secret } });
+      const text = await res.text();
+      expect(text).not.toContain(secret);
+      expect(text).toMatch(/ECONNREFUSED|refused|timeout|connect/i);
+    } finally {
+      await admin.put('/api/admin/config', { data: { proxy: { allowPrivateTargets: before.proxy?.allowPrivateTargets ?? false } } });
+    }
+  });
+});
+
+test.describe('Manual-pass bugs (admin settings)', () => {
+  test('BUG-04: SMTP Test Connection with an empty host names the missing field', async ({ page }) => {
+    await loginAdminUi(page);
+    await page.goto('/admin');
+    await page.getByTestId('admin-tab-settings').click();
+    await expandAdminSections(page);
+    const smtp = page.getByTestId('admin-smtp-enabled');
+    if (!(await smtp.isChecked())) await smtp.check();
+    await page.getByTestId('admin-smtp-host').fill('');
+    await page.getByTestId('admin-smtp-test').click();
+    await expect(page.getByTestId('toast-error').filter({ hasText: /host/i }).first()).toBeVisible();
+  });
+});
+
+// Moved from oauth/oauth-custom.spec.ts (consolidation): pure admin config validation.
+test.describe('Custom OAuth2 / OIDC provider (mock identity provider)', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  test('the admin API rejects a non-http(s) provider URL', async () => {
+    const admin = await apiAsAdmin();
+    const res = await admin.put('/api/admin/config', { data: { auth: { customOAuth: { authorizeUrl: 'javascript:alert(1)' } } } });
+    expect(res.status()).toBe(400);
+  });
+});

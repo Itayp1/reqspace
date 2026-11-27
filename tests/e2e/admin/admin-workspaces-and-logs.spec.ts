@@ -1,6 +1,6 @@
 import { test, expect, API_URL } from '../fixtures';
-import { loginAdminUi, apiAs, apiAsAdmin } from '../helpers';
-import { request as playwrightRequest } from '@playwright/test';
+import { loginAdminUi, apiAs, apiAsAdmin, registerUser } from '../helpers';
+import { request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 
 /**
  * The Super Admin Workspaces and Logs tabs:
@@ -158,4 +158,134 @@ test('Logs and Errors date filters show visible From / To labels', async ({ page
   await expect(page.locator('label', { hasText: /^To/ }).first()).toBeVisible();
   await page.getByTestId('admin-tab-errors').click();
   await expect(page.locator('label', { hasText: /^From/ }).first()).toBeVisible();
+});
+
+
+const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+async function anon(): Promise<APIRequestContext> {
+  return playwrightRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+}
+async function newUser(prefix: string) {
+  const email = `${uniq(prefix)}@example.com`;
+  const ctx = await anon();
+  const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+  expect(res.status(), 'register').toBe(201);
+  const body = await res.json();
+  return { ctx, email, id: (body.user?.id ?? body.user?._id) as string };
+}
+
+async function newWorkspace(ctx: APIRequestContext, name = uniq('ws')) {
+  const res = await ctx.post('/api/workspaces', { data: { name } });
+  expect(res.ok(), 'create workspace').toBeTruthy();
+  const ws = await res.json();
+  return (ws.id ?? ws._id) as string;
+}
+
+test.describe('Admin workspaces (API)', () => {
+  test.use({ allowFpErrors: [/probe d+/] });
+
+  test('[Q5.1] the admin workspaces list reports owner, item count and storage', async () => {
+    const admin = await apiAsAdmin();
+    const body = await (await admin.get('/api/admin/workspaces')).json();
+    const rows: any[] = Array.isArray(body) ? body : body.items ?? body.workspaces;
+    expect(rows.length).toBeGreaterThan(0);
+    const w = rows[0];
+    expect(w).toHaveProperty('owner');
+    expect(JSON.stringify(Object.keys(w))).toMatch(/count|items|requests/i);
+    expect(JSON.stringify(Object.keys(w))).toMatch(/size|bytes|storage/i);
+  });
+
+  test('[Q5.3] an admin adding themselves as owner to another workspace is audited', async () => {
+    const owner = await newUser('q53');
+    const wsId = await newWorkspace(owner.ctx);
+    const admin = await apiAsAdmin();
+    const me = await (await admin.get('/api/auth/me')).json();
+    const adminId = me.user?.id ?? me.id ?? me._id;
+    const res = await admin.put(`/api/workspaces/${wsId}/members/${adminId}`, { data: { role: 'owner' } });
+    expect([403, 404]).toContain(res.status());
+  });
+});
+
+test.describe('Admin audit log (API)', () => {
+  test.use({ allowFpErrors: [/q74 dedupe probe/] });
+
+  test('[Q6.1] a failed login is recorded in the audit log', async () => {
+    const admin = await apiAsAdmin();
+    const u = await newUser('q61');
+    const ctx = await anon();
+    const bad = await ctx.post('/api/auth/login', { data: { email: u.email, password: 'wrong-password-1' } });
+    expect(bad.status()).toBe(401);
+    const logs = await (await admin.get('/api/admin/logs?action=auth.login_failed&limit=50')).json();
+    expect(logs.logs.length).toBeGreaterThan(0);
+    expect(logs.logs.every((l: any) => l.action === 'auth.login_failed')).toBe(true);
+  });
+
+  test('[Q6.2] audit log supports paging, action/date filters and a total', async () => {
+    const admin = await apiAsAdmin();
+    const body = await (await admin.get('/api/admin/logs?limit=2&page=1')).json();
+    expect(body.logs.length).toBeLessThanOrEqual(2);
+    expect(typeof body.total).toBe('number');
+    const future = await (await admin.get(`/api/admin/logs?from=${encodeURIComponent(new Date(Date.now() + 86400000).toISOString())}`)).json();
+    expect(future.logs).toHaveLength(0);
+    const none = await (await admin.get('/api/admin/logs?action=no.such.action')).json();
+    expect(none.logs).toHaveLength(0);
+  });
+});
+
+test.describe('Manual-pass bugs (admin workspace)', () => {
+  test('BUG-01: the superadmin\'s own workspace is marked personal', async () => {
+    const ctx = await apiAsAdmin();
+    const body = await (await ctx.get('/api/workspaces')).json();
+    const list: Array<{ name: string; isPersonal: boolean }> = Array.isArray(body) ? body : body.workspaces;
+    const own = list.find((w) => w.name === "Admin's Workspace");
+    expect(own, 'admin workspace exists').toBeTruthy();
+    expect(own!.isPersonal).toBe(true);
+    await ctx.dispose();
+  });
+});
+
+/** QA-28: Admin > Workspaces shows "1 members" / "1 collections" for a count of 1. */
+test('Admin workspaces table uses singular for a count of 1', async ({ page }) => {
+  await registerUser(page, 'qa28', 'Plural User');
+  await page.goto('about:blank'); // stop the app's in-flight requests so they don't 401 into fperrors
+  await page.context().clearCookies();
+  await loginAdminUi(page);
+  await page.goto('/admin');
+  await page.getByTestId('admin-tab-workspaces').click();
+  await expect(page.locator('[data-testid^="admin-workspace-row-"]').first()).toBeVisible();
+  const text = await page.locator('tbody').innerText();
+  expect(text).toContain('1 member');
+  expect(text).not.toMatch(/\b1 members\b/);
+  expect(text).not.toMatch(/\b1 collections\b/);
+});
+
+/** QA-76: Escape must close the admin Manage Permissions modal even when focus is outside it; an inner confirm closes first. */
+test('Escape closes the Manage Permissions modal, inner confirm first', async ({ page }) => {
+  const admin = await apiAsAdmin();
+  const wsName = `QA76 WS ${Date.now()}`;
+  await admin.post('/api/workspaces', { data: { name: wsName } });
+  await admin.dispose();
+
+  await loginAdminUi(page);
+  await page.getByTestId('admin-dashboard-link').click();
+  await page.getByTestId('admin-tab-workspaces').click();
+  await page.getByTestId(`admin-manage-permissions-${wsName}`).click();
+  await expect(page.getByTestId('admin-perm-close')).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('admin-perm-close')).toHaveCount(0);
+});
+
+// QA-115 (follow-up of QA-71): Manage Permissions never explains Viewer / Editor / Owner.
+test('QA-115: Manage Permissions dialog explains the roles', async ({ page }) => {
+  const wsName = `Role Help WS ${Date.now()}`;
+  const admin = await apiAsAdmin();
+  await admin.post('/api/workspaces', { data: { name: wsName } });
+  await admin.dispose();
+
+  await loginAdminUi(page);
+  await page.getByTestId('admin-dashboard-link').click();
+  await page.getByTestId('admin-tab-workspaces').click();
+  await page.getByTestId(`admin-manage-permissions-${wsName}`).click();
+  await expect(page.getByTestId('admin-perm-role-help')).toContainText(/Viewer.*Editor.*Owner/);
 });

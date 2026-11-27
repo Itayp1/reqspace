@@ -1,4 +1,5 @@
 import { test, expect, request as pwRequest, API_URL } from '../fixtures';
+import type { APIRequestContext } from '@playwright/test';
 import { loginAdminUi, apiAs, apiAsAdmin, expectToast } from '../helpers';
 
 /**
@@ -181,4 +182,127 @@ test('admin user search finds an email that contains an underscore', async () =>
   // A literal wildcard must not widen the match: `%` alone matches no email here.
   const wild = await (await admin.get(`/api/admin/users?search=${encodeURIComponent('%' + tag)}`)).json();
   expect(wild.users).toHaveLength(0);
+});
+
+let seq2 = 0;
+const uniq = (p: string) => `${p}_${Date.now()}_${seq2++}_${Math.floor(Math.random() * 1e5)}`;
+const ip2 = () => `10.${150 + (seq2 % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+async function anon(): Promise<APIRequestContext> {
+  return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip2() } });
+}
+async function newUser(prefix: string) {
+  const email = `${uniq(prefix)}@example.com`;
+  const ctx = await anon();
+  const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+  expect(res.status(), 'register').toBe(201);
+  const body = await res.json();
+  return { ctx, email, id: (body.user?.id ?? body.user?._id) as string };
+}
+
+test.describe('Admin users (API, never leaks secrets)', () => {
+  test.use({ allowFpErrors: [/probe d+/] });
+
+  test('[Q1.5] GET /api/admin/users never exposes passwordHash', async () => {
+    const admin = await apiAsAdmin();
+    const text = await (await admin.get('/api/admin/users')).text();
+    expect(text).not.toContain('passwordHash');
+    expect(text).not.toMatch(/\$2[aby]\$/);
+  });
+});
+
+test.describe('Admin users (API, concurrent revoke)', () => {
+  test.use({ allowFpErrors: [/q74 dedupe probe/] });
+
+  test('[Q2.5] two admins revoking each other concurrently leave at least one super admin', async () => {
+    const admin = await apiAsAdmin();
+    const a = await newUser('q25a');
+    const b = await newUser('q25b');
+    expect((await admin.post(`/api/admin/users/${a.id}/promote`, { data: {} })).ok()).toBeTruthy();
+    expect((await admin.post(`/api/admin/users/${b.id}/promote`, { data: {} })).ok()).toBeTruthy();
+    const [r1, r2] = await Promise.all([
+      a.ctx.post(`/api/admin/users/${b.id}/revoke`, { data: {} }),
+      b.ctx.post(`/api/admin/users/${a.id}/revoke`, { data: {} }),
+    ]);
+    expect([r1.status(), r2.status()].every((s) => s < 500)).toBe(true);
+    // The list is cursor-paginated; the seeded admin is found by search so the check does not depend on page 1.
+    const users = await (await admin.get('/api/admin/users?search=admin&limit=200')).json();
+    const list: any[] = Array.isArray(users) ? users : users.users ?? users.items;
+    expect(list.filter((u) => u.isSuperAdmin).length).toBeGreaterThanOrEqual(1);
+    for (const id of [a.id, b.id]) await admin.post(`/api/admin/users/${id}/revoke`, { data: {} });
+  });
+});
+
+// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+test.describe('Admin add-user modal', () => {
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+  test.describe.configure({ mode: 'serial' });
+
+  const ts = Date.now();
+
+  test('an admin can create a user who can then log in', async ({ page, browser }) => {
+    const newEmail = `created_${ts}@example.com`;
+
+    await page.goto('/login');
+    await page.getByTestId('login-email').fill('admin');
+    await page.getByTestId('login-password').fill('admin123456');
+    await page.getByTestId('login-submit').click();
+    await expect(page).toHaveURL(/.*\/$/);
+
+    await page.getByTestId('admin-dashboard-link').click();
+    await expect(page.getByTestId('admin-dashboard-title')).toBeVisible();
+
+    await page.getByTestId("admin-add-user-btn").click();
+    const modal = page.getByTestId('add-user-modal');
+    await expect(modal).toBeVisible();
+    await page.getByTestId('add-user-name').fill('Created User');
+    await page.getByTestId('add-user-email').fill(newEmail);
+    await page.getByTestId('add-user-password').fill('created-password-1');
+    await page.getByTestId('add-user-submit-btn').click();
+    await expect(modal).toBeHidden();
+
+    await expect(page.locator('tr[data-testid^="user-row-"]').filter({ hasText: newEmail })).toBeVisible();
+
+    // Still there after a reload, i.e. actually created rather than appended
+    // to the table in memory.
+    await page.reload();
+    await expect(page.getByTestId('admin-dashboard-title')).toBeVisible();
+    await expect(page.locator('tr[data-testid^="user-row-"]').filter({ hasText: newEmail })).toBeVisible();
+
+    // The strongest proof the user exists: they can sign in.
+    const ctx = await browser.newContext();
+    const fresh = await ctx.newPage();
+    await fresh.goto('/login');
+    await fresh.getByTestId('login-email').fill(newEmail);
+    await fresh.getByTestId('login-password').fill('created-password-1');
+    await fresh.getByTestId('login-submit').click();
+    // Admin-created accounts are forced to change their password on first use.
+    const forced = fresh.getByTestId('new-password-input');
+    if (await forced.isVisible({ timeout: 8000 }).catch(() => false)) {
+      await forced.fill('changed-password-1');
+      await fresh.getByTestId('confirm-password-input').fill('changed-password-1');
+      await fresh.getByTestId('change-password-submit').click();
+      await expect(forced).toBeHidden();
+    }
+    await expect(fresh.getByTestId('workspace-select')).toBeVisible();
+    await ctx.close();
+  });
+
+  test('a duplicate email is rejected with a message, not silently', async ({ page }) => {
+    await page.goto('/login');
+    await page.getByTestId('login-email').fill('admin');
+    await page.getByTestId('login-password').fill('admin123456');
+    await page.getByTestId('login-submit').click();
+    await page.getByTestId('admin-dashboard-link').click();
+    await expect(page.getByTestId('admin-dashboard-title')).toBeVisible();
+
+    await page.getByTestId("admin-add-user-btn").click();
+    await page.getByTestId('add-user-name').fill('Duplicate');
+    await page.getByTestId('add-user-email').fill(`created_${ts}@example.com`);
+    await page.getByTestId('add-user-password').fill('another-password-1');
+    await page.getByTestId('add-user-submit-btn').click();
+
+    // The modal stays open and says why.
+    await expect(page.getByTestId('add-user-modal')).toBeVisible();
+    await expect(page.getByTestId('add-user-modal').getByRole('alert')).toBeVisible();
+  });
 });
