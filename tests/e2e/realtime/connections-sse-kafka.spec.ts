@@ -60,7 +60,7 @@ test.describe('Connection Tabs', () => {
 
     await page.getByTestId('new-connection-btn').click();
     await page.getByTestId('connection-protocol-select').selectOption('SSE');
-    await page.getByTestId('connection-url-input').fill('http://localhost:5173/sse-stream');
+    await page.getByTestId('connection-url-input').fill(`${new URL(page.url()).origin}/sse-stream`);
     await page.getByTestId('connection-connect-btn').click();
 
     const received = page.getByTestId('connection-msg-received');

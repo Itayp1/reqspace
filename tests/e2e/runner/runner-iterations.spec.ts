@@ -177,10 +177,10 @@ async function newUser() {
 
 async function loginWithCookies(page: Page, ctx: APIRequestContext) {
   await page.context().addCookies((await ctx.storageState()).cookies);
-  // The server's CSRF check only whitelists the dev origin :5173; this run's client is on another port.
+  // The server's CSRF check only accepts the Origin of the client port.
   await page.context().route('**/api/**', async (r) => {
     if (r.request().method() === 'GET') return r.fallback();
-    try { const res = await r.fetch({ headers: { ...r.request().headers(), origin: 'http://localhost:5173' } }); await r.fulfill({ response: res }); } catch { /* page closed */ }
+    try { const res = await r.fetch({ headers: { ...r.request().headers(), origin: new URL(page.url()).origin } }); await r.fulfill({ response: res }); } catch { /* page closed */ }
   });
   await page.goto('/');
   await expect(page.getByTestId('workspace-select')).toBeVisible();

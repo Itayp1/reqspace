@@ -210,3 +210,20 @@ test.describe('bundle size', () => {
     }
   });
 });
+
+test.describe('server and build source checks', () => {
+  const ROOT = path.join(__dirname, '..', '..', '..');
+  const src = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
+
+  test('[R3.7] concurrent servers on one DB are protected by a migration lock', async () => {
+    expect(src('server/src/db/connect.ts')).toContain('reqspace_migration_lock');
+  });
+
+  test('[R6.6] Monaco is loaded lazily, not statically imported by the entry bundle', async () => {
+    const lazy = src('client/src/components/common/LazyEditor.tsx');
+    expect(lazy).toMatch(/lazy\(|import\(/);
+    expect(lazy).toContain('monacoEditorImpl');
+    expect(lazy).not.toMatch(/^import .* from ['"]\.\/monacoEditorImpl['"]/m);
+    expect(lazy).not.toMatch(/^import (?!type).* from ['"]@monaco-editor\/react['"]/m);
+  });
+});

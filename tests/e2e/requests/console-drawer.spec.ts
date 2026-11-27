@@ -1,4 +1,7 @@
 import { test, expect } from '../fixtures';
+import { type Page } from '@playwright/test';
+import { registerUser } from '../helpers';
+import { mockServer, scene } from '../scene';
 import { registerAndOpenRequest } from './seed';
 
 test.describe('Cookies & Console', () => {
@@ -77,4 +80,54 @@ test.describe('Cookies & Console', () => {
     await expect(details).toContainText('value');
     await expect(page.getByTestId('console-drawer')).toBeVisible();
   });
+});
+
+test.describe('Console contents', () => {
+  const send = async (page: Page) => { await page.getByTestId('request-send-btn').click(); };
+  const status = (page: Page) => page.getByTestId('response-status');
+
+  test('[I3.4] Authorization is masked in the console drawer until "Show secrets" is pressed', async ({ page }) => {
+    await mockServer(page);
+    await scene(page, { auth: { type: 'bearer', bearer: { token: 'SUPERSECRETTOKEN' } } });
+    await page.getByTestId('console-toggle-btn').click();
+    await send(page);
+    await expect(status(page)).toContainText('200');
+    await page.getByTestId('console-log-request').first().click();
+    const details = page.getByTestId('console-log-details');
+    await expect(details).toBeVisible();
+    await expect(details).not.toContainText('SUPERSECRETTOKEN');
+    await page.getByTestId('console-reveal-btn').click();
+    await expect(details).toContainText('SUPERSECRETTOKEN');
+  });
+
+  test('[I3.5] the console keeps at most 1000 entries', async ({ page }) => {
+    await mockServer(page);
+    await scene(page, { preRequestScript: 'for (let i=0;i<1100;i++) console.log("line"+i);' });
+    await page.getByTestId('console-toggle-btn').click();
+    await send(page);
+    await expect(status(page)).toContainText('200');
+    await expect(page.getByTestId('console-drawer')).toContainText('Console (1000)');
+  });
+});
+
+
+/** The Console drawer had a fixed height; its top edge is now a drag handle (and arrow keys). */
+test('the Console height can be changed by dragging its top edge and with the keyboard', async ({ page }) => {
+  await registerUser(page, 'consolesz');
+  await page.getByTestId('console-toggle-btn').click();
+  const drawer = page.getByTestId('console-drawer');
+  const handle = page.getByTestId('console-resize-handle');
+  const before = (await drawer.boundingBox())!.height;
+
+  const hb = (await handle.boundingBox())!;
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y - 100, { steps: 5 });
+  await page.mouse.up();
+  const dragged = (await drawer.boundingBox())!.height;
+  expect(dragged).toBeGreaterThan(before + 80);
+
+  await handle.focus();
+  await page.keyboard.press('ArrowDown');
+  expect((await drawer.boundingBox())!.height).toBeLessThan(dragged);
 });

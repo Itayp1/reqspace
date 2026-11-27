@@ -1,4 +1,6 @@
 import { test, expect } from '../fixtures';
+import http from 'http';
+import { type AddressInfo } from 'net';
 import type { Page } from '@playwright/test';
 import { registerUser } from '../helpers';
 import { registerAndOpenRequest, seedRequest } from './seed';
@@ -265,4 +267,166 @@ test('[I2.2] Cookies tab lists Set-Cookie cookies, matches the jar, and drops co
   await page.getByRole('button', { name: 'Manage Cookies' }).last().click();
   await page.getByTestId('cookie-domain-mock.test').click();
   await expect(page.getByTestId('cookie-name-input')).toHaveCount(1);
+});
+
+test.describe('cookies sent from the jar', () => {
+  interface Seen { method: string; url: string; headers: Record<string, string | string[] | undefined>; body: string }
+  let server: http.Server;
+  let PORT = 0;
+  let seen: Seen[] = [];
+  const base = () => `http://localhost:${PORT}`;
+
+  test.beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        const cors: Record<string, string> = {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': '*',
+          'Access-Control-Allow-Headers': String(req.headers['access-control-request-headers'] || '*'),
+        };
+        if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
+        const rec: Seen = { method: req.method || '', url: req.url || '', headers: req.headers, body: Buffer.concat(chunks).toString('utf8') };
+        seen.push(rec);
+        const m = /^\/status\/(\d+)/.exec(rec.url);
+        res.writeHead(m ? Number(m[1]) : 200, { ...cors, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(rec));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    PORT = (server.address() as AddressInfo).port;
+  });
+  test.afterAll(async () => { await new Promise((r) => server.close(r)); });
+  test.beforeEach(() => { seen = []; });
+
+  /** Fresh account, landed on a new empty request tab. */
+  async function newRequestPage(page: Page, prefix = 'dfail') {
+    const email = await registerUser(page, prefix);
+    // Sending jar cookies is off by default; the cookie tests below need it on.
+    await page.request.put('/api/auth/settings', { data: { sendCookies: true } });
+    await page.reload();
+    await page.getByTestId('create-request-btn').click();
+    await expect(page.getByTestId('request-url-input')).toBeVisible();
+    return email;
+  }
+
+  async function send(page: Page) {
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toBeVisible({ timeout: 15000 });
+  }
+
+  async function setUrl(page: Page, url: string) {
+    await page.getByTestId('request-url-input').fill(url);
+  }
+
+  async function openConsole(page: Page) {
+    if (!(await page.getByTestId('console-drawer').isVisible().catch(() => false))) {
+      await page.getByTestId('console-toggle-btn').click();
+    }
+    await expect(page.getByTestId('console-drawer')).toBeVisible();
+  }
+
+  /** Text of the newest request log's expanded details in the Console (secrets revealed). */
+  async function consoleRequestDetails(page: Page): Promise<string> {
+    await openConsole(page);
+    const reveal = page.getByTestId('console-reveal-btn');
+    await page.getByTestId('console-log-request').first().click();
+    let text = await page.getByTestId('console-log-details').first().innerText();
+    if (text.includes('••••') && (await reveal.isVisible().catch(() => false))) {
+      await reveal.click();
+      text = await page.getByTestId('console-log-details').first().innerText();
+    }
+    return text;
+  }
+
+  /** The settings PUT is rejected by the server (see [D-SETTINGS]), which rolls the toggle back; stub it so D-tests exercise their own feature. */
+  async function stubSettingsSave(page: Page) {
+    await page.route('**/api/auth/settings', (route) => route.request().method() === 'PUT' ? route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }) : route.continue());
+  }
+
+  async function openSettings(page: Page) {
+    await page.getByTestId('settings-btn').click();
+    await expect(page.getByTestId('global-settings-close-btn')).toBeVisible();
+  }
+  async function closeSettings(page: Page) {
+    await page.getByTestId('global-settings-close-btn').click();
+  }
+
+  async function openCookieManager(page: Page) {
+    await page.locator('button[aria-label="Manage cookies"]').click();
+    await expect(page.getByTestId('cookie-manager-modal')).toBeVisible();
+  }
+  async function addCookieRow(page: Page, fields: { name: string; value: string; path?: string; expires?: string; secure?: boolean }, rowIdx: number) {
+    await page.getByTestId('cookie-add-btn').click();
+    const row = page.getByTestId('cookie-row').nth(rowIdx);
+    await row.getByTestId('cookie-name-input').fill(fields.name);
+    await row.getByTestId('cookie-value-input').fill(fields.value);
+    if (fields.path) await row.getByTestId('cookie-path-input').fill(fields.path);
+    if (fields.expires) await row.getByTestId('cookie-expires-input').fill(fields.expires);
+    if (fields.secure) await row.locator('input[type=checkbox]').nth(1).check();
+  }
+
+  test('[D12.2] cookies are only sent to paths that match the cookie Path', async ({ page }) => {
+    await newRequestPage(page);
+    await openCookieManager(page);
+    await addCookieRow(page, { name: 'sid', value: 'abc123', path: '/api' }, 0);
+    await page.getByTestId('cookie-close-btn').click();
+
+    await setUrl(page, `${base()}/other/thing`);
+    await send(page);
+    expect(await consoleRequestDetails(page)).not.toContain('sid=abc123');
+    await page.getByTestId('console-clear-btn').click();
+
+    await setUrl(page, `${base()}/api/thing`);
+    await send(page);
+    expect(await consoleRequestDetails(page)).toContain('sid=abc123');
+  });
+
+  test('[D12.3] Secure cookies are not sent over http, and expired cookies are dropped', async ({ page }) => {
+    await newRequestPage(page);
+    await openCookieManager(page);
+    await addCookieRow(page, { name: 'plain', value: 'p1' }, 0);
+    await addCookieRow(page, { name: 'sec', value: 's1', secure: true }, 1);
+    await addCookieRow(page, { name: 'old', value: 'o1', expires: '2000-01-01T00:00:00Z' }, 2);
+    await page.getByTestId('cookie-close-btn').click();
+
+    await setUrl(page, `${base()}/cookies`);
+    await send(page);
+    const details = await consoleRequestDetails(page);
+    expect(details).toContain('plain=p1');
+    expect(details).not.toContain('sec=s1');
+    expect(details).not.toContain('old=o1');
+  });
+
+  test('[D12.4] cookies can be added, edited, deleted individually and all at once', async ({ page }) => {
+    await newRequestPage(page);
+    await openCookieManager(page);
+    await addCookieRow(page, { name: 'first', value: 'v1' }, 0);
+    await expect(page.getByTestId('cookie-name-input').first()).toHaveValue('first');
+    await expect(page.getByTestId('cookie-value-input').first()).toHaveValue('v1');
+    await addCookieRow(page, { name: 'second', value: 'v2' }, 1);
+    await expect(page.getByTestId('cookie-row')).toHaveCount(2);
+    await page.getByTestId('cookie-delete-btn').first().click();
+    await expect(page.getByTestId('cookie-row')).toHaveCount(1);
+    await expect(page.getByTestId('cookie-name-input').first()).toHaveValue('second');
+    await addCookieRow(page, { name: 'third', value: 'v3' }, 1);
+    await page.getByTestId('cookie-delete-all-btn').click();
+    await expect(page.getByTestId('cookie-row')).toHaveCount(0);
+  });
+
+  test('[D12.7] a setting turns off automatic sending of jar cookies', async ({ page }) => {
+    await newRequestPage(page);
+    await openCookieManager(page);
+    await addCookieRow(page, { name: 'sid', value: 'abc123' }, 0);
+    await page.getByTestId('cookie-close-btn').click();
+    await stubSettingsSave(page);
+    await openSettings(page);
+    await page.locator('#sendCookies').uncheck();
+    await closeSettings(page);
+    await setUrl(page, `${base()}/nocookies`);
+    await send(page);
+    expect(await consoleRequestDetails(page)).not.toContain('sid=abc123');
+  });
+
 });

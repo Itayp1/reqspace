@@ -1,16 +1,11 @@
 import { test, expect, API_URL } from '../fixtures';
 import { request as pwRequest, type APIRequestContext, type Page } from '@playwright/test';
-import { apiAsAdmin, openNodeMenu } from '../helpers';
+import { openNodeMenu } from '../helpers';
 import fs from 'fs';
 
-test.describe('moved from legacy-manual (jklm)', () => {
+test.describe('runner controls: iterations, data files, stop, export', () => {
   // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
   test.use({ allowFpErrors: [/server-auth|status code 40[013]|Error parsing data file/] });
-
-  /**
-   * Group 4 of MANUAL_TEST_PLAN_FAILED.md: J (runner), K (history), L (import/export), M (share/fork).
-   * Titles start with the plan id ("[J1.4] ..."). A still-broken bug is marked test.fail().
-   */
 
   let seq = 0;
   const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
@@ -31,7 +26,6 @@ test.describe('moved from legacy-manual (jklm)', () => {
     userByEmail.set(email, user);
     return user;
   }
-  type U = Awaited<ReturnType<typeof newUser>>;
 
   /** Login rate limit (15/15min per IP) makes UI logins unusable here: reuse the API session cookie instead. */
   const sessions = new Map<string, any[]>();
@@ -39,11 +33,11 @@ test.describe('moved from legacy-manual (jklm)', () => {
     const u = userByEmail.get(email)!;
     if (!sessions.has(email)) sessions.set(email, (await u.ctx.storageState()).cookies);
     await page.context().addCookies(sessions.get(email)!);
-    // The server's CSRF check only whitelists the dev origin :5173; this run's client is on another port.
+    // The server's CSRF check only accepts the Origin of the client port.
     await page.context().route('**/api/**', async (r) => {
       if (r.request().method() === 'GET') return r.fallback();
       // The page may close mid-flight; an unhandled rejection here fails the whole run outside any test.
-      try { const res = await r.fetch({ headers: { ...r.request().headers(), origin: 'http://localhost:5173' } }); await r.fulfill({ response: res }); } catch { /* page closed */ }
+      try { const res = await r.fetch({ headers: { ...r.request().headers(), origin: new URL(page.url()).origin } }); await r.fulfill({ response: res }); } catch { /* page closed */ }
     });
     await page.goto('/');
     await expect(page.getByTestId('workspace-select')).toBeVisible();
@@ -69,15 +63,6 @@ test.describe('moved from legacy-manual (jklm)', () => {
     await loginUi(page, email);
     await openRunner(page, colName);
   }
-  async function historyCount(ctx: APIRequestContext, wsId: string) {
-    const b = await (await ctx.get(`/api/workspaces/${wsId}/history?limit=200`)).json();
-    return (b.total ?? b.items.length) as number;
-  }
-  const hist = (status = 200, extra: Record<string, any> = {}) => ({
-    requestSnapshot: { method: 'GET', url: 'http://h.test/x', headers: [], body: { mode: 'none' } },
-    responseBody: 'ok', responseStatus: status, responseStatusText: 'OK', responseHeaders: {}, responseTime: 5, responseSize: 2, ...extra,
-  });
-
   test.describe('J — runner', () => {
     test('[J1.4] iterations field refuses negative, zero and huge values', async ({ page }) => {
       const u = await newUser('j14');

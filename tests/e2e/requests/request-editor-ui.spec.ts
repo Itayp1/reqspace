@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { registerUser } from '../helpers';
+import { registerUser, treeNode } from '../helpers';
 import { mockServer, scene } from '../scene';
 
 // UX pass on the request editor screens (QA-08, QA-50, QA-57, script snippets, a11y names).
@@ -69,4 +69,72 @@ test('QA-15: Ctrl+Enter in the URL bar sends exactly once', async ({ page }) => 
   await expect(page.getByTestId('response-status')).toContainText('200');
   await page.waitForTimeout(500);
   expect(seen.length).toBe(1);
+});
+
+test.describe('per-request settings', () => {
+  const uniq = (p: string) => `${p}_${Date.now()}_${Math.floor(Math.random() * 1e5)}`;
+
+  test('[P2.5] the request editor has per-request settings that override the global ones', async ({ page }) => {
+    await registerUser(page, 'p25');
+    const wsId0 = (await (await page.request.get('/api/workspaces')).json()).find((w: any) => w.isPersonal)._id;
+    expect((await page.request.post(`/api/workspaces/${wsId0}/collections`, { data: { name: 'P25Col' } })).ok()).toBeTruthy();
+    await page.reload();
+    const name = uniq('p25');
+    await page.getByTestId('create-request-btn').click(); // a collection exists: name prompt, saved request (QA-11)
+    await page.getByTestId('prompt-input').fill(name);
+    await page.getByTestId('prompt-submit').click();
+    await expect(page.getByTestId('req-tab-settings')).toBeVisible({ timeout: 3000 });
+    await page.getByTestId('req-tab-settings').click();
+    await page.getByTestId('req-setting-followRedirects').selectOption('false');
+    await page.getByTestId('req-setting-timeout').fill('1234');
+    // Saved on the request: persists across a reload of the stored request.
+    await page.getByTestId('request-save-btn').click();
+    await expect(treeNode(page, name)).toBeVisible();
+    const wsId = (await (await page.request.get('/api/workspaces')).json()).find((w: any) => w.isPersonal)._id;
+    const cols = await (await page.request.get(`/api/workspaces/${wsId}/collections`)).json();
+    const colId = (cols[0] ?? cols.collections?.[0])._id;
+    const list = await (await page.request.get(`/api/collections/${colId}/requests`)).json();
+    const saved = (Array.isArray(list) ? list : list.requests).find((r: any) => r.name === name);
+    const full = await (await page.request.get(`/api/requests/${saved._id}`)).json();
+    expect(full.settings).toMatchObject({ followRedirects: false, timeout: 1234 });
+  });
+});
+
+
+/**
+ * Moved from runner/runner-codegen-url.spec.ts (consolidation):
+ * - An empty URL "succeeded" with 200 (fetch('') hits the app itself).
+ * - Code snippets dropped url-encoded / form-data / GraphQL bodies.
+ */
+test.describe('Runner, empty URL, code snippets', () => {
+  test.beforeEach(async ({ page }) => {
+    await registerUser(page, 'rcu');
+    await page.route('https://rcu.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
+  });
+
+  test('sending with an empty URL is refused, and a scheme-less URL gets http://', async ({ page }) => {
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).not.toContainText('200');
+    await expect(page.getByTestId('response-body-viewer')).toContainText('Enter a request URL');
+
+    await page.route('http://rcu.example.test/**', (route) => route.fulfill({ status: 200, body: 'plain' }));
+    await page.getByTestId('request-url-input').fill('rcu.example.test/noscheme');
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+  });
+
+  test('code snippets include url-encoded and form-data bodies', async ({ page }) => {
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('method-select').selectOption('POST');
+    await page.getByTestId('request-url-input').fill('https://rcu.example.test/form');
+    await page.getByTestId('req-tab-body').click();
+    await page.getByTestId('body-mode-urlencoded').click();
+    await page.getByTestId('kv-key-0').fill('a');
+    await page.getByTestId('kv-val-0').fill('1');
+    await page.getByTestId('codegen-btn').click();
+    await expect(page.getByTestId('codegen-code-block')).toContainText("--data-urlencode 'a=1'");
+    await page.getByTestId('codegen-lang-go').click();
+    await expect(page.getByTestId('codegen-code-block')).toContainText('strings.NewReader("a=1")');
+  });
 });

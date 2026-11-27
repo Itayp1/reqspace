@@ -148,7 +148,7 @@ test.describe('Connection Tabs', () => {
     await expect(page.getByTestId('connection-protocol-select')).toHaveValue('SSE');
 
     await page.route('**/sse-broken', (route) => route.fulfill({ status: 500, body: 'nope' }));
-    await page.getByTestId('connection-url-input').fill('http://localhost:5173/sse-broken');
+    await page.getByTestId('connection-url-input').fill(`${new URL(page.url()).origin}/sse-broken`);
     await page.getByTestId('connection-connect-btn').click();
     await expect(page.getByTestId('connection-msg-error').first()).toContainText('SSE HTTP 500');
     await expect(page.getByTestId('connection-connect-btn')).toBeVisible();

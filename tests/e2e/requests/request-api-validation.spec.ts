@@ -1,6 +1,45 @@
-import { test, expect } from '../fixtures';
-import { request as pwRequest } from '@playwright/test';
-import { API_URL } from '../fixtures';
+import { test, expect, API_URL } from '../fixtures';
+import { request as pwRequest, type APIRequestContext } from '@playwright/test';
+
+test.describe('saving a request that was deleted', () => {
+  // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
+  test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
+
+  let seq = 0;
+  const uniq = (p: string) => `${p}_${Date.now()}_${seq++}_${Math.floor(Math.random() * 1e5)}`;
+  const ip = () => `10.${200 + (seq % 50)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250) + 1}`;
+
+  async function anon(): Promise<APIRequestContext> {
+    return pwRequest.newContext({ baseURL: API_URL, extraHTTPHeaders: { 'X-Forwarded-For': ip() } });
+  }
+
+  async function newUser(prefix: string) {
+    const email = `${uniq(prefix)}@example.com`;
+    const ctx = await anon();
+    const res = await ctx.post('/api/auth/register', { data: { name: 'QA User', email, password: 'password123' } });
+    expect(res.status(), 'register').toBe(201);
+    const body = await res.json();
+    return { ctx, email, id: (body.user?.id ?? body.user?._id) as string };
+  }
+
+  async function newWorkspace(ctx: APIRequestContext, name = uniq('ws')) {
+    const res = await ctx.post('/api/workspaces', { data: { name } });
+    expect(res.ok(), 'create workspace').toBeTruthy();
+    const ws = await res.json();
+    return (ws.id ?? ws._id) as string;
+  }
+
+  test('[D6.3] saving a request that someone else deleted answers a clean 404', async () => {
+    const { ctx } = await newUser('d63');
+    const wsId = await newWorkspace(ctx);
+    const col = await (await ctx.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'C' } })).json();
+    const colId = col.id ?? col._id;
+    const r = await (await ctx.post(`/api/collections/${colId}/requests`, { data: { name: 'R', method: 'GET', url: 'http://x' } })).json();
+    const rid = r.id ?? r._id;
+    await ctx.delete(`/api/requests/${rid}`);
+    expect((await ctx.put(`/api/requests/${rid}`, { data: { name: 'again' } })).status()).toBe(404);
+  });
+});
 
 /**
  * Q7.7: malformed ids (NUL byte) in the path used to reach the DB layer and be

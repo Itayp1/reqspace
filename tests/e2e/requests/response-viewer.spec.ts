@@ -269,3 +269,33 @@ test('QA-55: dragging the splitter up makes the response pane taller', async ({ 
   expect((await pane.boundingBox())!.height).toBeGreaterThan(before + 30);
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('');
 });
+
+test.describe('binary and PDF responses', () => {
+  /** Routes https://mock.test/** (answers CORS too) with a per-path response and records what the browser sent. */
+  async function mockServerWith(page: Page, respond: (url: URL) => { status?: number; contentType?: string; body: string | Buffer; headers?: Record<string, string> }) {
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+    await page.route('https://mock.test/**', async (route) => {
+      const r = route.request();
+      if (r.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      const out = respond(new URL(r.url()));
+      return route.fulfill({ status: out.status ?? 200, contentType: out.contentType ?? 'application/json', body: out.body, headers: { ...cors, ...(out.headers || {}) } });
+    });
+  }
+  const send = async (page: Page) => { await page.getByTestId('request-send-btn').click(); };
+  const status = (page: Page) => page.getByTestId('response-status');
+
+  test('[I1.4] a PDF is rendered/downloadable and a binary zip does not crash the viewer', async ({ page }) => {
+    await mockServerWith(page, (u) => u.pathname === '/pdf'
+      ? { contentType: 'application/pdf', body: Buffer.from('JVBERi0xLg==', 'base64') }
+      : { contentType: 'application/zip', body: Buffer.from([0x50, 0x4b, 3, 4, 0, 255, 254, 0, 1, 2]) });
+    await scene(page, { url: 'https://mock.test/pdf' });
+    await send(page);
+    await expect(page.locator('object[type="application/pdf"]')).toBeVisible();
+    await page.getByTestId('request-url-input').fill('https://mock.test/zip');
+    await send(page);
+    await expect(status(page)).toContainText('200');
+    const dl = page.waitForEvent('download');
+    await page.getByTitle('Save Response').click();
+    await dl;
+  });
+});

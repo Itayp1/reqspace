@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { selectWorkspace, expectWorkspaceListed, registerUser, createCollectionUi, addViaMenu } from '../helpers';
+import { selectWorkspace, expectWorkspaceListed, registerUser, createCollectionUi, addViaMenu, apiAs } from '../helpers';
 test.describe('Conflict Resolution', () => {
   test('User B gets overwrite prompt when saving an outdated request', async ({ browser }) => {
     const contextA = await browser.newContext();
@@ -156,4 +156,36 @@ test('[QA-26] conflict dialog names the last editor and time', async ({ page }) 
 
   await page.getByTestId('request-save-btn').click();
   await expect(page.locator('#confirm-modal-description')).toContainText('updated by Alice Editor');
+});
+
+test('[D8.3] user B with a clean open tab gets user A saved change silently (no conflict)', async ({ page, browser }) => {
+  const emailA = await registerUser(page, 'd83a');
+  const ctxB = await browser.newContext();
+  const pageB = await ctxB.newPage();
+  const emailB = await registerUser(pageB, 'd83b');
+  const a = await apiAs(emailA);
+  const ws = await (await a.post('/api/workspaces', { data: { name: `D83 ${Date.now()}` } })).json();
+  const wsId = ws.id ?? ws._id;
+  const col = await (await a.post(`/api/workspaces/${wsId}/collections`, { data: { name: 'D83Col' } })).json();
+  const colId = col.id ?? col._id;
+  const reqRes = await a.post(`/api/collections/${colId}/requests`, { data: { name: 'D83Req', method: 'GET', url: 'http://localhost/one', folderId: null } });
+  expect(reqRes.ok(), await reqRes.text()).toBeTruthy();
+  const created = (await reqRes.json()) as any;
+  const rid = created.id ?? created._id;
+  expect((await a.post(`/api/workspaces/${wsId}/members`, { data: { email: emailB, role: 'editor' } })).ok()).toBeTruthy();
+
+  await pageB.reload();
+  await selectWorkspace(pageB, wsId);
+  await pageB.getByTestId('node-D83Col').click();
+  const loaded = pageB.waitForResponse((r) => /\/api\/requests\/[^/]+$/.test(r.url()) && r.request().method() === 'GET');
+  await pageB.getByTestId('node-D83Req').click();
+  await loaded;
+  await expect(pageB.getByTestId('request-url-input')).toHaveValue('http://localhost/one');
+
+  const put = await a.put(`/api/requests/${rid}`, { data: { url: 'http://localhost/two' } });
+  expect(put.ok(), await put.text()).toBeTruthy();
+
+  await expect(pageB.getByTestId('request-url-input')).toHaveValue('http://localhost/two', { timeout: 15000 });
+  await expect(pageB.getByTestId('conflict-indicator')).toHaveCount(0);
+  await ctxB.close();
 });
