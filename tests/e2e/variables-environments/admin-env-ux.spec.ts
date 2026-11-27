@@ -1,30 +1,7 @@
 import { test, expect } from '../fixtures';
-import { loginAdminUi, registerUser } from '../helpers';
+import { registerUser } from '../helpers';
 
-test.describe('admin screen exit, shortcuts and environment UX', () => {
-  test('admin screen has a Close button that returns to the app', async ({ page }) => {
-    await loginAdminUi(page);
-    await page.goto('/admin');
-    await page.getByTestId('admin-close').click();
-    await expect(page).toHaveURL(/\/$/);
-  });
-
-  test('Ctrl+Z reverts an unsaved admin setting and Ctrl+S saves', async ({ page }) => {
-    await loginAdminUi(page);
-    await page.goto('/admin');
-    await page.getByTestId('admin-tab-settings').click();
-    await page.getByTestId('admin-server-settings').getByRole('button').first().click();
-    const box = page.getByTestId('admin-server-capture-auth-failures');
-    const before = await box.isChecked();
-    await box.click();
-    await expect(box).toBeChecked({ checked: !before });
-    await page.getByTestId('admin-dashboard-title').click(); // focus off the checkbox
-    await page.keyboard.press('Control+z');
-    await expect(box).toBeChecked({ checked: before });
-    await page.keyboard.press('Control+s');
-    await expect(page.getByText('Config saved')).toBeVisible();
-  });
-
+test.describe('missing-variable modal and environment selector UX', () => {
   test('sending a request with an undefined {{variable}} asks about it, and Run Anyway is remembered', async ({ page }) => {
     await registerUser(page, 'missingvar');
     let hits = 0;

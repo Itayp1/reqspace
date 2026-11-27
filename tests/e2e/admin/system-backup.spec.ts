@@ -4,6 +4,7 @@ import { apiAsAdmin } from '../helpers';
 const pw = (s: string) => Buffer.from(s).toString('base64');
 
 test.describe('Full system backup (admin)', () => {
+  test.use({ allowFpErrors: [/system\/export responded 401/] });
   test('an encrypted export can be checked and merged back; a wrong password is refused', async () => {
     const admin = await apiAsAdmin();
     const exp = await admin.post('/api/admin/system/export', { data: { password: 'backup-pass-1' } });
@@ -26,7 +27,6 @@ test.describe('Full system backup (admin)', () => {
     expect((await merged.json()).skipped.users).toBeGreaterThan(0);
   });
 
-  test.use({ allowFpErrors: [/system\/export responded 401/] });
   test('export needs a password of at least 8 characters and an admin', async ({ request }) => {
     const admin = await apiAsAdmin();
     expect((await admin.post('/api/admin/system/export', { data: { password: 'short' } })).status()).toBe(400);

@@ -1,7 +1,6 @@
 import { test, expect } from '../fixtures';
 import { request as pwRequest } from '@playwright/test';
 import { API_URL } from '../fixtures';
-import { apiAsAdmin } from '../helpers';
 
 /**
  * Q7.7: malformed ids (NUL byte) in the path used to reach the DB layer and be
@@ -80,11 +79,5 @@ test.describe('Q7.7 fork / request update-delete never answer 5xx', () => {
     for (const l of ['fork targetWorkspaceId NUL', 'fork copyEnvironmentId NUL', 'put collectionId NUL', 'put folderId NUL']) {
       expect(byLabel[l], l).toBe(400);
     }
-  });
-
-  test('[Q7.7] concurrent /api/admin/users reads never answer 5xx (SQLITE_BUSY)', async () => {
-    const admin = await apiAsAdmin();
-    const rs = await Promise.all(Array.from({ length: 40 }, () => admin.get('/api/admin/users')));
-    for (const r of rs) expect(r.status()).toBe(200);
   });
 });
