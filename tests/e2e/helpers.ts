@@ -1,8 +1,22 @@
 import { expect, type Page, type Locator, type APIRequestContext, request as playwrightRequest } from '@playwright/test';
 import { API_URL } from './fixtures';
 
-/** Registers a fresh account through the UI and lands on the app with its personal workspace. */
+/**
+ * Registers a fresh account and lands on the app with its personal workspace. Goes through the API
+ * (the session cookie lands in the page's context) so the SPA loads once instead of twice and no
+ * form is filled; use registerUserUi for tests of the register screen itself.
+ */
 export async function registerUser(page: Page, prefix: string, name = 'Test User'): Promise<string> {
+  const email = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}@example.com`;
+  const res = await page.request.post('/api/auth/register', { data: { name, email, password: 'password123' } });
+  expect(res.ok(), `register ${email}: ${res.status()} ${await res.text()}`).toBeTruthy();
+  await page.goto('/');
+  await expect(page.getByTestId('workspace-select')).toBeVisible();
+  return email;
+}
+
+/** Registers a fresh account through the register form. */
+export async function registerUserUi(page: Page, prefix: string, name = 'Test User'): Promise<string> {
   const email = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}@example.com`;
   await page.goto('/register');
   await page.getByTestId('register-name').fill(name);
