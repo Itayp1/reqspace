@@ -1,4 +1,68 @@
-import type { Transport, TransportRequest, TransportResponse } from './types';
+import type { OversizedResponse, Transport, TransportRequest, TransportResponse } from './types';
+
+/** Past this a body is never held in memory: a 1 GB string would crash the tab. */
+export const MAX_RESPONSE_BYTES = 200 * 1024 * 1024;
+
+/** Reads the body up to MAX_RESPONSE_BYTES; past that it stops and hands back the still-open download. */
+async function readBounded(response: Response): Promise<{ bytes: Uint8Array } | { size: number; oversized: OversizedResponse }> {
+  const reader = response.body?.getReader();
+  if (!reader) return { bytes: new Uint8Array(await response.arrayBuffer()) };
+  const declared = Number(response.headers.get('content-length')) || 0;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (declared <= MAX_RESPONSE_BYTES && total <= MAX_RESPONSE_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) {
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) { bytes.set(c, offset); offset += c.length; }
+      return { bytes };
+    }
+    chunks.push(value);
+    total += value.length;
+  }
+
+  const picker = (window as any).showSaveFilePicker as undefined | ((o: { suggestedName: string }) => Promise<any>);
+  const oversized: OversizedResponse = {
+    sizeKnown: declared > 0,
+    canSaveToFile: typeof picker === 'function',
+    state: 'pending',
+    saveToFile: async (suggestedName) => {
+      oversized.state = 'saving';
+      let handle: any;
+      try {
+        handle = await picker!({ suggestedName });
+      } catch {
+        oversized.state = 'pending'; // dialog cancelled
+        return false;
+      }
+      const writable = await handle.createWritable();
+      try {
+        for (const c of chunks) await writable.write(c);
+        chunks.length = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writable.write(value);
+        }
+        await writable.close();
+        oversized.state = 'saved';
+        return true;
+      } catch {
+        await writable.abort?.().catch(() => {});
+        oversized.state = 'failed';
+        return true;
+      }
+    },
+    discard: () => {
+      if (oversized.state === 'saved' || oversized.state === 'saving') return;
+      chunks.length = 0;
+      reader.cancel().catch(() => {});
+      oversized.state = 'discarded';
+    },
+  };
+  return { size: declared || total, oversized };
+}
 
 // Header names fetch() silently drops (WHATWG "forbidden header names").
 const FORBIDDEN_HEADERS = new Set([
@@ -81,10 +145,24 @@ export class BrowserTransport implements Transport {
       if (timeoutId) clearTimeout(timeoutId);
 
       const responseTime = Date.now() - startTime;
-      const arrayBuffer = await response.arrayBuffer();
-      
+      const read = await readBounded(response);
+
       const responseHeaders: Record<string, string> = {};
       response.headers.forEach((value, key) => { responseHeaders[key] = value; });
+
+      if ('oversized' in read) {
+        return {
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+          body: '',
+          isBase64: false,
+          responseTime,
+          size: read.size,
+          oversized: read.oversized,
+        };
+      }
+      const arrayBuffer = read.bytes;
 
       const contentType = (responseHeaders['content-type'] || '').toLowerCase();
       const isBinary = contentType.includes('image/') || contentType.includes('application/pdf') || contentType.includes('audio/') || contentType.includes('video/') || contentType.includes('application/octet-stream');
@@ -92,7 +170,7 @@ export class BrowserTransport implements Transport {
       // Basic buffer to string conversion for browser
       let responseBody = '';
       if (isBinary) {
-        const bytes = new Uint8Array(arrayBuffer);
+        const bytes = arrayBuffer;
         let binary = '';
         for (let i = 0; i < bytes.byteLength; i++) {
           binary += String.fromCharCode(bytes[i]);

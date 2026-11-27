@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { toRequestPayload } from '../utils/requestPayload';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { onUserScopeChange, scopedKey, userScopedStorage } from './userScope';
+import type { OversizedResponse } from '../transport/types';
 export interface KeyValueItem {
   key: string;
   value: string;
@@ -116,6 +117,7 @@ export interface ResponseData {
   testResults?: Array<{ name: string; passed: boolean; error?: string }>;
   visualizerData?: { template: string; data?: any };
   fromHistory?: boolean;
+  oversized?: OversizedResponse;
 }
 
 interface RequestStore {
@@ -368,10 +370,15 @@ export const useRequestStore = create<RequestStore>()(
       // selected — a request kicked off from tab A must still land correctly
       // if the user has switched to tab B by the time it resolves — and only
       // mirrors it into `activeResponse` when that tab is still the active one.
-      setResponseForTab: (tabId, res) => set((state) => ({
-        responsesByTab: { ...state.responsesByTab, [tabId]: res },
-        activeResponse: state.activeTabId === tabId ? res : state.activeResponse,
-      })),
+      setResponseForTab: (tabId, res) => set((state) => {
+        // A replaced oversized response would otherwise keep its download open and its chunks in memory.
+        const prev = state.responsesByTab[tabId];
+        if (prev?.oversized && prev.oversized !== res?.oversized) prev.oversized.discard();
+        return {
+          responsesByTab: { ...state.responsesByTab, [tabId]: res },
+          activeResponse: state.activeTabId === tabId ? res : state.activeResponse,
+        };
+      }),
 
       setIsLoading: (isLoading) => set({ isLoading }),
 

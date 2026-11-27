@@ -18,6 +18,17 @@ export interface TransportRequest {
   signal?: AbortSignal;
 }
 
+/** A body over MAX_RESPONSE_BYTES: it is not buffered or shown; the open download can be streamed to disk or dropped. */
+export interface OversizedResponse {
+  /** false when the server sent no Content-Length, so the size is only "over the limit". */
+  sizeKnown: boolean;
+  canSaveToFile: boolean;
+  state: 'pending' | 'saving' | 'saved' | 'discarded' | 'failed';
+  /** Opens the save dialog first, so call it straight from a click. Resolves false if the user cancels the dialog. */
+  saveToFile: (suggestedName: string) => Promise<boolean>;
+  discard: () => void;
+}
+
 export interface TransportResponse {
   status: number;
   statusText: string;
@@ -26,6 +37,7 @@ export interface TransportResponse {
   isBase64: boolean;
   responseTime: number;
   size: number;
+  oversized?: OversizedResponse;
 }
 
 export interface Transport {

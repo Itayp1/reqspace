@@ -540,6 +540,7 @@ export function UrlBar() {
         isBase64,
         responseTime,
         size: res.size || 0,
+        oversized: res.oversized,
         testResults,
         visualizerData,
       } as any);

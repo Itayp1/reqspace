@@ -255,6 +255,73 @@ test('a 100MB JSON response shows "too large", keeps the page responsive and sav
   }
 });
 
+// Past the 200 MB cap the body is never loaded: the user can only stream it to disk or discard it.
+function bigServer(totalMb: number, declaredLength?: number) {
+  const srv = http.createServer((_q, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain', 'access-control-allow-origin': '*', ...(declaredLength ? { 'content-length': String(declaredLength) } : {}) });
+    if (declaredLength) return void res.flushHeaders(); // headers only: the client must not wait for, or buffer, the body
+    const chunk = Buffer.alloc(1024 * 1024, 'a');
+    let sent = 0;
+    const write = () => {
+      while (sent < totalMb && !res.destroyed) {
+        sent++;
+        if (!res.write(chunk)) return void res.once('drain', write);
+      }
+      res.end();
+    };
+    write();
+  });
+  return new Promise<{ srv: http.Server; url: string }>((r) => srv.listen(0, '127.0.0.1', () => r({ srv, url: `http://127.0.0.1:${(srv.address() as any).port}/big` })));
+}
+
+test('a response whose Content-Length is over the cap is not loaded, not rendered, and can be discarded', async ({ page }) => {
+  const { srv, url } = await bigServer(0, 1024 * 1024 * 1024);
+  try {
+    await seedRequest(page, 'capdecl', url);
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('oversized-response')).toContainText('1 GB');
+    await expect(page.getByRole('button', { name: 'Render Anyway' })).toHaveCount(0);
+    await expect(page.locator('.monaco-editor')).toHaveCount(0);
+    await page.getByTestId('oversized-discard').click();
+    await expect(page.getByTestId('oversized-result')).toContainText('Discarded');
+  } finally {
+    srv.closeAllConnections();
+    srv.close();
+  }
+});
+
+test('a 250 MB streamed response (no Content-Length) is capped and can be streamed to disk without loading it', async ({ page }) => {
+  test.setTimeout(240_000);
+  // Chromium's save dialog is native, so stand in for showSaveFilePicker and count the bytes written.
+  await page.addInitScript(() => {
+    const saved = { bytes: 0, closed: false };
+    (window as any).__saved = saved;
+    (window as any).showSaveFilePicker = async () => ({
+      createWritable: async () => ({
+        write: async (c: Uint8Array) => { saved.bytes += c.byteLength; },
+        close: async () => { saved.closed = true; },
+        abort: async () => {},
+      }),
+    });
+  });
+  const { srv, url } = await bigServer(250);
+  try {
+    await seedRequest(page, 'capstream', url);
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('oversized-response')).toContainText('over 200 MB', { timeout: 120_000 });
+    await expect(page.getByRole('button', { name: 'Render Anyway' })).toHaveCount(0);
+    await expect(page.locator('.monaco-editor')).toHaveCount(0);
+
+    await page.getByTestId('oversized-save').click();
+    await expect(page.getByTestId('oversized-result')).toContainText('Saved', { timeout: 120_000 });
+    const saved = await page.evaluate(() => (window as any).__saved);
+    expect(saved).toEqual({ bytes: 250 * 1024 * 1024, closed: true });
+  } finally {
+    srv.closeAllConnections();
+    srv.close();
+  }
+});
+
 // QA-55 / QA-78: dragging the request/response splitter resizes the panes and selects no text.
 test('QA-55: dragging the splitter up makes the response pane taller', async ({ page }) => {
   await scene(page);

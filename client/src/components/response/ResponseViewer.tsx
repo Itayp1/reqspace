@@ -1,6 +1,7 @@
 import { queryJsonPath, isMultiPath } from '../../utils/jsonPath';
 import { useMonacoTheme } from '../../utils/useMonacoTheme';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useReducer } from 'react';
+import { MAX_RESPONSE_BYTES } from '../../transport/browser';
 import { useRequestStore } from '../../store/requestStore';
 import { useCookieStore } from '../../store/cookieStore';
 import type { CookieItem } from '../../store/cookieStore';
@@ -66,7 +67,9 @@ export const ResponseViewer: React.FC = () => {
     return cookies.filter(c => requestDomain === c.domain || requestDomain.endsWith('.' + c.domain));
   }, [cookies, requestDomain]);
 
-  const { status, statusText, headers, body, responseTime, size, testResults } = activeResponse || {};
+  const { status, statusText, headers, body, responseTime, size, testResults, oversized } = activeResponse || {};
+  // oversized.state is mutated by the transport, so re-render when it changes.
+  const [, refresh] = useReducer((n: number) => n + 1, 0);
 
   const displayCookies = useMemo(() => {
     let cookiesToDisplay = [...currentDomainCookies];
@@ -282,9 +285,9 @@ export const ResponseViewer: React.FC = () => {
           </div>
           <div className="flex items-center space-x-1.5">
             <span className="text-text-muted">Size:</span>
-            <span className="text-text tabular-nums">{formatSize(size || 0)}</span>
+            <span className="text-text tabular-nums">{oversized && !oversized.sizeKnown ? `over ${formatSize(MAX_RESPONSE_BYTES)}` : formatSize(size || 0)}</span>
           </div>
-          <button
+          {!oversized && <button
             onClick={handleDownload}
             className="flex items-center text-text-muted hover:text-text ml-2 py-1 rounded"
             title="Save Response"
@@ -292,7 +295,7 @@ export const ResponseViewer: React.FC = () => {
           >
             <Download className="w-4 h-4" aria-hidden="true" />
             <span className="ml-1 sr-only">Save</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -381,7 +384,46 @@ export const ResponseViewer: React.FC = () => {
       <div className="flex-1 overflow-auto bg-background relative">
         {activeTab === 'body' && (
           <div className="h-full" data-testid="response-body-viewer">
-            {isLargeResponse && !forceRenderLarge ? (
+            {oversized ? (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background text-text">
+                <div role="alert" data-testid="oversized-response" className="bg-surface p-6 rounded-lg border border-border max-w-md text-center">
+                  <h3 className="text-text font-semibold mb-2 text-lg">Response too large</h3>
+                  {oversized.state === 'pending' || oversized.state === 'saving' ? (
+                    <>
+                      <p className="text-sm mb-4">
+                        The response is <strong>{oversized.sizeKnown ? formatSize(size || 0) : `over ${formatSize(MAX_RESPONSE_BYTES)}`}</strong>,
+                        more than the {formatSize(MAX_RESPONSE_BYTES)} Reqspace loads, so it is not shown.
+                        {oversized.canSaveToFile ? ' Save it straight to disk, or discard it.' : ' This browser cannot stream it to disk (use Chrome, Edge or the Desktop App); you can discard it.'}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {oversized.canSaveToFile && (
+                          <button
+                            data-testid="oversized-save"
+                            disabled={oversized.state === 'saving'}
+                            onClick={() => { void oversized.saveToFile(`response_${Date.now()}`).finally(refresh); refresh(); }}
+                            className="px-4 py-2 bg-primary-strong hover:opacity-90 text-white rounded text-sm font-medium transition-colors disabled:opacity-50"
+                          >
+                            {oversized.state === 'saving' ? 'Saving…' : 'Save to file'}
+                          </button>
+                        )}
+                        <button
+                          data-testid="oversized-discard"
+                          disabled={oversized.state === 'saving'}
+                          onClick={() => { oversized.discard(); refresh(); }}
+                          className="px-4 py-2 border border-border hover:bg-surface-hover rounded text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p data-testid="oversized-result" className="text-sm">
+                      {oversized.state === 'saved' ? 'Saved to file.' : oversized.state === 'failed' ? 'Saving failed. Send the request again.' : 'Discarded. Send the request again to fetch it.'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : isLargeResponse && !forceRenderLarge ? (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background text-text">
                 <div role="alert" className="bg-surface p-6 rounded-lg border border-border max-w-md text-center">
                   <h3 className="text-text font-semibold mb-2 text-lg">Response too large</h3>
