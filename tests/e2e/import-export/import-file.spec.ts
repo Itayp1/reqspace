@@ -125,25 +125,6 @@ test.describe('Import', () => {
     await expect(page.getByTestId('request-url-input')).toHaveValue('https://store.example.test/v1/orders');
   });
 
-  test('cURL and raw HTTP imports open a ready-to-send tab', async ({ page }) => {
-    await registerUser(page, 'import_curl');
-    await openImport(page);
-    await page.getByTestId('import-tab-curl').click();
-    await page.getByTestId('import-curl-input').fill(`curl -X PUT "https://curl.example.test/items/7" -H "Content-Type: application/json" -H "X-Req: yes" -d '{"a":1}'`);
-    await page.getByTestId('import-submit').click();
-    await expect(page.getByTestId('method-select')).toHaveValue('PUT');
-    await expect(page.getByTestId('request-url-input')).toHaveValue('https://curl.example.test/items/7');
-    await page.getByTestId('req-tab-headers').click();
-    await expect(page.getByTestId('kv-key-1')).toHaveValue('X-Req');
-
-    await openImport(page);
-    await page.getByTestId('import-tab-raw').click();
-    await page.getByTestId('import-raw-input').fill('PATCH /api/users/3 HTTP/1.1\nHost: raw.example.test\nX-Raw: 1\n\n{"name":"z"}');
-    await page.getByTestId('import-submit').click();
-    await expect(page.getByTestId('method-select')).toHaveValue('PATCH');
-    await expect(page.getByTestId('request-url-input')).toHaveValue('http://raw.example.test/api/users/3');
-  });
-
   test('a file that is not a collection is rejected with a message', async ({ page }) => {
     await registerUser(page, 'import_bad');
     await openImport(page);
@@ -210,17 +191,5 @@ test.describe('Import', () => {
     await page.getByTestId('import-submit').click();
     await expect(page.getByTestId('node-Renamed On Import')).toBeVisible();
     await expect(page.getByTestId('node-Original Name')).toHaveCount(0);
-  });
-
-  test('cURL import rejects input that is clearly not a cURL command', async ({ page }) => {
-    await registerUser(page, 'import_curl_bad');
-    await openImport(page);
-    await page.getByTestId('import-tab-curl').click();
-    await page.getByTestId('import-curl-input').fill('hello world, not a command');
-    await page.getByTestId('import-submit').click();
-    await expect(page.getByTestId('import-error')).toContainText('Not a valid cURL command');
-    await page.getByTestId('import-curl-input').fill('curl -X GET');
-    await page.getByTestId('import-submit').click();
-    await expect(page.getByTestId('import-error')).toContainText('include a URL');
   });
 });

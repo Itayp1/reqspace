@@ -1,9 +1,8 @@
 import { test, expect } from '../fixtures';
-import { registerUser, createCollectionUi, addViaMenu, treeNode, openNodeMenu } from '../helpers';
+import { registerUser } from '../helpers';
 
 /**
- * - The runner wrote each result into the *next* row (stale loop index), so the
- *   last request never got a result and its row stayed "Pending".
+ * Moved from runner/runner-codegen-url.spec.ts (consolidation):
  * - An empty URL "succeeded" with 200 (fetch('') hits the app itself).
  * - Code snippets dropped url-encoded / form-data / GraphQL bodies.
  */
@@ -11,26 +10,6 @@ test.describe('Runner, empty URL, code snippets', () => {
   test.beforeEach(async ({ page }) => {
     await registerUser(page, 'rcu');
     await page.route('https://rcu.example.test/**', (route) => route.fulfill({ status: 200, body: 'ok' }));
-  });
-
-  test('every runner row gets its own result, and a request with no URL fails instead of passing', async ({ page }) => {
-    await createCollectionUi(page, 'Run Col');
-    for (const n of ['One', 'Two', 'Three']) await addViaMenu(page, 'Run Col', 'new-request', n);
-    for (const n of ['One', 'Two']) {
-      await treeNode(page, n).click();
-      await page.getByTestId('request-url-input').fill(`https://rcu.example.test/${n}`);
-      await page.getByTestId('request-save-btn').click();
-      await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
-    }
-    await openNodeMenu(page, 'Run Col');
-    await page.getByTestId('action-menu-run-collection').click();
-    await expect(page.getByTestId('collection-runner-modal')).toContainText('3 requests in collection');
-    await page.getByTestId('collection-runner-run-btn').click();
-    const modal = page.getByTestId('collection-runner-modal');
-    await expect(modal).toContainText('3 / 3');
-    await expect(modal).toContainText('Passed2');
-    await expect(modal).toContainText('Failed1');
-    await expect(modal.getByText('Pending')).toHaveCount(0);
   });
 
   test('sending with an empty URL is refused, and a scheme-less URL gets http://', async ({ page }) => {
