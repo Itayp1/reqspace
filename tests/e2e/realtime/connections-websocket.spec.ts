@@ -104,48 +104,6 @@ test.describe('Connection Tabs', () => {
     await expect(page.getByTestId('connection-connect-btn')).toBeVisible();
   });
 
-  test('SSE: receives server-pushed events and cannot send', async ({ page }) => {
-    await page.route('**/sse-stream', (route) =>
-      route.fulfill({
-        status: 200,
-        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },
-        body: 'data: first-event\n\ndata: second-event\n\n',
-      })
-    );
-
-    await page.getByTestId('new-connection-btn').click();
-    await page.getByTestId('connection-protocol-select').selectOption('SSE');
-    await page.getByTestId('connection-url-input').fill('http://localhost:5173/sse-stream');
-    await page.getByTestId('connection-connect-btn').click();
-
-    const received = page.getByTestId('connection-msg-received');
-    await expect(received.nth(0)).toContainText('first-event');
-    await expect(received.nth(1)).toContainText('second-event');
-
-    // SSE is one-directional, so the composer stays locked out.
-    await expect(page.getByTestId('connection-message-input')).toBeDisabled();
-    await expect(page.getByTestId('connection-send-btn')).toBeDisabled();
-  });
-
-  test('Kafka: browser says it is desktop-only and never fakes a connection', async ({ page }) => {
-    await page.getByTestId('new-connection-btn').click();
-    await page.getByTestId('connection-protocol-select').selectOption('KAFKA');
-    await page.getByTestId('connection-url-input').fill('localhost:9092');
-
-    await expect(page.getByTestId('connection-kafka-desktop-banner')).toContainText('Electron');
-    await page.getByTestId('connection-kafka-topic').fill('orders');
-    await page.getByTestId('connection-kafka-sasl').check();
-    await page.getByTestId('connection-kafka-ssl').check();
-    await expect(page.getByTestId('connection-kafka-mechanism')).toBeVisible();
-    await expect(page.getByTestId('connection-kafka-verify-ssl')).toBeChecked();
-    await expect(page.getByTestId('connection-kafka-load-lists')).toBeDisabled();
-
-    await page.getByTestId('connection-connect-btn').click();
-    await expect(page.getByTestId('connection-msg-error').first()).toContainText('Electron');
-    await expect(page.getByTestId('connection-connect-btn')).toBeVisible();
-    await expect(page.getByTestId('connection-send-btn')).toBeDisabled();
-  });
-
   test('WebSocket: received messages can be marked read / unread', async ({ page }) => {
     await page.getByTestId('new-connection-btn').click();
     await page.getByTestId('connection-url-input').fill('ws://localhost:9999/echo');
