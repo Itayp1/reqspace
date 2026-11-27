@@ -1,4 +1,4 @@
-import { test, expect, request as pwRequest, APIRequestContext } from '../fixtures';
+import { test, expect, request as pwRequest, APIRequestContext, API_URL } from '../fixtures';
 
 // these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
 test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
@@ -24,7 +24,7 @@ test.describe('TEST-4: API Authorization Layer', () => {
   const getUuid = () => require('crypto').randomUUID();
 
   test.beforeAll(async () => {
-    const baseURL = (process.env.REQSPACE_API_URL || 'http://localhost:3005');
+    const baseURL = API_URL;
     const randomIp = () => `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.1.1`;
     superadminReq = await pwRequest.newContext({ baseURL, extraHTTPHeaders: { 'X-Forwarded-For': randomIp() } });
     ownerReq = await pwRequest.newContext({ baseURL, extraHTTPHeaders: { 'X-Forwarded-For': randomIp() } });

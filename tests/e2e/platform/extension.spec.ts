@@ -1,4 +1,4 @@
-import { test as base, chromium, expect } from '../fixtures';
+import { test as base, chromium, expect, API_URL } from '../fixtures';
 import path from 'path';
 
 const extensionPath = path.join(__dirname, '../../../extension');
@@ -52,7 +52,7 @@ test('extension transport works', async ({ page }) => {
   expect(isInstalled).toBeTruthy();
   
   // The actual transport logic needs the UI to select it, but we can call it manually
-  const res = await page.evaluate(async () => {
+  const res = await page.evaluate(async (apiUrl) => {
     // Assuming the app has a way to test it, or we just call the transport layer
     return new Promise(resolve => {
       const id = 'test-id-123';
@@ -69,12 +69,12 @@ test('extension transport works', async ({ page }) => {
         id,
         payload: {
           method: 'GET',
-          url: 'http://localhost:3005/api/auth/me',
+          url: `${apiUrl}/api/auth/me`,
           headers: {}
         }
       }, '*');
     });
-  });
+  }, API_URL);
   
   expect((res as any).status).toBeDefined();
 });
