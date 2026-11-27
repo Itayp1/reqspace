@@ -3,6 +3,7 @@ import * as schemas from '../schemas/auth.schemas';
 
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { BCRYPT_ROUNDS } from '../utils/bcryptRounds';
 import crypto from 'crypto';
 import { UserRepository } from '../repositories/UserRepository';
 import { SystemConfigRepository, getServerSettings } from '../repositories/SystemConfigRepository';
@@ -60,7 +61,7 @@ router.post('/register', validate(schemas.registerSchema), registerLimiter, asyn
     return res.status(409).json({ message: 'Email already registered' });
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   let user;
   try {
     user = await UserRepository.create({
@@ -239,7 +240,7 @@ router.post('/setup', validate(schemas.setupSchema), registerLimiter, async (req
   const user = await UserRepository.create({
     name,
     email: email.toLowerCase(),
-    passwordHash: await bcrypt.hash(password, 12),
+    passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
     authType: 'password',
     isSuperAdmin: true,
     mustChangePassword: false,
@@ -274,7 +275,7 @@ router.post('/change-password', validate(schemas.changePasswordSchema), authenti
     return res.status(400).json({ message: 'New password must be different from the current password' });
   }
 
-  const passwordHash = await bcrypt.hash(newPassword, 12);
+  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   const newTokenVersion = (user.tokenVersion ?? 0) + 1;
   await UserRepository.update(user._id as any, {
     passwordHash,

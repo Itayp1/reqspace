@@ -45,7 +45,8 @@ router.post('/users', validate(schemas.createUserSchema), async (req: AuthReques
   if (existing) return res.status(409).json({ message: 'Email already registered' });
 
   const bcrypt = await import('bcryptjs');
-  const passwordHash = await bcrypt.hash(password, 12);
+  const { BCRYPT_ROUNDS } = await import('../utils/bcryptRounds');
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   const user = await UserRepository.create({
     name,
     email,

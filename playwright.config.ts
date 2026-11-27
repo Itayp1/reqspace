@@ -140,6 +140,7 @@ export default defineConfig({
       timeout: 180_000, // several parallel world stacks boot at once (scripts/run-e2e-worlds.js)
       env: {
         NODE_ENV: 'test',
+        BCRYPT_ROUNDS: '1', // pure-JS bcrypt at 12 rounds blocks the API ~700 ms per register/login
         DB_STORAGE_PATH: sqliteTestDbPath,
         PORT,
         JWT_SECRET: 'playwright-test-jwt-secret-0123456789abcdef',
