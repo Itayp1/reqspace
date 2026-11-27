@@ -18,6 +18,7 @@ dotenv.config();
 
 import authRouter from './routes/auth';
 import workspacesRouter from './routes/workspaces';
+import inviteLinksRouter from './routes/inviteLinks';
 import collectionsRouter from './routes/collections';
 import environmentsRouter from './routes/environments';
 import historyRouter from './routes/history';
@@ -348,6 +349,7 @@ app.use('/api', (req, res, next) => (req.method === 'GET' ? readLimiter(req, res
 app.use('/api/auth', authRouter);
 app.use('/api/bootstrap', bootstrapRouter);
 app.use('/api/workspaces', workspacesRouter);
+app.use('/api/invite-links', inviteLinksRouter);
 // Mounted before the generic-'/api' routers below: their own `router.use(authenticate)`
 // has no path prefix, so it swallows every '/api/*' request that reaches it ג€” including
 // these two routers' deliberately-public routes (anonymous share-link viewing) ג€” unless

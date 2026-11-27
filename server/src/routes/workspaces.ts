@@ -15,6 +15,7 @@ import { RequestRepository } from '../repositories/RequestRepository';
 import { CascadeRepository } from '../repositories/CascadeRepository';
 import { AuditLogRepository, logAudit } from '../repositories/AuditLogRepository';
 import { workspaceRoleCache } from '../utils/cache';
+import { isValidId } from '../utils/ids';
 import { noteRouteError } from '../utils/errorReporter';
 import { emitToWorkspace, emitToUser, revokeWorkspaceAccess } from '../socketUtils';
 
@@ -257,7 +258,7 @@ router.post(
     // Every invite is pending, whether or not the email has an account, and the reply is the
     // same either way — so inviting can't be used to find out who is registered.
     // A pending invite becomes a membership on the invitee's next request (see authenticate).
-    const normalized = String(email).toLowerCase();
+    const normalized = String(email);
     const existing = await UserRepository.findByEmail(normalized);
     if (existing && workspace.members.some((m) => String(m.userId) === String(existing._id))) {
       return res.status(409).json({ message: 'User already a member' });
@@ -283,6 +284,33 @@ router.delete('/:id/invites/:email', requireWorkspaceRole('owner'), async (req: 
     targetType: 'Workspace', targetId: req.params.id, ip: req.ip, details: { email },
   });
   return res.json({ message: 'Invite cancelled' });
+});
+
+// ── Invite links (owner only) ───────────────────────────────────────────────
+router.post('/:id/invite-links', validate(schemas.createInviteLinkSchema), requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
+  const workspace = await WorkspaceRepository.findById(req.params.id);
+  if (!workspace) return res.status(404).json({ message: 'Workspace not found' });
+  const { token, link } = await WorkspaceRepository.createInviteLink(req.params.id, String(req.user!._id), req.body);
+  logAudit(String(req.user!._id), 'workspace.invite_link.create', {
+    targetType: 'Workspace', targetId: req.params.id, ip: req.ip,
+    details: { linkId: link.id, role: link.role, singleUse: link.singleUse, expiresAt: link.expiresAt },
+  });
+  return res.status(201).json({ link: { id: link.id, role: link.role, singleUse: link.singleUse, expiresAt: link.expiresAt, useCount: 0 }, token });
+});
+
+router.get('/:id/invite-links', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
+  const links = await WorkspaceRepository.listActiveInviteLinks(req.params.id);
+  return res.json(links.map(l => ({ id: l.id, role: l.role, singleUse: l.singleUse, expiresAt: l.expiresAt, useCount: l.useCount })));
+});
+
+router.delete('/:id/invite-links/:linkId', requireWorkspaceRole('owner'), async (req: AuthRequest, res: Response) => {
+  if (!isValidId(req.params.linkId) || !(await WorkspaceRepository.revokeInviteLink(req.params.id, req.params.linkId))) {
+    return res.status(404).json({ message: 'Invite link not found' });
+  }
+  logAudit(String(req.user!._id), 'workspace.invite_link.revoke', {
+    targetType: 'Workspace', targetId: req.params.id, ip: req.ip, details: { linkId: req.params.linkId },
+  });
+  return res.json({ message: 'Invite link revoked' });
 });
 
 // ── PUT /api/workspaces/:id/members/:userId – Change role ───────────────────

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useId } from 'react';
-import { ChevronDown, Search } from 'lucide-react';
+import { ChevronDown, Search, Link2 } from 'lucide-react';
 import clsx from 'clsx';
 
 interface Item { _id: string; name: string }
@@ -8,10 +8,11 @@ interface Props<T extends Item> {
   items: T[];
   activeId: string;
   onSelect: (item: T) => void;
+  onJoinWithLink?: () => void;
 }
 
 /** Searchable single-select (combobox + listbox) used for the workspace switcher. */
-export function WorkspacePicker<T extends Item>({ items, activeId, onSelect }: Props<T>) {
+export function WorkspacePicker<T extends Item>({ items, activeId, onSelect, onJoinWithLink }: Props<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [hi, setHi] = useState(0);
@@ -46,7 +47,7 @@ export function WorkspacePicker<T extends Item>({ items, activeId, onSelect }: P
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); if (shown[hi]) pick(shown[hi]); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
-    else if (e.key === 'Tab') close(false);
+    else if (e.key === 'Tab' && (e.shiftKey || !onJoinWithLink)) close(false);
   };
 
   return (
@@ -114,6 +115,17 @@ export function WorkspacePicker<T extends Item>({ items, activeId, onSelect }: P
             ))}
             {shown.length === 0 && <li role="presentation" className="px-2 py-1.5 text-sm text-text-muted">No matching workspaces</li>}
           </ul>
+          {onJoinWithLink && (
+            <button
+              type="button"
+              data-testid="workspace-join-link-btn"
+              onClick={() => { close(true); onJoinWithLink(); }}
+              onBlur={(e) => { if (!rootRef.current?.contains(e.relatedTarget as Node)) setOpen(false); }}
+              className="w-full flex items-center gap-2 px-2 py-2 text-sm text-text-muted border-t border-border hover:bg-border hover:text-text focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            >
+              <Link2 className="w-4 h-4" aria-hidden="true" /> Join with Invite Link…
+            </button>
+          )}
         </div>
       )}
     </div>

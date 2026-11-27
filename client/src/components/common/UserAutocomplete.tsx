@@ -13,9 +13,13 @@ interface Props {
   onSelect: (email: string) => void;
   value: string;
   onChange: (val: string) => void;
+  onBlur?: () => void;
+  inputRef?: React.Ref<HTMLInputElement>;
+  /** id of the error element shown for this input; marks the input invalid. */
+  error?: string;
 }
 
-export function UserAutocomplete({ onSelect, value, onChange }: Props) {
+export function UserAutocomplete({ onSelect, value, onChange, onBlur, inputRef, error }: Props) {
   const [results, setResults] = useState<User[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,14 +64,21 @@ export function UserAutocomplete({ onSelect, value, onChange }: Props) {
       <div className="relative">
         <input
           data-testid="user-autocomplete-input"
-          type="text"
+          ref={inputRef}
+          type="email"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Email to invite"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error}
+          onBlur={onBlur}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => {
             if (results.length > 0) setShowDropdown(true);
           }}
-          placeholder="Search user by name or email..."
-          className="w-full pl-8 p-2 border border-border rounded bg-background text-sm focus:border-primary outline-none"
+          placeholder="name@example.com…"
+          className={`w-full pl-8 p-2 border rounded bg-background text-text text-sm focus:border-primary focus-visible:ring-2 focus-visible:ring-primary/40 outline-none ${error ? 'border-delete' : 'border-border'}`}
         />
         <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-text-muted" />
       </div>

@@ -1,3 +1,4 @@
+import { takeReturnTo } from '../utils/returnTo';
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axios';
@@ -32,7 +33,7 @@ export default function RegisterPage() {
     try {
       const res = await api.post('/auth/register', { name, email, password });
       setUser(res.data.user);
-      navigate('/');
+      navigate(takeReturnTo());
       window.location.reload();
     } catch (err: any) {
       setError(apiErrorMessage(err, 'Registration failed'));

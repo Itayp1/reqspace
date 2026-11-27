@@ -1,5 +1,7 @@
 import { decodeCursor, encodeCursor, getCursorWhere } from '../utils/pagination';
-import { SqlWorkspace, SqlWorkspaceInvite } from '../db/sql-models';
+import { Op } from 'sequelize';
+import crypto from 'crypto';
+import { SqlWorkspace, SqlWorkspaceInvite, SqlWorkspaceInviteLink } from '../db/sql-models';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface IWorkspaceMemberRecord {
@@ -38,6 +40,8 @@ function sqlToRecord(w: SqlWorkspace): IWorkspaceRecord {
     updatedAt: w.updatedAt,
   };
 }
+
+const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
 
 export const WorkspaceRepository = {
   async findById(id: string): Promise<IWorkspaceRecord | null> {
@@ -116,6 +120,58 @@ export const WorkspaceRepository = {
       joined.push(ws.id);
     }
     return joined;
+  },
+
+  // Invite links: the token is never stored, only its sha256.
+  async createInviteLink(workspaceId: string, createdBy: string, o: { role: string; singleUse: boolean; expiresIn: '1h' | '1d' }) {
+    const token = crypto.randomBytes(32).toString('base64url');
+    const link = await SqlWorkspaceInviteLink.create({
+      workspaceId, createdBy, role: o.role, singleUse: o.singleUse, useCount: 0, tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + (o.expiresIn === '1h' ? 3600_000 : 86_400_000)),
+    });
+    return { token, link };
+  },
+
+  /** Links that can still be used. */
+  async listActiveInviteLinks(workspaceId: string) {
+    const links = await SqlWorkspaceInviteLink.findAll({
+      where: { workspaceId, revokedAt: null, expiresAt: { [Op.gt]: new Date() } }, order: [['createdAt', 'ASC']],
+    });
+    return links.filter(l => !(l.singleUse && l.useCount >= 1));
+  },
+
+  async revokeInviteLink(workspaceId: string, linkId: string): Promise<boolean> {
+    const [n] = await SqlWorkspaceInviteLink.update({ revokedAt: new Date() }, { where: { id: linkId, workspaceId, revokedAt: null } });
+    return n > 0;
+  },
+
+  findInviteLinkByToken(token: string) {
+    return SqlWorkspaceInviteLink.findOne({ where: { tokenHash: hashToken(token) } });
+  },
+
+  /** Why a link cannot be used, or null if it can. */
+  inviteLinkProblem(l: SqlWorkspaceInviteLink): 'revoked' | 'expired' | 'used' | null {
+    if (l.revokedAt) return 'revoked';
+    if (new Date(l.expiresAt).getTime() <= Date.now()) return 'expired';
+    if (l.singleUse && l.useCount >= 1) return 'used';
+    return null;
+  },
+
+  /** Takes one use. A single conditional UPDATE, so two parallel accepts of a single-use link cannot both win. */
+  async consumeInviteLink(id: string): Promise<boolean> {
+    const sq = SqlWorkspaceInviteLink.sequelize!;
+    const col = sq.getQueryInterface().quoteIdentifier('useCount');
+    const [n] = await SqlWorkspaceInviteLink.update(
+      { useCount: sq.literal(`${col} + 1`) as any },
+      { where: { id, revokedAt: null, expiresAt: { [Op.gt]: new Date() }, [Op.or]: [{ singleUse: false }, { useCount: 0 }] } },
+    );
+    return n > 0;
+  },
+
+  async addMember(workspaceId: string, userId: string, role: string, invitedBy: string): Promise<void> {
+    const ws = await this.findById(workspaceId);
+    if (!ws || ws.members.some(m => String(m.userId) === userId)) return;
+    await this.update(workspaceId, { members: [...ws.members, { userId, role, joinedAt: new Date(), invitedBy }] });
   },
 
   async delete(id: string): Promise<void> {

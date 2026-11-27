@@ -10,6 +10,7 @@ import EnvironmentSidebar from '../environment/EnvironmentSidebar';
 import api, { beginSignOut } from '../../api/axios';
 import { InlineNameInput } from '../common/InlineNameInput';
 import { WorkspacePicker } from '../common/WorkspacePicker';
+import { JoinWithLinkModal } from '../workspace/JoinWithLinkModal';
 import { useToastStore } from '../../store/toastStore';
 
 export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
@@ -17,6 +18,7 @@ export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [creatingWs, setCreatingWs] = useState(false);
+  const [joiningByLink, setJoiningByLink] = useState(false);
   const [activeTab, setActiveTab] = useState<'collections' | 'history' | 'environments'>('collections');
 
   const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>();
@@ -98,7 +100,7 @@ export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
       </div>
 
       <div className="p-2 border-b border-border flex gap-1">
-        <WorkspacePicker items={workspaces} activeId={activeWorkspace?._id || ''} onSelect={setActiveWorkspace} />
+        <WorkspacePicker items={workspaces} activeId={activeWorkspace?._id || ''} onSelect={setActiveWorkspace} onJoinWithLink={() => setJoiningByLink(true)} />
         <button
           data-testid="new-workspace-btn"
           onClick={() => setCreatingWs(true)}
@@ -208,6 +210,7 @@ export default function Sidebar({ onCollapse }: { onCollapse?: () => void }) {
         </div>
       </div>
 
+      {joiningByLink && <JoinWithLinkModal onClose={() => setJoiningByLink(false)} />}
       {showWorkspaceModal && <WorkspaceSettingsModal onClose={() => setShowWorkspaceModal(false)} />}
       {showImportModal && <ImportModal initialFiles={droppedFiles} onClose={() => { setShowImportModal(false); setDroppedFiles(undefined); }} />}
     </nav>
