@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from '../fixtures';
+import { registerUser } from '../helpers';
 
 /**
  * Drag `source` onto the left half of `target`, so the drop resolves to
@@ -141,4 +142,105 @@ test.describe('Tab Operations', () => {
     await expect(page.getByTestId('request-url-input')).toHaveValue('https://example.com/1');
     await expect(page.getByTestId('method-select')).toHaveValue('POST');
   });
+});
+
+/**
+ * Tab housekeeping. The tab context menu used to close tabs with unsaved
+ * edits without asking; it now confirms first, like the x button.
+ */
+test.describe('Tab close and context menu', () => {
+  test.beforeEach(async ({ page }) => {
+    await registerUser(page, 'tabs_hist');
+  });
+
+  async function openTabs(page: import('@playwright/test').Page, urls: string[]) {
+    for (const url of urls) {
+      await page.getByTestId('new-tab-btn').click();
+      await page.getByTestId('request-url-input').fill(url);
+    }
+    // The url edits make every one of these tabs dirty; that's what the
+    // confirmations below are about. Mark them clean by reading their count.
+    await expect(page.locator('[data-testid^="tab-"]').filter({ has: page.getByTestId('close-tab-btn') })).toHaveCount(urls.length);
+  }
+
+  const tabs = (page: import('@playwright/test').Page) =>
+    page.locator('[data-testid^="tab-"]').filter({ has: page.getByTestId('close-tab-btn') });
+
+  test('closing a dirty tab asks first; Cancel keeps it, confirming closes it', async ({ page }) => {
+    await openTabs(page, ['https://one.example.test']);
+    await tabs(page).first().getByTestId('close-tab-btn').click();
+    await expect(page.getByRole('heading', { name: 'Unsaved Changes' })).toBeVisible();
+    await page.getByTestId('confirm-cancel-btn').click();
+    await expect(tabs(page)).toHaveCount(1);
+
+    await tabs(page).first().getByTestId('close-tab-btn').click();
+    await page.getByTestId('confirm-btn').click();
+    await expect(tabs(page)).toHaveCount(0);
+    await expect(page.getByTestId('create-request-btn')).toBeVisible();
+  });
+
+  test('the tab context menu closes others / to the right / to the left, confirming unsaved ones', async ({ page }) => {
+    await openTabs(page, ['https://a.example.test', 'https://b.example.test', 'https://c.example.test', 'https://d.example.test']);
+
+    // Close All to the Right of the 2nd tab -> a, b remain.
+    await tabs(page).nth(1).click({ button: 'right' });
+    await page.getByTestId('tab-menu-close-right').click();
+    await expect(page.getByRole('heading', { name: 'Unsaved Changes' })).toBeVisible();
+    await page.getByTestId('confirm-btn').click();
+    await expect(tabs(page)).toHaveCount(2);
+
+    // Close All to the Left of the 2nd tab -> only b remains.
+    await tabs(page).nth(1).click({ button: 'right' });
+    await page.getByTestId('tab-menu-close-left').click();
+    await page.getByTestId('confirm-btn').click();
+    await expect(tabs(page)).toHaveCount(1);
+    await expect(page.getByTestId('request-url-input')).toHaveValue('https://b.example.test');
+
+    // Close Other Tabs, cancelled, keeps everything.
+    await page.getByTestId('new-tab-btn').click();
+    await page.getByTestId('request-url-input').fill('https://e.example.test');
+    await tabs(page).first().click({ button: 'right' });
+    await page.getByTestId('tab-menu-close-others').click();
+    await page.getByTestId('confirm-cancel-btn').click();
+    await expect(tabs(page)).toHaveCount(2);
+  });
+});
+
+/** UX (QA-68): the tab bar scrolls without a visible scrollbar; long tab names have a tooltip. */
+test('tab bar hides its scrollbar and tabs carry a title tooltip', async ({ page }) => {
+  await registerUser(page, 'uxtabs');
+  await page.getByTestId('new-tab-btn').click();
+  const bar = page.getByTestId('new-tab-btn').locator('xpath=ancestor::div[contains(@class,"scrollbar-hide")][1]');
+  await expect(bar).toHaveCSS('scrollbar-width', 'none');
+  await expect(bar.locator('span.truncate').first()).toHaveAttribute('title', /.+/);
+});
+
+test('request tab method label uses the theme method token', async ({ page }) => {
+  await registerUser(page, 'tab_method_color');
+  await page.getByTestId('new-tab-btn').click();
+  const label = page.locator('[data-testid^="tab-"]').filter({ has: page.getByTestId('close-tab-btn') }).first().getByText('GET', { exact: true });
+  const [actual, token] = await Promise.all([
+    label.evaluate(el => getComputedStyle(el).color),
+    page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--color-get)';
+      document.body.appendChild(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    }),
+  ]);
+  expect(actual).toBe(token);
+});
+
+test('Escape cancels a confirm dialog and keeps the dirty tab', async ({ page }) => {
+  await registerUser(page, 'esc_modals');
+  // A dirty-tab close prompts a ConfirmModal; Escape cancels it and keeps the tab.
+  await page.getByTestId('new-tab-btn').click();
+  await page.getByTestId('request-url-input').fill('https://esc.example.test');
+  await page.getByTestId('close-tab-btn').first().click();
+  await expect(page.getByTestId('confirm-cancel-btn')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('confirm-cancel-btn')).toBeHidden();
+  await expect(page.getByTestId('close-tab-btn')).toHaveCount(1);
 });

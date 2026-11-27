@@ -1,7 +1,16 @@
 import { test, expect } from '../fixtures';
-import { registerUser } from '../helpers';
+import { registerUser, createCollectionUi, openNodeMenu } from '../helpers';
 
-test('Escape closes the collection runner and cancels a confirm dialog', async ({ page }) => {
+/** UX: the runner title has no colon; Escape closes the runner. */
+test('Run dialog title has no colon', async ({ page }) => {
+  await registerUser(page, 'uxrun');
+  await createCollectionUi(page, 'RunCol');
+  await openNodeMenu(page, 'RunCol');
+  await page.getByTestId('action-menu-run-collection').click();
+  await expect(page.getByTestId('collection-runner-modal').getByRole('heading')).toHaveText('Run “RunCol”');
+});
+
+test('Escape closes the collection runner', async ({ page }) => {
   await registerUser(page, 'esc_modals');
   const newBtn = page.getByTestId('new-collection-empty-btn');
   if (await newBtn.isVisible().catch(() => false)) await newBtn.click();
@@ -16,13 +25,4 @@ test('Escape closes the collection runner and cancels a confirm dialog', async (
   await expect(runner).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(runner).toBeHidden();
-
-  // A dirty-tab close prompts a ConfirmModal; Escape cancels it and keeps the tab.
-  await page.getByTestId('new-tab-btn').click();
-  await page.getByTestId('request-url-input').fill('https://esc.example.test');
-  await page.getByTestId('close-tab-btn').first().click();
-  await expect(page.getByTestId('confirm-cancel-btn')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('confirm-cancel-btn')).toBeHidden();
-  await expect(page.getByTestId('close-tab-btn')).toHaveCount(1);
 });

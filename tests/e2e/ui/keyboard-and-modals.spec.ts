@@ -22,3 +22,16 @@ test('Ctrl+S saves Workspace Settings', async ({ page }) => {
   await page.keyboard.press('Control+s');
   await expect(page.getByText('Workspace settings saved')).toBeVisible();
 });
+
+/** UX: creating a workspace is an inline name field (no dialog). */
+test('New Workspace is an inline name field, no dialog', async ({ page }) => {
+  await registerUser(page, 'uxprompt');
+  await page.getByTestId('new-workspace-btn').click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const input = page.getByTestId('prompt-input');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAccessibleName('Workspace name');
+  await input.fill('Inline WS');
+  await input.press('Enter');
+  await expect(page.getByTestId('workspace-select')).toHaveText('Inline WS');
+});

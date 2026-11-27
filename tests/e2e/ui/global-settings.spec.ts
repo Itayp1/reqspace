@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures';
+import { registerUser } from '../helpers';
 
 /**
  * Global Settings had no coverage: the proxy fields' test ids existed but
@@ -115,4 +116,21 @@ test.describe('Global Settings', () => {
     await page.keyboard.press('Control+k');
     await expect(dialog).toBeHidden();
   });
+});
+
+test('[ABOUT] Global Settings shows the app version', async ({ page }) => {
+  await registerUser(page, 'about1');
+  await page.getByTestId('settings-btn').click();
+  await expect(page.getByTestId('about-section')).toBeVisible();
+  await expect(page.getByTestId('app-version')).toHaveText(/^\d+\.\d+\.\d+$/);
+});
+
+// Modals must be role="dialog" and Escape must close Global Settings (QA-19).
+test('Global Settings is a dialog and Escape closes it', async ({ page }) => {
+  await registerUser(page, 'qa19');
+  await page.getByLabel('Open general settings').click();
+  await expect(page.getByTestId('global-settings-close-btn')).toBeVisible();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('global-settings-close-btn')).toHaveCount(0);
 });
