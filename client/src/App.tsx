@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import api from './api/axios';
 import { useAuthStore } from './store/authStore';
 import { useSettingsStore } from './store/settingsStore';
@@ -13,6 +13,8 @@ import AdminPage from './pages/AdminPage';
 import { ContextMenuProvider } from './components/common/ContextMenuProvider';
 import ForcePasswordChangeModal from './components/auth/ForcePasswordChangeModal';
 import SharedCollectionPage from './pages/SharedCollectionPage';
+import InvitePage from './pages/InvitePage';
+import { rememberReturnTo } from './utils/returnTo';
 import { ToastContainer } from './components/common/ToastContainer';
 import { ExtensionDownloadModal } from './components/common/ExtensionDownloadModal';
 import { installUnauthorizedSessionListener } from './utils/unauthorizedSession';
@@ -84,8 +86,9 @@ function DbErrorScreen({ dbType, dbError }: { dbType: string; dbError: string })
 // ── Auth Guard ────────────────────────────────────────────────────────────────
 function AuthGuard({ children, requireSuperAdmin = false }: { children: React.ReactNode, requireSuperAdmin?: boolean }) {
   const { user, isAuthenticated } = useAuthStore();
+  const { pathname } = useLocation();
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) { rememberReturnTo(pathname); return <Navigate to="/login" replace />; }
   if (requireSuperAdmin && !user?.isSuperAdmin) return <Navigate to="/" replace />;
 
   return children;
@@ -215,6 +218,8 @@ function App() {
             <Route path="/auth/:provider/callback" element={<OAuthCallbackPage />} />
             <Route path="/share/:shortId" element={<SharedCollectionPage />} />
             
+            <Route path="/invite/:token" element={<AuthGuard><InvitePage /></AuthGuard>} />
+
             <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
               <Route index element={<AppScreen />} />
               <Route path="admin" element={<AuthGuard requireSuperAdmin><AdminPage /></AuthGuard>} />

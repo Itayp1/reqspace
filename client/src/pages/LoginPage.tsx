@@ -1,3 +1,4 @@
+import { takeReturnTo } from '../utils/returnTo';
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../api/axios';
@@ -42,7 +43,7 @@ export default function LoginPage() {
         return;
       }
       setUser(res.data.user);
-      navigate('/');
+      navigate(takeReturnTo());
       window.location.reload(); // To fetch workspaces
     } catch (err: any) {
       setError(apiErrorMessage(err, 'Login failed'));

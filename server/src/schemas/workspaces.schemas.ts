@@ -21,8 +21,14 @@ export const updateWorkspaceSchema = z.object({
 }).strict();
 
 export const addWorkspaceMemberSchema = z.object({
-  email: z.string().email(),
-  role: z.enum(['viewer', 'editor']) // Assuming roles are viewer/editor
+  email: z.string().trim().toLowerCase().email().max(255),
+  role: z.enum(['viewer', 'editor', 'owner'])
+}).strict();
+
+export const createInviteLinkSchema = z.object({
+  role: z.enum(['viewer', 'editor', 'owner']),
+  singleUse: z.boolean(),
+  expiresIn: z.enum(['1h', '1d']),
 }).strict();
 
 export const updateWorkspaceMemberSchema = z.object({

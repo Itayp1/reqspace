@@ -8,10 +8,15 @@ import { useToastStore } from '../../store/toastStore';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { DuplicateWorkspaceModal } from './DuplicateWorkspaceModal';
 import { useSaveShortcut } from '../../hooks/useSaveShortcut';
+import { apiErrorMessage } from '../../utils/apiError';
+import { InviteLinksTab } from './InviteLinksTab';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function WorkspaceSettingsModal({ onClose }: { onClose: () => void }) {
   const { activeWorkspace, workspaces, setWorkspaces, setActiveWorkspace, user } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'general' | 'members' | 'activity'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'members' | 'links' | 'activity'>('general');
   const [name, setName] = useState(activeWorkspace?.name || '');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(activeWorkspace?.isPublic || false);
@@ -25,9 +30,12 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('viewer');
+  const [emailError, setEmailError] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const emailInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const [showDuplicate, setShowDuplicate] = useState(false);
-  const [confirmConfig, setConfirmConfig] = useState<{isOpen: boolean; title: string; message: string; onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
+  const [confirmConfig, setConfirmConfig] = useState<{isOpen: boolean; title: string; message: string; confirmLabel?: string; onConfirm: () => void}>({isOpen: false, title: '', message: '', onConfirm: () => {}});
 
   useEffect(() => {
     if (activeWorkspace) {
@@ -78,17 +86,29 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
     }
   };
 
+  const BAD_EMAIL = 'Enter a valid email address, for example name@example.com.';
+  const checkEmail = () => {
+    const ok = EMAIL_RE.test(inviteEmail.trim());
+    setEmailError(ok ? '' : BAD_EMAIL);
+    return ok;
+  };
+
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (inviting) return;
+    if (!checkEmail()) { emailInput.current?.focus(); return; }
+    const email = inviteEmail.trim().toLowerCase();
+    setInviting(true);
     try {
-      await api.post(`/workspaces/${activeWorkspace?._id}/members`, { email: inviteEmail, role: inviteRole });
+      await api.post(`/workspaces/${activeWorkspace?._id}/members`, { email, role: inviteRole });
       await refreshMembers();
-      useToastStore.getState().addToast('success', `Invitation sent to ${inviteEmail}`);
+      useToastStore.getState().addToast('success', `Invitation sent to ${email}`);
       setInviteEmail('');
+      setError('');
     } catch (e: any) {
-      const message = e.response?.data?.message || 'Failed to add member';
-      setError(message);
-      useToastStore.getState().addToast('error', message);
+      setEmailError(apiErrorMessage(e, 'Failed to add member'));
+    } finally {
+      setInviting(false);
     }
   };
 
@@ -106,16 +126,24 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
     }
   };
 
-  const cancelInvite = async (email: string) => {
-    try {
-      await api.delete(`/workspaces/${activeWorkspace?._id}/invites/${encodeURIComponent(email)}`);
-      await refreshMembers();
-    } catch (e: any) {
-      const message = e.response?.data?.message || 'Failed to cancel invite';
-      setError(message);
-      useToastStore.getState().addToast('error', message);
-    }
-  };
+  const revokeInvite = (email: string) => setConfirmConfig({
+    isOpen: true,
+    title: 'Revoke Invite',
+    message: `${email} will not be able to join with this invite. This cannot be undone.`,
+    confirmLabel: 'Revoke',
+    onConfirm: async () => {
+      setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+      try {
+        await api.delete(`/workspaces/${activeWorkspace?._id}/invites/${encodeURIComponent(email)}`);
+        await refreshMembers();
+        useToastStore.getState().addToast('success', `Invite for ${email} revoked`);
+      } catch (e: any) {
+        const message = e.response?.data?.message || 'Failed to revoke invite';
+        setError(message);
+        useToastStore.getState().addToast('error', message);
+      }
+    },
+  });
 
   const executeRemoveMember = async (userId: string) => {
     try {
@@ -145,6 +173,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
   
 
   const isOwner = activeWorkspace?.myRole === 'owner';
+  const ownerCount = members.filter(m => m.role === 'owner').length;
   useSaveShortcut(() => { if (isOwner && activeTab === 'general' && !loading && !confirmConfig.isOpen && !showDuplicate) handleUpdate(); });
 
   // The confirm dialog (rendered inside this one) owns Escape while it is open.
@@ -182,7 +211,18 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
           >
             Members
           </button>
-          <button 
+          {isOwner && (
+            <button
+              data-testid="workspace-links-tab"
+              className={`px-4 py-2 font-medium ${activeTab === 'links' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'} focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary`}
+              role="tab"
+              aria-selected={activeTab === 'links'}
+              onClick={() => setActiveTab('links')}
+            >
+              Invite links
+            </button>
+          )}
+          <button
             className={`px-4 py-2 font-medium ${activeTab === 'activity' ? 'text-primary border-b-2 border-primary' : 'text-text-muted hover:text-text'} focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary`}
             role="tab"
             aria-selected={activeTab === 'activity'}
@@ -276,36 +316,42 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
           {activeTab === 'members' && (
             <div>
               {isOwner && (
-                <form onSubmit={handleAddMember} className="flex gap-2 mb-6">
+                <form onSubmit={handleAddMember} noValidate className="flex gap-2 items-start">
                   <div className="flex-1">
                     <UserAutocomplete
                       value={inviteEmail}
-                      onChange={setInviteEmail}
-                      onSelect={setInviteEmail}
+                      onChange={v => { setInviteEmail(v); setEmailError(''); }}
+                      onSelect={v => { setInviteEmail(v); setEmailError(''); }}
+                      onBlur={() => { if (inviteEmail.trim()) checkEmail(); }}
+                      inputRef={emailInput}
+                      error={emailError ? 'workspace-invite-email-error' : undefined}
                     />
                   </div>
-                  <select 
+                  <select
                     data-testid="workspace-invite-role"
                     aria-label="Role for new member"
-                    value={inviteRole} 
+                    value={inviteRole}
                     onChange={e => setInviteRole(e.target.value)}
-                    className="p-2 border border-border rounded bg-surface"
+                    className="p-2 border border-border rounded bg-surface text-text focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
+                    <option value="owner">Owner</option>
                   </select>
-                  <button 
+                  <button
                     data-testid="workspace-invite-btn"
-                    type="submit" 
-                    disabled={!inviteEmail}
-                    className="bg-primary text-white px-4 py-2 rounded hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
+                    type="submit"
+                    disabled={!inviteEmail.trim() || inviting}
+                    className="bg-primary text-white px-4 py-2 rounded hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
                   >
-                    <UserPlus className="w-4 h-4" aria-hidden="true" /> Add
+                    <UserPlus className="w-4 h-4" aria-hidden="true" /> {inviting ? 'Inviting…' : 'Invite'}
                   </button>
                 </form>
               )}
+              {isOwner && emailError && <p id="workspace-invite-email-error" data-testid="workspace-invite-email-error" role="alert" className="text-xs text-delete mt-1">{emailError}</p>}
+              {isOwner && inviteRole === 'owner' && <p className="text-xs text-text-muted mt-1">Owners can invite, remove and change anyone, including other owners.</p>}
               {isOwner && (
-                <p className="text-xs text-text-muted -mt-4 mb-4">Suggestions show only people you already share a workspace with. To invite someone new, type their full email. They join the next time they sign in.</p>
+                <p className="text-xs text-text-muted mt-2 mb-4">Suggestions show only people you already share a workspace with. Type a full email to invite someone new. They join the next time they sign in.</p>
               )}
 
               <div className="border border-border rounded overflow-hidden">
@@ -315,7 +361,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                       <th className="p-2">Name</th>
                       <th className="p-2">Email</th>
                       <th className="p-2">Role</th>
-                      {isOwner && <th className="p-2 w-16">Actions</th>}
+                      {isOwner && <th className="p-2 w-24">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -324,7 +370,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                         <td className="p-2" data-testid="member-name">{m.userId?.name || "Deleted User"}</td>
                         <td className="p-2 text-text-muted" data-testid="member-email">{m.userId?.email || "N/A"}</td>
                         <td className="p-2 capitalize">
-                          {isOwner && m.role !== 'owner' ? (
+                          {isOwner && (m.role !== 'owner' || ownerCount > 1) ? (
                             <select 
                               data-testid="member-role-select"
                               aria-label={`Role for ${m.userId?.name || 'member'}`}
@@ -343,14 +389,15 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                             >
                               <option value="viewer">Viewer</option>
                               <option value="editor">Editor</option>
+                              <option value="owner">Owner</option>
                             </select>
                           ) : (
-                            <span className="p-1" data-testid="member-role-text">{m.role}</span>
+                            <span className="p-1" data-testid="member-role-text" title={m.role === 'owner' ? 'A workspace needs at least one owner' : undefined}>{m.role}</span>
                           )}
                         </td>
                         {isOwner && (
                           <td className="p-2">
-                            {m.role !== 'owner' && (
+                            {(m.role !== 'owner' || ownerCount > 1) && (
                               <button data-testid="member-remove-btn" aria-label={`Remove ${m.userId?.name || 'member'}`} title="Remove member" onClick={() => handleRemove(m.userId?._id)} className="text-text-muted hover:text-red-500 p-1 rounded focus-visible:ring-2 focus-visible:ring-primary">
                                 <Trash2 className="w-4 h-4" aria-hidden="true" />
                               </button>
@@ -363,12 +410,10 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                       <tr key={i.email} data-testid="invite-row" className="border-b border-border last:border-0 hover:bg-surface">
                         <td className="p-2 text-text-muted italic">Invited</td>
                         <td className="p-2 text-text-muted" data-testid="invite-email">{i.email}</td>
-                        <td className="p-2 capitalize"><span className="p-1">{i.role} (pending)</span></td>
+                        <td className="p-2 text-text-muted"><span className="p-1">{cap(i.role)} · pending</span></td>
                         {isOwner && (
                           <td className="p-2">
-                            <button data-testid="invite-cancel-btn" aria-label={`Cancel invite for ${i.email}`} title="Cancel invite" onClick={() => cancelInvite(i.email)} className="text-text-muted hover:text-red-500 p-1 rounded focus-visible:ring-2 focus-visible:ring-primary">
-                              <Trash2 className="w-4 h-4" aria-hidden="true" />
-                            </button>
+                            <button data-testid="invite-cancel-btn" aria-label={`Revoke invite for ${i.email}`} onClick={() => revokeInvite(i.email)} className="text-sm text-text-muted hover:text-delete px-2 py-1 rounded focus-visible:ring-2 focus-visible:ring-primary">Revoke</button>
                           </td>
                         )}
                       </tr>
@@ -394,6 +439,10 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
                 </button>
               )}
             </div>
+          )}
+
+          {activeTab === 'links' && isOwner && activeWorkspace && (
+            <InviteLinksTab workspaceId={activeWorkspace._id} confirm={c => setConfirmConfig({ ...c, isOpen: true, onConfirm: () => { setConfirmConfig(prev => ({ ...prev, isOpen: false })); c.onConfirm(); } })} />
           )}
 
           {activeTab === 'activity' && (
@@ -429,6 +478,7 @@ export default function WorkspaceSettingsModal({ onClose }: { onClose: () => voi
       {confirmConfig.isOpen && (
         <ConfirmModal
           title={confirmConfig.title}
+          confirmLabel={confirmConfig.confirmLabel}
           message={confirmConfig.message}
           onConfirm={confirmConfig.onConfirm}
           onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}

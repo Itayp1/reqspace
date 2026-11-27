@@ -244,6 +244,19 @@ export class SqlWorkspaceInvite extends Model {
   declare createdAt: Date;
 }
 
+export class SqlWorkspaceInviteLink extends Model {
+  declare id: string;
+  declare workspaceId: string;
+  declare tokenHash: string;
+  declare role: string;
+  declare singleUse: boolean;
+  declare expiresAt: Date;
+  declare useCount: number;
+  declare revokedAt: Date | null;
+  declare createdBy: string;
+  declare createdAt: Date;
+}
+
 export class SqlFpError extends Model {
   declare id: string;
   declare source: string;
@@ -477,6 +490,19 @@ export function initSqlModels() {
     invitedBy: { type: DataTypes.STRING(36), allowNull: false },
   }, { sequelize: sq, tableName: 'workspace_invites', timestamps: true, updatedAt: false,
     indexes: [{ fields: ['email'] }, { fields: ['workspaceId', 'email'], unique: true }] });
+
+  SqlWorkspaceInviteLink.init({
+    id: { type: DataTypes.STRING(36), primaryKey: true, defaultValue: () => uuidv4() },
+    workspaceId: { type: DataTypes.STRING(36), allowNull: false },
+    tokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    role: { type: DataTypes.STRING(20), allowNull: false },
+    singleUse: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    expiresAt: { type: DataTypes.DATE, allowNull: false },
+    useCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    revokedAt: { type: DataTypes.DATE, allowNull: true },
+    createdBy: { type: DataTypes.STRING(36), allowNull: false },
+  }, { sequelize: sq, tableName: 'workspace_invite_links', timestamps: true, updatedAt: false,
+    indexes: [{ fields: ['workspaceId'] }] });
 }
 
 
