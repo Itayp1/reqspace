@@ -1,4 +1,70 @@
 import { test, expect } from '../fixtures';
+import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, startNewRequest, expectToast } from '../helpers';
+
+// QA-02: a request created from the collection menu was not opened, so the editor kept the previous draft.
+test('QA-02: a request created from the collection menu opens in the editor', async ({ page }) => {
+  await registerUser(page, 'qa02');
+  await createCollectionUi(page, 'Col');
+  await page.getByTestId('new-tab-btn').click(); // an unrelated draft is on screen
+
+  await startNewRequest(page, 'Col');
+  await page.getByTestId('prompt-input').fill('Get Users');
+  const created = page.waitForResponse((r) => r.request().method() === 'POST' && /\/collections\/[^/]+\/requests$/.test(r.url()));
+  await page.getByTestId('prompt-input').press('Enter');
+  const id = (await (await created).json())._id;
+
+  // Whatever is typed now must land on the new request, not on the old draft.
+  await page.getByTestId('request-url-input').fill('https://example.test/users');
+  await page.getByTestId('request-save-btn').click();
+  await expect.poll(async () => (await (await page.request.get(`/api/requests/${id}`)).json()).url).toBe('https://example.test/users');
+});
+
+// QA-14 / QA-60: saving a request must confirm with a toast, like Local Variables and environments do.
+test('QA-14: saving a request shows a success toast', async ({ page }) => {
+  await registerUser(page, 'qa14r');
+  await createCollectionUi(page, 'SaveCol');
+  await addViaMenu(page, 'SaveCol', 'new-request', 'SaveReq');
+  await page.getByTestId('request-url-input').fill('https://example.test/saved');
+  await page.getByTestId('request-save-btn').click();
+  await expectToast(page, 'success', 'Request saved');
+});
+
+// QA-77: the Save dialog of a duplicated tab must default to the original request's collection, not the first one.
+test('QA-77: Duplicate Tab then Save defaults to the original collection', async ({ page }) => {
+  await registerUser(page, 'qa77');
+  await createCollectionUi(page, 'FirstCol');
+  await createCollectionUi(page, 'HomeCol');
+  await addViaMenu(page, 'HomeCol', 'new-request', 'HomeReq');
+  await page.getByTestId('request-url-input').fill('https://example.test/home');
+  await page.getByTestId('request-save-btn').click();
+
+  await page.locator('[data-testid^="tab-"]').filter({ hasText: 'HomeReq' }).first().click({ button: 'right' });
+  await page.getByTestId('tab-menu-duplicate').click();
+  await page.getByTestId('request-save-btn').click();
+
+  const row = (n: string) => page.getByTestId('save-req-submit-btn').locator('xpath=ancestor::form').getByRole('button', { name: n });
+  await expect(row('HomeCol')).toHaveClass(/bg-primary/);
+  await expect(row('FirstCol')).not.toHaveClass(/bg-primary/);
+});
+
+// QA-64b: every Duplicate path must keep the raw {{baseUrl}} URL, never a resolved one.
+test('QA-64b: tree Duplicate and Duplicate Tab keep {{baseUrl}}', async ({ page }) => {
+  await registerUser(page, 'qa64b');
+  await createCollectionUi(page, 'RawCol');
+  await addViaMenu(page, 'RawCol', 'new-request', 'RawReq');
+  const raw = '{{baseUrl}}/api/x';
+  await page.getByTestId('request-url-input').fill(raw);
+  await page.getByTestId('request-save-btn').click();
+
+  await openNodeMenu(page, 'RawReq');
+  await page.getByText('Duplicate', { exact: true }).click();
+  await page.getByTestId('node-RawReq (Copy)').click();
+  await expect(page.getByTestId('request-url-input')).toHaveValue(raw);
+
+  await page.locator('[data-testid^="tab-"]').filter({ hasText: 'RawReq (Copy)' }).first().click({ button: 'right' });
+  await page.getByTestId('tab-menu-duplicate').click();
+  await expect(page.getByTestId('request-url-input')).toHaveValue(raw);
+});
 
 /**
  * The Save split-button's dropdown ("Save" / "Save As...") and the Save

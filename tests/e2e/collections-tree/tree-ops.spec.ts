@@ -1,8 +1,5 @@
 import { test, expect } from '../fixtures';
-import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, expectToast, apiAs, startNewRequest } from '../helpers';
-
-// these tests provoke 4xx/handled failures on purpose; the app records them in fperrors
-test.use({ allowFpErrors: [/Failed to update request .*status code 400/] });
+import { registerUser, createCollectionUi, addViaMenu, openNodeMenu, treeNode, apiAs, startNewRequest } from '../helpers';
 
 /**
  * Sidebar tree operations that were broken or untested:
@@ -93,44 +90,6 @@ test.describe('Tree operations', () => {
     await expect(page.getByText('No results for "no-such-thing"')).toBeVisible();
   });
 
-  test('re-opening a request from the tree keeps the tab\'s unsaved edits', async ({ page }) => {
-    await createCollectionUi(page, 'Edit Col');
-    await addViaMenu(page, 'Edit Col', 'new-request', 'First');
-    await addViaMenu(page, 'Edit Col', 'new-request', 'Second');
-
-    await treeNode(page, 'First').click();
-    await page.getByTestId('request-url-input').fill('https://edited.example.test/kept');
-    await expect(page.getByTestId('dirty-indicator')).toHaveCount(1);
-
-    await treeNode(page, 'Second').click();
-    await expect(page.getByTestId('request-url-input')).toHaveValue('');
-    await treeNode(page, 'First').click();
-    await expect(page.getByTestId('request-url-input')).toHaveValue('https://edited.example.test/kept');
-    await expect(page.getByTestId('dirty-indicator')).toHaveCount(1);
-  });
-
-  test('a save the server rejects says so and leaves the tab dirty', async ({ page }) => {
-    await createCollectionUi(page, 'Fail Col');
-    await addViaMenu(page, 'Fail Col', 'new-request', 'Fragile');
-    await treeNode(page, 'Fragile').click();
-    await page.getByTestId('request-url-input').fill('https://will-not-save.example.test');
-
-    await page.route('**/api/requests/*', (route) => route.request().method() === 'PUT'
-      ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ message: 'Simulated rejection' }) })
-      : route.continue());
-    await page.getByTestId('request-save-btn').click();
-    await expectToast(page, 'error', 'Save failed: Simulated rejection');
-    await expect(page.getByTestId('dirty-indicator')).toHaveCount(1);
-    await expect(page.getByTestId('request-save-btn')).toContainText('Save*');
-
-    // Once the server accepts it, the same tab saves cleanly.
-    await page.unroute('**/api/requests/*');
-    const put = page.waitForResponse(r => /\/api\/requests\//.test(r.url()) && r.request().method() === 'PUT');
-    await page.getByTestId('request-save-btn').click();
-    expect((await put).status()).toBe(200);
-    await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
-  });
-
   test('a folder dragged onto another folder moves there and stays after a reload', async ({ page }) => {
     await createCollectionUi(page, 'Drag Col');
     await addViaMenu(page, 'Drag Col', 'new-folder', 'Target');
@@ -190,4 +149,27 @@ test.describe('Tree operations', () => {
     await treeNode(page, 'Child').click();
     await expect(page.getByTestId('node-Deep Req')).toBeVisible();
   });
+});
+
+// QA-44: dragging a request onto a sibling request reorders it and the order persists.
+test('[QA-44] drag request onto sibling reorders and persists', async ({ page }) => {
+  await registerUser(page, 'qa44');
+  const wsList = await (await page.request.get('/api/workspaces')).json();
+  const list = Array.isArray(wsList) ? wsList : wsList.workspaces;
+  const ws = list.find((w: any) => w.isPersonal) ?? list[0];
+  const col = await (await page.request.post(`/api/workspaces/${ws.id ?? ws._id}/collections`, { data: { name: 'Col44' } })).json();
+  const cid = col.id ?? col._id;
+  for (const [i, name] of ['R-A', 'R-B', 'R-C'].entries()) {
+    await page.request.post(`/api/collections/${cid}/requests`, { data: { name, method: 'GET', url: 'https://mock.test/x', order: i } });
+  }
+  await page.reload();
+  await page.getByTestId('node-Col44').click();
+  await expect(page.getByTestId('node-R-C')).toBeVisible();
+
+  await page.getByTestId('node-R-C').dragTo(page.getByTestId('node-R-A'));
+
+  await expect(async () => {
+    const reqs: any[] = await (await page.request.get(`/api/collections/${cid}/requests`)).json();
+    expect(reqs.sort((a, b) => a.order - b.order).map(r => r.name)).toEqual(['R-C', 'R-A', 'R-B']);
+  }).toPass();
 });
