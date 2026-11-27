@@ -3,7 +3,7 @@
 //
 // Usage: node scripts/run-e2e-worlds.js [--only=a,b] [playwright args...]
 //   --only=a,b   run just those groups (names below)
-// Groups are balanced by test count (~100-135 each); every world keeps its own folder under tests/e2e/.
+// Groups are balanced by test count (~120-155 each), then a serial `perf` phase runs the latency tests; every world keeps its own folder under tests/e2e/.
 const { spawn } = require('child_process');
 const net = require('net');
 const os = require('os');
@@ -11,12 +11,14 @@ const path = require('path');
 const fs = require('fs');
 
 const GROUPS = {
-  a: ['requests', 'history-search', 'runner'],
-  b: ['platform', 'import-export', 'scripts', 'first-run'],
-  c: ['admin', 'auth', 'oauth'], // global-settings worlds: safe because every group has its own DB
-  d: ['workspaces-rbac-share', 'realtime'],
-  e: ['collections-tree', 'variables-environments', 'ui'],
+  a: ['requests', 'history-search', 'runner', 'import-export'],
+  b: ['platform', 'scripts', 'realtime', 'ui'],
+  c: ['admin', 'auth', 'oauth', 'first-run'], // global-settings worlds: safe because every group has its own DB
+  d: ['workspaces-rbac-share', 'collections-tree', 'variables-environments'],
 };
+// Latency-budget tests (seeded-perf, the API <100ms check) fail when other stacks load the CPU, so they
+// are skipped in the parallel groups and run alone afterwards on a quiet machine.
+const PERF = 'seeded perf|API performance';
 
 const args = process.argv.slice(2);
 const onlyArg = args.find((a) => a.startsWith('--only='));
@@ -41,7 +43,7 @@ function prefix(stream, label, out) {
   });
 }
 
-async function runGroup(name) {
+async function runGroup(name, { folders, grep } = {}) {
   const [port, clientPort] = [await freePort(), await freePort()];
   const stamp = `${Date.now()}-${process.pid}-${name}`;
   const dbPath = path.join(os.tmpdir(), `reqspace-e2e-world-${stamp}.sqlite`);
@@ -55,9 +57,9 @@ async function runGroup(name) {
   };
   delete env.REQSPACE_API_URL; // derived from PORT by playwright.config.ts
   delete env.REQSPACE_WEB_URL;
-  const folders = GROUPS[name].map((w) => `tests/e2e/${w}/`);
-  console.log(`[${name}] ${GROUPS[name].join(', ')}  api :${port}  client :${clientPort}`);
-  const child = spawn('pnpm', ['exec', 'playwright', 'test', '--reporter=line', ...extra, ...folders], { shell: true, env });
+  folders ??= GROUPS[name].map((w) => `tests/e2e/${w}/`);
+  console.log(`[${name}] ${folders.join(', ')}  api :${port}  client :${clientPort}`);
+  const child = spawn('pnpm', ['exec', 'playwright', 'test', '--reporter=line', ...(grep ? ['--grep', `"${grep}"`] : ['--grep-invert', `"${PERF}"`]), ...extra, ...folders], { shell: true, env });
   prefix(child.stdout, name, process.stdout);
   prefix(child.stderr, name, process.stderr);
   const code = await new Promise((resolve) => child.on('close', resolve));
@@ -67,7 +69,8 @@ async function runGroup(name) {
 
 (async () => {
   const t0 = Date.now();
-  const results = await Promise.all(only.map(runGroup));
+  const results = await Promise.all(only.map((g) => runGroup(g)));
+  if (!onlyArg || only.includes('b')) results.push(await runGroup('perf', { folders: ['tests/e2e/platform/'], grep: PERF }));
   const mins = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\nworlds finished in ${mins} min`);
   for (const r of results) console.log(`  ${r.name}: ${r.code === 0 ? 'passed' : `FAILED (exit ${r.code}, see test-results-world-${r.name})`}`);

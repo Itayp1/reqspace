@@ -142,8 +142,10 @@ test.describe('Workspace Management', () => {
     await ownerPage.getByTestId('workspace-members-tab').click();
     await ownerPage.fill('[data-testid="user-autocomplete-input"]', memberEmail);
     await ownerPage.selectOption('[data-testid="workspace-invite-role"]', 'editor');
+    // The open member page may redeem the invite before the owner's list shows it as pending, so check the POST.
+    const invited = ownerPage.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/members'));
     await ownerPage.click('[data-testid="workspace-invite-btn"]');
-    await expect(ownerPage.getByTestId('invite-email').filter({ hasText: memberEmail })).toBeVisible();
+    expect((await invited).status()).toBe(201);
     
     // Member refreshes and switches to workspace
     await memberPage.reload();

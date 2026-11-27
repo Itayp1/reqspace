@@ -178,7 +178,10 @@ test.describe('Auth types', () => {
 
     await page.getByTestId('auth-type-select').selectOption('bearer');
     await page.getByTestId('auth-bearer-token').fill('collection-level-token');
+    // Wait for the save to land: reloading mid-request would abort it.
+    const saved = page.waitForResponse(r => r.request().method() !== 'GET' && r.url().includes('/collections/'));
     await page.getByTestId('group-edit-save-btn').click();
+    await saved;
 
     // Straight after a reload — this is the half that never existed before
     // migration 015, so the value had nowhere to be stored.
