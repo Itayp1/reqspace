@@ -13,6 +13,7 @@
     "wipe:db": "node scripts/wipe-db.js",
     "test:server": "node scripts/run-server-e2e.js",
     "test:e2e": "playwright test",
+    "test:e2e:worlds": "node scripts/run-e2e-worlds.js",
     "test:e2e:all": "node scripts/run-e2e-all.js",
     "test:e2e:electron": "node scripts/run-e2e-targets.js --electron-only --shards=auto",
     "test:e2e:targets": "node scripts/run-e2e-targets.js --shards=auto",

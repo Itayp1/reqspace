@@ -137,6 +137,7 @@ export default defineConfig({
       command: 'pnpm --dir server run dev',
       url: `${API_BASE}/api/health`, // 503 until the DB is ready, so global-setup never races startup
       reuseExistingServer: !!process.env.CI,
+      timeout: 180_000, // several parallel world stacks boot at once (scripts/run-e2e-worlds.js)
       env: {
         NODE_ENV: 'test',
         DB_STORAGE_PATH: sqliteTestDbPath,
@@ -153,6 +154,7 @@ export default defineConfig({
       url: CLIENT_BASE,
       env: { REQSPACE_PROXY_TARGET: API_BASE },
       reuseExistingServer: !!process.env.CI,
+      timeout: 180_000, // several parallel world stacks boot at once (scripts/run-e2e-worlds.js)
     }
   ],
 });
