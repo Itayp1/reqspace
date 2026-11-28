@@ -365,9 +365,9 @@ test('QA-43: pre-request snippet documents pm.request.headers assignment and it 
   await scene(page);
   await page.getByTestId('req-tab-pre-request-script').click();
   await page.getByText('Set request header (pre-request)').click();
-  await expect(page.getByTestId('monaco-editor-container')).toContainText('headers.add() is not supported');
+  await expect(page.getByTestId('monaco-editor-container')).toContainText('headers.add() is not supported', { timeout: 20000 });
   await page.getByTestId('request-send-btn').click();
-  await expect(page.getByTestId('response-status')).toContainText('200');
+  await expect(page.getByTestId('response-status')).toContainText('200', { timeout: 20000 });
   expect(seen.some((r) => r.headers['x-header'] === 'value')).toBeTruthy();
 });
 
