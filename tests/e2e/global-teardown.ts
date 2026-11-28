@@ -119,6 +119,10 @@ function attribute(row: Row, tests: Allowance[]): { allowed: boolean; owners: st
     owners = prev ? [prev] : [];
     attribution = prev ? 'between-tests' : 'none';
   }
+  // Recorded before any test ran (global-setup, server start-up): no owner, so any test's declaration covers it, as the fingerprint-based check did.
+  if (attribution === 'none') {
+    return { allowed: tests.some(a => a.allow.some(p => matches(p, row))), owners: [], attribution };
+  }
   const allowed = owners.some(a => a.allow.some(p => matches(p, row)));
   return { allowed, owners: owners.map(a => a.title), attribution };
 }
