@@ -92,9 +92,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright & dependencies
+        if: matrix.db == 'sqlite'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright E2E tests
+        # Browser e2e runs on sqlite only: no bug has ever depended on the DB engine. postgres/mysql still run jest + core smoke.
+        if: matrix.db == 'sqlite'
         # The real-extension spec runs inside the sqlite project (headless Chromium), so no separate extension run.
         run: pnpm exec playwright test --project=${{ matrix.db }}
         env:
