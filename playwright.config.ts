@@ -89,7 +89,8 @@ export default defineConfig({
       name: 'sqlite',
       use: { ...devices['Desktop Chrome'] },
       // Desktop-only specs/tests (tagged @electron) run only with REQSPACE_TARGET=electron.
-      testIgnore: [/.*extension.spec.ts/, /.*electron-app.spec.ts/],
+      // extension.spec.ts launches its own Chromium with the real extension loaded.
+      testIgnore: [/.*electron-app.spec.ts/],
       grepInvert: RATELIMIT_RUN ? /@electron/ : /@electron|@ratelimit/,
     },
     {
@@ -115,11 +116,6 @@ export default defineConfig({
       timeout: Number(process.env.REQSPACE_ELECTRON_TIMEOUT_MS || 30_000),
       use: { ...devices['Desktop Chrome'] },
       testIgnore: /.*extension.spec.ts/,
-    },
-    {
-      name: 'extension',
-      use: { ...devices['Desktop Chrome'] },
-      testMatch: /.*extension\.spec\.ts/,
     },
   ].filter(p => (process.env.REQSPACE_TARGET === 'electron')
     ? p.name === 'electron'
