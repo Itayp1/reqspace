@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
+import { validate } from '../middleware/validate';
+import { z } from 'zod';
 import { WorkspaceRepository } from '../repositories/WorkspaceRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { logAudit } from '../repositories/AuditLogRepository';
@@ -41,7 +43,7 @@ router.get('/:token', limiter, async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.post('/:token/accept', limiter, async (req: AuthRequest, res: Response) => {
+router.post('/:token/accept', validate(z.any()), limiter, async (req: AuthRequest, res: Response) => {
   try {
     const r = await resolve(req, res);
     if (!r) return;
