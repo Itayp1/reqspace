@@ -1,5 +1,7 @@
 import { test as base, chromium, expect, API_URL } from '../fixtures';
 import path from 'path';
+import http from 'node:http';
+import { seedRequest } from '../requests/seed';
 
 const extensionPath = path.join(__dirname, '../../../extension');
 
@@ -9,6 +11,7 @@ const test = base.extend<{
 }>({
   context: async ({}, use) => {
     const context = await chromium.launchPersistentContext('', {
+      baseURL: process.env.CLIENT_BASE_URL || `http://localhost:${process.env.CLIENT_PORT || 5173}`,
       headless: false,
       args: [
         `--disable-extensions-except=${extensionPath}`,
@@ -77,4 +80,44 @@ test('extension transport works', async ({ page }) => {
   }, API_URL);
   
   expect((res as any).status).toBeDefined();
+});
+
+test('a 300 MB response streams through the real extension: stalls at the cap, survives idling, then saves to disk', async ({ page }) => {
+  test.setTimeout(900_000);
+  // No CORS header: a plain browser fetch() cannot read this, so only the extension can deliver it.
+  const chunk = Buffer.alloc(1024 * 1024, 'a');
+  const srv = http.createServer((_q, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    let sent = 0;
+    const go = () => { while (sent < 300 && !res.destroyed) { sent++; if (!res.write(chunk)) return void res.once('drain', go); } res.end(); };
+    go();
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(srv.address() as any).port}/big`;
+  // The native save dialog cannot be driven, so stand in for showSaveFilePicker and count the bytes written.
+  await page.addInitScript(() => {
+    const saved = { bytes: 0, closed: false };
+    (window as any).__saved = saved;
+    (window as any).showSaveFilePicker = async () => ({
+      createWritable: async () => ({
+        write: async (c: Uint8Array) => { saved.bytes += c.byteLength; },
+        close: async () => { saved.closed = true; },
+        abort: async () => {},
+      }),
+    });
+  });
+  try {
+    await seedRequest(page, 'extreal', url);
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('oversized-response')).toContainText('over 200 MB', { timeout: 180_000 });
+    await expect(page.getByRole('button', { name: 'Render Anyway' })).toHaveCount(0);
+    // Longer than a service worker's 30 s idle limit: the download must still be there.
+    await page.waitForTimeout(45_000);
+    await page.getByTestId('oversized-save').click();
+    await expect(page.getByTestId('oversized-result')).toContainText('Saved', { timeout: 300_000 });
+    expect(await page.evaluate(() => (window as any).__saved)).toEqual({ bytes: 300 * 1024 * 1024, closed: true });
+  } finally {
+    srv.closeAllConnections();
+    srv.close();
+  }
 });
