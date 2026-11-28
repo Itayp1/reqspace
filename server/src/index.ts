@@ -372,6 +372,20 @@ app.use('/api', forksRouter);
 // Chrome no longer allows installing a self-hosted .crx outside the Web Store.
 const extensionZipPath = path.resolve(__dirname, '../../reqspace-transport.zip');
 const extensionDirPath = path.resolve(__dirname, '../../extension');
+// The installed extension compares its version with this one (newest first changelog, public like the zip).
+app.get('/extension/version.json', (_req, res) => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('fs');
+  try {
+    const { version } = JSON.parse(fs.readFileSync(path.join(extensionDirPath, 'manifest.json'), 'utf8'));
+    let changelog: unknown[] = [];
+    try { changelog = JSON.parse(fs.readFileSync(path.join(extensionDirPath, 'changelog.json'), 'utf8')); } catch { /* no changelog shipped */ }
+    res.set('Cache-Control', 'no-cache');
+    return res.json({ version, changelog });
+  } catch {
+    return res.status(404).json({ error: 'The browser extension package is not available on this server' });
+  }
+});
 app.get('/extension/reqspace-transport.zip', (_req, res) => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const fs = require('fs');

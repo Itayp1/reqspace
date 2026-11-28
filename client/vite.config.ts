@@ -44,6 +44,11 @@ export default defineConfig({
         target: process.env.REQSPACE_PROXY_TARGET || 'http://localhost:3005',
         changeOrigin: true,
       },
+      // The extension package and its version/changelog are served by the API.
+      '/extension': {
+        target: process.env.REQSPACE_PROXY_TARGET || 'http://localhost:3005',
+        changeOrigin: true,
+      },
       '/ws': {
         target: process.env.REQSPACE_PROXY_TARGET || 'http://localhost:3005',
         ws: true,

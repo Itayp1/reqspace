@@ -181,6 +181,11 @@ window.addEventListener('message', (event) => {
 // Broadcast ping to see if extension is present
 window.postMessage({ source: 'reqspace-client', type: 'REQSPACE_PING' }, '*');
 
+/** The installed extension's version, once it has answered the ping. */
+export function getExtensionVersion(): string | null {
+  return extensionVersion;
+}
+
 export function isExtensionInstalled(): boolean {
   return extensionVersion !== null;
 }
