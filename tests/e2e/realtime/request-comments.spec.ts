@@ -120,15 +120,9 @@ test.describe('Request comments', () => {
     const workspaceId = await activeWorkspaceId(owner);
 
     // A second user, invited as an editor so they can open the request.
-    const mateEmail = `commentmate_${ts}@example.com`;
     const mateCtx = await browser.newContext();
     const mate = await mateCtx.newPage();
-    await mate.goto('/register');
-    await mate.getByTestId('register-name').fill('Comment Mate');
-    await mate.getByTestId('register-email').fill(mateEmail);
-    await mate.getByTestId('register-password').fill('password123');
-    await mate.getByTestId('register-submit').click();
-    await expect(mate.getByTestId('workspace-select')).toBeVisible();
+    const mateEmail = await registerUser(mate, 'commentmate', 'Comment Mate');
 
     await owner.getByTestId('workspace-settings-btn').click();
     await owner.getByTestId('workspace-members-tab').click();

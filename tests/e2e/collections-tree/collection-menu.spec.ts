@@ -14,13 +14,7 @@ async function seedCollection(page: import('@playwright/test').Page, name: strin
 
 // QA-62: the collection menu is one flat list and "Edit" does not say what it edits.
 test('QA-62: collection menu is grouped with separators and Edit is named', async ({ page }) => {
-  const ts = Date.now();
-  await page.goto('/register');
-  await page.getByTestId('register-name').fill('Menu User');
-  await page.getByTestId('register-email').fill(`qa62_${ts}@example.com`);
-  await page.getByTestId('register-password').fill('password123');
-  await page.getByTestId('register-submit').click();
-  await expect(page).toHaveURL(/.*\/$/);
+  await registerUser(page, 'qa62', 'Menu User');
 
   await page.getByTestId('new-collection-empty-btn').click();
   await page.getByTestId('prompt-input').fill('Menu Col');

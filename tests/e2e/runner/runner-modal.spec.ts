@@ -4,14 +4,7 @@ import { startNewRequest, registerUser, createCollectionUi, openNodeMenu } from 
 test.describe('Collection Runner', () => {
   test('should open CollectionRunnerModal, configure and run', async ({ page }) => {
     // Register unique user
-    const ts = Date.now();
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Test User');
-    await page.fill('[data-testid="register-email"]', 'runner' + ts + '@example.com');
-    await page.fill('[data-testid="register-password"]', 'password123');
-    await page.click('[data-testid="register-submit"]');
-
-    await page.waitForSelector('[data-testid="workspace-select"]');
+    await registerUser(page, 'runner', 'Test User');
 
     // Create a new collection
     const newBtn = page.getByTestId('new-collection-empty-btn');
@@ -57,12 +50,7 @@ test('Run Collection data-file picker shows an English "Choose file" label', asy
 
 // QA-36: Passed/Failed counts for responses without tests are unexplained.
 test('QA-36: runner Passed/Failed boxes explain how a request is counted', async ({ page }) => {
-  await page.goto('/register');
-  await page.getByTestId('register-name').fill('Runner User');
-  await page.getByTestId('register-email').fill(`qa36_${Date.now()}@example.com`);
-  await page.getByTestId('register-password').fill('password123');
-  await page.getByTestId('register-submit').click();
-  await expect(page).toHaveURL(/.*\/$/);
+  await registerUser(page, 'qa36', 'Runner User');
 
   await page.getByTestId('new-collection-empty-btn').click();
   await page.getByTestId('prompt-input').fill('Run Col');

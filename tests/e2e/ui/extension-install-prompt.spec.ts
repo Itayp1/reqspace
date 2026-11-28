@@ -1,18 +1,13 @@
 import { test, expect } from '../fixtures';
+import { registerUser } from '../helpers';
 
 test.describe('Extension install prompt', () => {
   // same allow list the prompt test had at file level in settings-certs-admin.spec.ts
   test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
 
-  const ts = Date.now();
 
   test('the extension prompt appears in a plain browser and stays dismissed', async ({ page }) => {
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Ext User');
-    await page.getByTestId('register-email').fill(`ext_${ts}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'ext', 'Ext User');
 
     // Chromium here has no extension, so the prompt shows after its probe.
     const prompt = page.getByTestId('extension-install-prompt');

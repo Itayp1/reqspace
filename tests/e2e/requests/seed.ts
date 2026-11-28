@@ -24,13 +24,7 @@ export async function seedRequest(page: Page, prefix: string, url: string, befor
 
 /** Register (UI), turn on sending jar cookies (off by default) and open a new request. */
 export async function registerAndOpenRequest(page: Page, tag: string) {
-  const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  await page.goto('/register');
-  await page.getByTestId('register-name').fill('Cookie User');
-  await page.getByTestId('register-email').fill(`${tag}_${ts}@example.com`);
-  await page.getByTestId('register-password').fill('password123');
-  await page.getByTestId('register-submit').click();
-  await expect(page).toHaveURL(/.*\/$/);
+  await registerUser(page, tag, 'Cookie User');
   await page.request.put('/api/auth/settings', { data: { sendCookies: true } });
   await page.reload();
   await page.getByTestId('create-request-btn').click();

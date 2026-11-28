@@ -64,15 +64,7 @@ test('QA-41: saved enabled params are sent when the URL has no query', async ({ 
 test.describe('Edge Cases', () => {
   test('Strip JSON comments from request body', async ({ page }) => {
     // Register and login
-    const timestamp = Date.now();
-    const email = `edge_${timestamp}@example.com`;
-    const pass = 'password123';
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Edge User');
-    await page.getByTestId('register-email').fill(email);
-    await page.getByTestId('register-password').fill(pass);
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'edge', 'Edge User');
 
     // Mock the actual target — there is no server-side proxy relay, the
     // browser transport does a direct fetch(url).

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '../fixtures';
+import { registerUser } from '../helpers';
 
 /**
  * Socket.IO connection tabs (FEAT-2). The other three protocols live in
@@ -62,14 +63,8 @@ test.describe('Socket.IO connections', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
-    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await installSocketIoMock(page);
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('SocketIO User');
-    await page.getByTestId('register-email').fill(`sio_${ts}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'sio', 'SocketIO User');
     await page.getByTestId('new-connection-btn').click();
     await page.getByTestId('connection-protocol-select').selectOption('SOCKETIO');
   });

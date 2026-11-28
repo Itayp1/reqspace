@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures';
+import { registerUser } from '../helpers';
 
 /**
  * Connection tabs (FEAT-1 WebSocket, FEAT-2 Socket.IO, FEAT-3 SSE,
@@ -14,7 +15,6 @@ test.describe('Connection Tabs', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
-    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     // routeWebSocket has to be installed before the first navigation, so all
     // the ws-server behaviour this file needs lives in one handler keyed by
@@ -41,12 +41,7 @@ test.describe('Connection Tabs', () => {
       });
     });
 
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Conn User');
-    await page.getByTestId('register-email').fill(`conn_${ts}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'conn', 'Conn User');
   });
 
   test('SSE: receives server-pushed events and cannot send', async ({ page }) => {

@@ -116,7 +116,9 @@ test('a 230 MB response streams through the real extension: stalls at the cap, s
   try {
     await seedRequest(page, 'extreal', url);
     await page.getByTestId('request-send-btn').click();
+    const t0 = Date.now();
     await expect(page.getByTestId('oversized-response')).toContainText('over 200 MB', { timeout: 180_000 });
+    console.log(`[extension stream] cap reached after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     await expect(page.getByRole('button', { name: 'Render Anyway' })).toHaveCount(0);
     // Longer than a service worker's 30 s idle limit: the download must still be there.
     await page.waitForTimeout(35_000);

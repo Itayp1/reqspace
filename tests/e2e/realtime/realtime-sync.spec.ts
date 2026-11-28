@@ -14,23 +14,8 @@ test('a rename from another user updates the sidebar with zero HTTP requests', a
   const pageB = await contextB.newPage();
 
   const timestamp = Date.now();
-  const emailA = `sockA_${timestamp}@example.com`;
-  const emailB = `sockB_${timestamp}@example.com`;
-  const password = 'password123';
-
-  await pageA.goto('/register');
-  await pageA.getByTestId('register-name').fill('Sock A');
-  await pageA.getByTestId('register-email').fill(emailA);
-  await pageA.getByTestId('register-password').fill(password);
-  await pageA.getByTestId('register-submit').click();
-  await expect(pageA).toHaveURL(/.*\/$/);
-
-  await pageB.goto('/register');
-  await pageB.getByTestId('register-name').fill('Sock B');
-  await pageB.getByTestId('register-email').fill(emailB);
-  await pageB.getByTestId('register-password').fill(password);
-  await pageB.getByTestId('register-submit').click();
-  await expect(pageB).toHaveURL(/.*\/$/);
+  const emailA = await registerUser(pageA, 'sockA', 'Sock A');
+  const emailB = await registerUser(pageB, 'sockB', 'Sock B');
 
   const wsName = `Sock WS ${timestamp}`;
   await pageA.getByTestId('new-workspace-btn').click();
@@ -100,25 +85,12 @@ test.describe('WebSocket Advanced Sync', () => {
     const pageB = await contextB.newPage();
     
     const timestamp = Date.now();
-    const emailA = `userA_${timestamp}@example.com`;
-    const emailB = `userB_${timestamp}@example.com`;
-    const pass = 'password123';
 
     // 1. Register User B
-    await pageB.goto('/register');
-    await pageB.getByTestId('register-name').fill('User B');
-    await pageB.getByTestId('register-email').fill(emailB);
-    await pageB.getByTestId('register-password').fill(pass);
-    await pageB.getByTestId('register-submit').click();
-    await expect(pageB).toHaveURL(/.*\/$/);
+    const emailB = await registerUser(pageB, 'userB', 'User B');
     
     // 2. Register User A
-    await pageA.goto('/register');
-    await pageA.getByTestId('register-name').fill('User A');
-    await pageA.getByTestId('register-email').fill(emailA);
-    await pageA.getByTestId('register-password').fill(pass);
-    await pageA.getByTestId('register-submit').click();
-    await expect(pageA).toHaveURL(/.*\/$/);
+    const emailA = await registerUser(pageA, 'userA', 'User A');
 
     // 3. User A creates Workspace
     await pageA.getByTestId('new-workspace-btn').click();

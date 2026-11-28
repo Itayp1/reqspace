@@ -1,12 +1,10 @@
 import { test, expect, type Page } from '../fixtures';
-import { selectWorkspace, expectWorkspaceListed } from '../helpers';
+import { selectWorkspace, expectWorkspaceListed, registerUser } from '../helpers';
 
 test.describe('Smart Fork (collection fork + auto-sync)', () => {
   test('fork from a shared workspace into the personal workspace, switch workspaces, and see an unmodified item update live via socket', async ({ browser }) => {
     const timestamp = Date.now();
     const userName = `Fork User ${timestamp}`;
-    const email = `forkuser_${timestamp}@example.com`;
-    const pass = 'password123';
     const wsAName = `Fork WS A ${timestamp}`;
     // Every user gets this auto-created on signup — it's the only valid fork
     // target (see routes/forks.ts's "shared → personal workspace" rule), so
@@ -20,12 +18,7 @@ test.describe('Smart Fork (collection fork + auto-sync)', () => {
     const pageA = await context.newPage();
 
     // 1. Register (lands on the auto-created personal workspace)
-    await pageA.goto('/register');
-    await pageA.getByTestId('register-name').fill(userName);
-    await pageA.getByTestId('register-email').fill(email);
-    await pageA.getByTestId('register-password').fill(pass);
-    await pageA.getByTestId('register-submit').click();
-    await expect(pageA).toHaveURL(/.*\/$/);
+    await registerUser(pageA, 'forkuser', userName);
     await expectWorkspaceListed(pageA, personalWsName);
 
     // 2. Create a shared workspace A (becomes active) to hold the fork source
@@ -111,15 +104,9 @@ test.describe('Smart Fork (collection fork + auto-sync)', () => {
   test('the fork action is not offered from within the personal workspace itself', async ({ page }) => {
     const timestamp = Date.now();
     const userName = `Fork Guard User ${timestamp}`;
-    const email = `forkguard_${timestamp}@example.com`;
     const colName = `Personal Col ${timestamp}`;
 
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill(userName);
-    await page.getByTestId('register-email').fill(email);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'forkguard', userName);
 
     const newColBtn = page.getByTestId('new-collection-empty-btn');
     if (await newColBtn.isVisible()) {

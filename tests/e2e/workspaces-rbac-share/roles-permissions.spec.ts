@@ -5,30 +5,15 @@ import { makeUser, makeWorkspace } from './invite-helpers';
 test.describe('RBAC Roles', () => {
   test('Viewer cannot edit, Editor can edit', async ({ browser }) => {
     const timestamp = Date.now();
-    const userAEmail = `user_a_${timestamp}@example.com`;
-    const userBEmail = `user_b_${timestamp}@example.com`;
-
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();
 
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
 
-    // User A Register
-    await pageA.goto('/register');
-    await pageA.getByTestId('register-name').fill('User A');
-    await pageA.getByTestId('register-email').fill(userAEmail);
-    await pageA.getByTestId('register-password').fill('password123');
-    await pageA.getByTestId('register-submit').click();
-    await expect(pageA).toHaveURL(/.*\/$/);
-
-    // User B Register
-    await pageB.goto('/register');
-    await pageB.getByTestId('register-name').fill('User B');
-    await pageB.getByTestId('register-email').fill(userBEmail);
-    await pageB.getByTestId('register-password').fill('password123');
-    await pageB.getByTestId('register-submit').click();
-    await expect(pageB).toHaveURL(/.*\/$/);
+    // User A and User B register
+    const userAEmail = await registerUser(pageA, 'user_a', 'User A');
+    const userBEmail = await registerUser(pageB, 'user_b', 'User B');
 
     // User A Creates Workspace (custom in-app modal, not a native dialog)
     const wsName = `RBAC WS ${timestamp}`;
@@ -140,24 +125,10 @@ test.describe('Permission toast', () => {
     const pageViewer = await contextViewer.newPage();
 
     const timestamp = Date.now();
-    const ownerEmail = `owner_${timestamp}@example.com`;
-    const viewerEmail = `viewer_${timestamp}@example.com`;
     const viewerName = `Viewer${timestamp}`;
-    const password = 'password123';
 
-    await pageOwner.goto('/register');
-    await pageOwner.getByTestId('register-name').fill('Owner');
-    await pageOwner.getByTestId('register-email').fill(ownerEmail);
-    await pageOwner.getByTestId('register-password').fill(password);
-    await pageOwner.getByTestId('register-submit').click();
-    await expect(pageOwner).toHaveURL(/.*\/$/);
-
-    await pageViewer.goto('/register');
-    await pageViewer.getByTestId('register-name').fill(viewerName);
-    await pageViewer.getByTestId('register-email').fill(viewerEmail);
-    await pageViewer.getByTestId('register-password').fill(password);
-    await pageViewer.getByTestId('register-submit').click();
-    await expect(pageViewer).toHaveURL(/.*\/$/);
+    await registerUser(pageOwner, 'owner', 'Owner');
+    const viewerEmail = await registerUser(pageViewer, 'viewer', viewerName);
 
     // Owner creates a workspace and a collection, invites the viewer as viewer.
     const wsName = `Perm WS ${timestamp}`;

@@ -13,13 +13,7 @@ test.describe('Load Tester', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
-    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Load User');
-    await page.getByTestId('register-email').fill(`load_${ts}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'load', 'Load User');
     await page.getByTestId('create-request-btn').click();
   });
 

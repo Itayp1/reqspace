@@ -105,16 +105,9 @@ test.describe('Workspace Management', () => {
   test('removing a member immediately revokes their access', async ({ browser }) => {
     const ownerContext = await browser.newContext();
     const ownerPage = await ownerContext.newPage();
-    const ownerEmail = `owner_${Date.now()}@example.com`;
-    
     // Register owner
-    await ownerPage.goto('/register');
-    await ownerPage.fill('[data-testid="register-name"]', 'Owner User');
-    await ownerPage.fill('[data-testid="register-email"]', ownerEmail);
-    await ownerPage.fill('[data-testid="register-password"]', 'password123');
-    await ownerPage.click('[data-testid="register-submit"]');
-    await expect(ownerPage).toHaveURL(/.*\/$/);
-    
+    await registerUser(ownerPage, 'owner', 'Owner User');
+
     // Owner creates workspace
     const wsName = `Shared Workspace ${Date.now()}`;
     await ownerPage.click('[data-testid="new-workspace-btn"]');
@@ -128,15 +121,8 @@ test.describe('Workspace Management', () => {
     // Register member
     const memberContext = await browser.newContext();
     const memberPage = await memberContext.newPage();
-    const memberEmail = `member_${Date.now()}@example.com`;
-    
-    await memberPage.goto('/register');
-    await memberPage.fill('[data-testid="register-name"]', 'Member User');
-    await memberPage.fill('[data-testid="register-email"]', memberEmail);
-    await memberPage.fill('[data-testid="register-password"]', 'password123');
-    await memberPage.click('[data-testid="register-submit"]');
-    await expect(memberPage).toHaveURL(/.*\/$/);
-    
+    const memberEmail = await registerUser(memberPage, 'member', 'Member User');
+
     // Owner invites member
     await ownerPage.click('[data-testid="workspace-settings-btn"]');
     await ownerPage.getByTestId('workspace-members-tab').click();

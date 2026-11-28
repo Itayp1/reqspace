@@ -4,13 +4,7 @@ import { registerUser, createCollectionUi, openNodeMenu, startNewRequest } from 
 test.describe('Share Links', () => {
   test('should generate a link, strip sensitive data for anonymous view, and handle revocation', async ({ page, context, request }) => {
     const ts = Date.now();
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Test User');
-    await page.getByTestId('register-email').fill('share' + ts + '@example.com');
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-
-    await expect(page.getByTestId('workspace-select')).toBeVisible();
+    await registerUser(page, 'share', 'Test User');
 
     // Create a new collection
     await page.getByTestId('new-collection-empty-btn').click();

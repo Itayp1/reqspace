@@ -3,18 +3,13 @@ import { statSync } from 'node:fs';
 import { test, expect } from '../fixtures';
 import { type Page } from '@playwright/test';
 import { scene } from '../scene';
+import { registerUser } from '../helpers';
 import { seedRequest } from './seed';
 
 test.describe('Response & Code Gen', () => {
   test('Test Results and Code Generation Modal', async ({ page }) => {
-    const testEmail = `response_${Date.now()}@example.com`;
     // Register
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Response User');
-    await page.fill('[data-testid="register-email"]', testEmail);
-    await page.fill('[data-testid="register-password"]', 'password');
-    await page.click('[data-testid="register-submit"]');
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'response', 'Response User');
 
     await page.getByTestId('create-request-btn').click();
 
@@ -57,14 +52,7 @@ test.describe('Response & Code Gen', () => {
 
   test('per-mode viewer, image/PDF, timeout and error paths', async ({ page }) => {
     // Register
-    const timestamp = Date.now();
-    const testEmail = `viewer_${timestamp}@example.com`;
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Viewer User');
-    await page.fill('[data-testid="register-email"]', testEmail);
-    await page.fill('[data-testid="register-password"]', 'password');
-    await page.click('[data-testid="register-submit"]');
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'viewer', 'Viewer User');
 
     // Mock the actual targets — there is no server-side proxy relay, the
     // browser transport does a direct fetch(url), so mocks have to match

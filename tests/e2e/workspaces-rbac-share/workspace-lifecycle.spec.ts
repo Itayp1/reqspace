@@ -1,5 +1,5 @@
 import { test, expect, request as pwRequest, API_URL } from '../fixtures';
-import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed } from '../helpers';
+import { selectWorkspace, activeWorkspaceId, expectWorkspaceListed, registerUser } from '../helpers';
 import { makeUser } from './invite-helpers';
 
 test.describe('Workspace Management', () => {
@@ -7,18 +7,10 @@ test.describe('Workspace Management', () => {
   test.use({ allowFpErrors: [/server-auth|status code 40[013]/] });
 
   const timestamp = Date.now();
-  const testEmail = `wsuser_${timestamp}@example.com`;
-  const testPassword = 'password123';
-
   test('should register, login, create, edit, switch and delete a workspace', async ({ page }) => {
     // 1. Register and Login
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'WS User');
-    await page.fill('[data-testid="register-email"]', testEmail);
-    await page.fill('[data-testid="register-password"]', testPassword);
-    await page.click('[data-testid="register-submit"]');
-    await expect(page).toHaveURL(/.*\/$/);
-    
+    await registerUser(page, 'wsuser', 'WS User');
+
     // 2. Create a new Workspace
     const newWorkspaceName = `Test Workspace ${timestamp}`;
     const editedWorkspaceName = `${newWorkspaceName} Edited`;

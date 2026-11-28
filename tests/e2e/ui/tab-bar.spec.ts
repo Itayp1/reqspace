@@ -23,16 +23,7 @@ async function dragTabOnto(page: Page, source: Locator, target: Locator) {
 test.describe('Tab Operations', () => {
   test('Drag and drop to reorder tabs', async ({ page }) => {
     // 1. Register
-    const timestamp = Date.now();
-    const testEmail = `tabs_${timestamp}@example.com`;
-    const testPassword = 'password123';
-
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Tab User');
-    await page.getByTestId('register-email').fill(testEmail);
-    await page.getByTestId('register-password').fill(testPassword);
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'tabs', 'Tab User');
     
     // Create first request tab and save into a new collection
     await page.getByTestId('create-request-btn').click();
@@ -90,13 +81,7 @@ test.describe('Tab Operations', () => {
 
   test('drag-reorder only and content persistence', async ({ page }) => {
     // Register to get a clean state
-    const timestamp = Date.now();
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Tab User2');
-    await page.getByTestId('register-email').fill(`tabs2_${timestamp}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'tabs2', 'Tab User2');
     
     // Create first request tab
     await page.getByTestId('create-request-btn').click();

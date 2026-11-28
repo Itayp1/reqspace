@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, type Page } from '../fixtures';
-import { startNewRequest, expectWorkspaceListed } from '../helpers';
+import { startNewRequest, expectWorkspaceListed, registerUser } from '../helpers';
 import { mockServer, scene, envVar } from '../scene';
 
 test.describe('Script Execution', () => {
@@ -9,15 +9,8 @@ test.describe('Script Execution', () => {
 
   test.beforeEach(async ({ page }) => {
     // 1. Register and Login (runs for each test)
-    const timestamp = Date.now();
-    const testEmail = `scripts_${timestamp}_${Math.random().toString(36).substring(7)}@example.com`;
     
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Script User');
-    await page.getByTestId('register-email').fill(testEmail);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'scripts', 'Script User');
     
     // Setup route mock for all tests
     await page.route('https://httpbin.org/**', route => {
@@ -179,12 +172,7 @@ async function openMenu(page: import('@playwright/test').Page, nodeName: string)
 }
 
 test('collection, folder and request test scripts all run for one request', async ({ page }) => {
-  await page.goto('/register');
-  await page.getByTestId('register-name').fill('Group User');
-  await page.getByTestId('register-email').fill(`grouptest_${Date.now()}@example.com`);
-  await page.getByTestId('register-password').fill('password123');
-  await page.getByTestId('register-submit').click();
-  await expect(page).toHaveURL(/.*\/$/);
+  await registerUser(page, 'grouptest', 'Group User');
 
   await page.route('https://group.example.com/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' })
@@ -259,16 +247,8 @@ test('collection, folder and request test scripts all run for one request', asyn
 
 test('Pre-request scripts run at Collection and Folder levels', async ({ page }) => {
   const timestamp = Date.now();
-  const email = `scripts_${timestamp}@example.com`;
-  const pass = 'password123';
 
-  // Register
-  await page.goto('/register');
-  await page.getByTestId('register-name').fill('Script User');
-  await page.getByTestId('register-email').fill(email);
-  await page.getByTestId('register-password').fill(pass);
-  await page.getByTestId('register-submit').click();
-  await expect(page).toHaveURL(/.*\/$/);
+  await registerUser(page, 'scripts', 'Script User');
 
   // Create Workspace (custom in-app modal, not a native dialog)
   await page.getByTestId('new-workspace-btn').click();

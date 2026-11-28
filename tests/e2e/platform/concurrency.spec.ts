@@ -1,17 +1,10 @@
 import { test, expect } from '../fixtures';
+import { registerUser } from '../helpers';
 
 test.describe('Concurrency & Tabs', () => {
   test('Open multiple tabs and ensure delayed request completes in background', async ({ page }) => {
     // Register and login
-    const timestamp = Date.now();
-    const email = `concurrency_${timestamp}@example.com`;
-    const pass = 'password123';
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Concurrency User');
-    await page.getByTestId('register-email').fill(email);
-    await page.getByTestId('register-password').fill(pass);
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'concurrency', 'Concurrency User');
 
     // Mock a delayed response. There is no server-side proxy relay — the
     // browser transport does a direct fetch(url), so the mock has to match

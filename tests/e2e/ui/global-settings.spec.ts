@@ -12,13 +12,7 @@ test.describe('Global Settings', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
-    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Settings User');
-    await page.getByTestId('register-email').fill(`settings_${ts}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'settings', 'Settings User');
   });
 
   test('request settings persist to the server and survive a reload', async ({ page }) => {

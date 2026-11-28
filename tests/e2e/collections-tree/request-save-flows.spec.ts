@@ -76,13 +76,7 @@ test.describe('Save As & in-modal creation', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeEach(async ({ page }) => {
-    const ts = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    await page.goto('/register');
-    await page.getByTestId('register-name').fill('Save User');
-    await page.getByTestId('register-email').fill(`saveas_${ts}@example.com`);
-    await page.getByTestId('register-password').fill('password123');
-    await page.getByTestId('register-submit').click();
-    await expect(page).toHaveURL(/.*\/$/);
+    await registerUser(page, 'saveas', 'Save User');
   });
 
   test('a brand-new request can create its collection and folder from the Save modal', async ({ page }) => {

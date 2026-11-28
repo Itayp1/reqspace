@@ -5,13 +5,7 @@ import { startNewRequest, registerUser, createCollectionUi, addViaMenu, treeNode
 
 test.describe('Collection Runner', () => {
   test('Each runner iteration substitutes its data-file row into the request', async ({ page }) => {
-    const ts = Date.now();
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Test User');
-    await page.fill('[data-testid="register-email"]', 'runner_json_' + ts + '@example.com');
-    await page.fill('[data-testid="register-password"]', 'password123');
-    await page.click('[data-testid="register-submit"]');
-    await page.waitForSelector('[data-testid="workspace-select"]');
+    await registerUser(page, 'runner_json', 'Test User');
 
     const newBtn = page.getByTestId('new-collection-empty-btn');
     if (await newBtn.isVisible().catch(() => false)) { await newBtn.click(); }
@@ -58,13 +52,7 @@ test.describe('Collection Runner', () => {
   });
 
   test('CSV data file drives iterations identically to JSON', async ({ page }) => {
-    const ts = Date.now();
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Test User');
-    await page.fill('[data-testid="register-email"]', 'runner_csv_' + ts + '@example.com');
-    await page.fill('[data-testid="register-password"]', 'password123');
-    await page.click('[data-testid="register-submit"]');
-    await page.waitForSelector('[data-testid="workspace-select"]');
+    await registerUser(page, 'runner_csv', 'Test User');
 
     const newBtn = page.getByTestId('new-collection-empty-btn');
     if (await newBtn.isVisible().catch(() => false)) { await newBtn.click(); }
@@ -109,13 +97,7 @@ test.describe('Collection Runner', () => {
   });
 
   test('Stop mid-run actually halts remaining iterations', async ({ page }) => {
-    const ts = Date.now();
-    await page.goto('/register');
-    await page.fill('[data-testid="register-name"]', 'Test User');
-    await page.fill('[data-testid="register-email"]', 'runner_stop_' + ts + '@example.com');
-    await page.fill('[data-testid="register-password"]', 'password123');
-    await page.click('[data-testid="register-submit"]');
-    await page.waitForSelector('[data-testid="workspace-select"]');
+    await registerUser(page, 'runner_stop', 'Test User');
 
     const newBtn = page.getByTestId('new-collection-empty-btn');
     if (await newBtn.isVisible().catch(() => false)) { await newBtn.click(); }
