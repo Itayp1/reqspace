@@ -63,6 +63,14 @@ window.addEventListener('message', async (event) => {
 // A response body is streamed: the background sends it in chunks over a port and the page
 // acks each one, so nothing ever holds a whole large body (see extension/background.js).
 const streams = new Map(); // request id -> port
+// A per-byte callback (Uint8Array.from(str, fn)) runs at ~3 MB/s; a plain loop at ~80 MB/s.
+function fromBase64(b64) {
+  if (Uint8Array.fromBase64) return Uint8Array.fromBase64(b64);
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 function relaySend(id, payload) {
   const post = (type, extra, transfer) => window.postMessage({ source: 'reqspace-extension', type, id, ...extra }, '*', transfer || []);
   const port = chrome.runtime.connect({ name: 'reqspace-send' });
@@ -75,7 +83,7 @@ function relaySend(id, payload) {
       post('REQSPACE_RESPONSE', { response: m.response });
       if (m.type === 'RESULT') finished = true;
     } else if (m.type === 'CHUNK') {
-      const bytes = Uint8Array.from(atob(m.data), (c) => c.charCodeAt(0));
+      const bytes = fromBase64(m.data);
       post('REQSPACE_CHUNK', { data: bytes.buffer }, [bytes.buffer]);
     } else if (m.type === 'END') {
       finished = true;

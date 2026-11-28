@@ -20,8 +20,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // The page asks over a port so the body can be streamed in chunks: one huge message
 // (or one huge string) would crash the tab. The page acks every chunk it takes; the
 // service worker stops reading the response while STREAM_WINDOW chunks are unacked.
-const STREAM_WINDOW = 32;
-const STREAM_CHUNK_BYTES = 256 * 1024;
+const STREAM_WINDOW = 16;
+const STREAM_CHUNK_BYTES = 1024 * 1024;
 chrome.runtime.onConnect?.addListener((port) => {
   if (port.name !== 'reqspace-send') return;
   port.onMessage.addListener(function onFirst(message) {
@@ -138,9 +138,10 @@ function isBinaryType(ct) {
 
 function toBase64(buf) {
   const bytes = new Uint8Array(buf);
+  if (bytes.toBase64) return bytes.toBase64(); // native in newer Chrome, several times faster
   let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  for (let i = 0; i < bytes.length; i += 0x1000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x1000));
   }
   return btoa(bin);
 }
