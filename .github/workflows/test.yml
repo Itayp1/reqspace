@@ -95,9 +95,8 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright E2E tests
-        run: |
-          pnpm exec playwright test --project=${{ matrix.db }}
-          if [ "${{ matrix.db }}" = "sqlite" ]; then xvfb-run -a pnpm exec playwright test --project=extension; fi
+        # The real-extension spec runs inside the sqlite project (headless Chromium), so no separate extension run.
+        run: pnpm exec playwright test --project=${{ matrix.db }}
         env:
           DB_TYPE: ${{ matrix.db }}
           REQSPACE_E2E_DB_PATH: /tmp/ci.sqlite  # the server started above uses this file
