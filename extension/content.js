@@ -52,21 +52,43 @@ window.addEventListener('message', async (event) => {
     return;
   }
 
-  if (event.data.type === 'REQSPACE_SEND') {
-    chrome.runtime.sendMessage({
-      type: 'SEND_REQUEST',
-      id: event.data.id,
-      payload: event.data.payload
-    }, (response) => {
-      window.postMessage({
-        source: 'reqspace-extension',
-        type: 'REQSPACE_RESPONSE',
-        id: event.data.id,
-        response: response || { error: chrome.runtime.lastError?.message || 'No response from extension' }
-      }, '*');
-    });
+  if (event.data.type === 'REQSPACE_ACK') {
+    streams.get(event.data.id)?.postMessage({ type: 'ACK' });
+    return;
   }
+
+  if (event.data.type === 'REQSPACE_SEND') relaySend(event.data.id, event.data.payload);
 });
+
+// A response body is streamed: the background sends it in chunks over a port and the page
+// acks each one, so nothing ever holds a whole large body (see extension/background.js).
+const streams = new Map(); // request id -> port
+function relaySend(id, payload) {
+  const post = (type, extra, transfer) => window.postMessage({ source: 'reqspace-extension', type, id, ...extra }, '*', transfer || []);
+  const port = chrome.runtime.connect({ name: 'reqspace-send' });
+  streams.set(id, port);
+  let finished = false;
+  // A port idle for a while lets the service worker die, which would drop a download the user has not yet saved.
+  const keepAlive = setInterval(() => port.postMessage({ type: 'PING' }), 20000);
+  port.onMessage.addListener((m) => {
+    if (m.type === 'HEAD' || m.type === 'RESULT') {
+      post('REQSPACE_RESPONSE', { response: m.response });
+      if (m.type === 'RESULT') finished = true;
+    } else if (m.type === 'CHUNK') {
+      const bytes = Uint8Array.from(atob(m.data), (c) => c.charCodeAt(0));
+      post('REQSPACE_CHUNK', { data: bytes.buffer }, [bytes.buffer]);
+    } else if (m.type === 'END') {
+      finished = true;
+      post('REQSPACE_END');
+    }
+  });
+  port.onDisconnect.addListener(() => {
+    clearInterval(keepAlive);
+    streams.delete(id);
+    if (!finished) post('REQSPACE_RESPONSE', { response: { error: chrome.runtime.lastError?.message || 'No response from extension' } });
+  });
+  port.postMessage({ type: 'SEND', id, payload });
+}
 
 // Announce presence: PONG if allowed, otherwise only "not allowed"
 isAllowed().then((ok) => { if (ok) pong(); else notAllowed(); });

@@ -17,6 +17,9 @@ if (!process.argv.includes('--e2e-web-transport')) {
   contextBridge.exposeInMainWorld('electron', {
     sendRequest: (payload, requestId) => ipcRenderer.invoke('reqspace:send-request', payload, requestId),
     abortRequest: (requestId) => ipcRenderer.send('reqspace:abort-request', requestId),
+    // A body over the size cap stays in the main process: stream it to a file the user picks, or drop it.
+    saveOversized: (id, suggestedName) => ipcRenderer.invoke('reqspace:oversized-save', id, suggestedName),
+    discardOversized: (id) => ipcRenderer.send('reqspace:oversized-discard', id),
     // Login screen escape hatch: restart in single-user offline mode.
     workOffline: () => ipcRenderer.send('reqspace:work-offline'),
     // Live connections (Kafka, authenticated WebSocket); results are { ok, data | error }.

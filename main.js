@@ -337,16 +337,50 @@ function launchApp(config) {
 // Desktop transport: requests run in Node so they get client certificates,
 // proxy, verifySsl and no CORS restrictions. Aborts arrive by request id.
 const inflightRequests = new Map();
+// Same cap as MAX_RESPONSE_BYTES in client/src/transport/browser.ts. Bigger bodies stay here (paused) until the user saves or discards them.
+const MAX_RESPONSE_BYTES = 200 * 1024 * 1024;
+const oversizedBodies = new Map();
+let nextOversized = 0;
 ipcMain.handle('reqspace:send-request', async (_e, payload, requestId) => {
   const controller = new AbortController();
   if (requestId) inflightRequests.set(requestId, controller);
   try {
-    return await nodeSendRequest(payload, { signal: controller.signal });
+    const out = await nodeSendRequest(payload, { signal: controller.signal, maxBytes: MAX_RESPONSE_BYTES });
+    if (out.oversized) {
+      const id = `big-${Date.now()}-${nextOversized++}`;
+      oversizedBodies.set(id, out.oversized);
+      out.oversized = { id, sizeKnown: out.oversized.sizeKnown };
+    }
+    return out;
   } catch (err) {
     return { error: err && err.message ? err.message : String(err), canceled: !!(err && err.canceled) };
   } finally {
     if (requestId) inflightRequests.delete(requestId);
   }
+});
+ipcMain.handle('reqspace:oversized-save', async (_e, id, suggestedName) => {
+  const o = oversizedBodies.get(id);
+  if (!o) return { ok: false, error: 'The response is no longer available.' };
+  const picked = await dialog.showSaveDialog(mainWindow, { defaultPath: String(suggestedName || 'response') });
+  if (picked.canceled || !picked.filePath) return { ok: false, canceled: true };
+  try {
+    const fs = require('fs');
+    const { once } = require('events');
+    const { pipeline } = require('stream/promises');
+    const out = fs.createWriteStream(picked.filePath);
+    for (const c of o.chunks) if (!out.write(c)) await once(out, 'drain');
+    o.chunks.length = 0;
+    await pipeline(o.res, out);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  } finally {
+    oversizedBodies.delete(id);
+  }
+});
+ipcMain.on('reqspace:oversized-discard', (_e, id) => {
+  const o = oversizedBodies.get(id);
+  if (o) { o.res.destroy(); oversizedBodies.delete(id); }
 });
 ipcMain.on('reqspace:abort-request', (_e, requestId) => {
   const c = inflightRequests.get(requestId);

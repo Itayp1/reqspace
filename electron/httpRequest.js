@@ -66,6 +66,7 @@ const canceled = () => Object.assign(new Error('Request was canceled by user.'),
  *            clientCertificates: [{hostname,cert,key,passphrase}], cert?: {cert,key,passphrase},
  *            localProxy?: {url,noProxy,authEnabled,username,password} }
  * opts.signal: AbortSignal
+ * opts.maxBytes: past this the body is not buffered; resolves with body '' and oversized: { res, chunks, sizeKnown }
  * Resolves { status, statusText, headers, body, isBase64, responseTime, size } or throws.
  */
 async function sendRequest(payload, opts = {}, _redirects = 0) {
@@ -150,15 +151,36 @@ async function sendRequest(payload, opts = {}, _redirects = 0) {
     return sendRequest(next, opts, _redirects + 1);
   }
 
-  const chunks = [];
-  await new Promise((resolve, reject) => {
-    res.on('data', (c) => chunks.push(c));
-    res.on('end', resolve);
-    res.on('error', (e) => reject(e.name === 'AbortError' || e.code === 'ABORT_ERR' ? canceled() : e));
-    res.on('aborted', () => reject(signal && signal.aborted ? canceled() : new Error('Response aborted')));
-  });
-  const buf = Buffer.concat(chunks);
   const outHeaders = { ...res.headers }; // set-cookie stays an array
+  const max = opts.maxBytes || Infinity;
+  const declared = Number(res.headers['content-length']) || 0;
+  const chunks = [];
+  let total = 0;
+  let overflow = declared > max; // known up front: nothing is read
+  if (!overflow) {
+    await new Promise((resolve, reject) => {
+      const onData = (c) => {
+        chunks.push(c);
+        total += c.length;
+        if (total > max) { res.off('data', onData); res.pause(); overflow = true; resolve(); }
+      };
+      res.on('data', onData);
+      res.on('end', resolve);
+      res.on('error', (e) => reject(e.name === 'AbortError' || e.code === 'ABORT_ERR' ? canceled() : e));
+      res.on('aborted', () => reject(signal && signal.aborted ? canceled() : new Error('Response aborted')));
+    });
+  }
+  if (overflow) {
+    // Not buffered further: the caller streams `res` (after `chunks`) to disk or destroys it. Wait on the user, so no idle timeout.
+    res.pause();
+    if (res.socket) res.socket.setTimeout(0);
+    return {
+      status, statusText: res.statusMessage || '', headers: outHeaders,
+      body: '', isBase64: false, responseTime: Date.now() - start, size: declared || total,
+      oversized: { res, chunks, sizeKnown: declared > 0 },
+    };
+  }
+  const buf = Buffer.concat(chunks);
   const ct = String(res.headers['content-type'] || '').toLowerCase();
   const isText = !ct || /^text\/|json|xml|javascript|x-www-form-urlencoded|html/.test(ct);
   const isBase64 = buf.length > 0 && !isText;

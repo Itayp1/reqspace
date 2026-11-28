@@ -1,4 +1,4 @@
-import type { Transport, TransportRequest, TransportResponse } from './types';
+import type { OversizedResponse, Transport, TransportRequest, TransportResponse } from './types';
 
 let nextId = 0;
 
@@ -19,6 +19,27 @@ export class ElectronTransport implements Transport {
       if (res && res.error) {
         if (res.canceled) throw Object.assign(new Error('canceled'), { name: 'CanceledError' });
         return { status: 0, statusText: 'Error', headers: {}, body: res.error, isBase64: false, responseTime: 0, size: 0 };
+      }
+      if (res?.oversized) {
+        const { id, sizeKnown } = res.oversized;
+        const oversized: OversizedResponse = {
+          sizeKnown,
+          canSaveToFile: typeof api.saveOversized === 'function',
+          state: 'pending',
+          saveToFile: async (suggestedName) => {
+            oversized.state = 'saving';
+            const r = await api.saveOversized(id, suggestedName);
+            if (r.canceled) { oversized.state = 'pending'; return false; }
+            oversized.state = r.ok ? 'saved' : 'failed';
+            return true;
+          },
+          discard: () => {
+            if (oversized.state === 'saved' || oversized.state === 'saving') return;
+            api.discardOversized?.(id);
+            oversized.state = 'discarded';
+          },
+        };
+        return { ...res, oversized };
       }
       return res;
     } finally {

@@ -322,6 +322,82 @@ test('a 250 MB streamed response (no Content-Length) is capped and can be stream
   }
 });
 
+// The browser extension streams a body to the page in acked chunks. This stands in for the extension's
+// content script (the real one needs a headed Chromium): it sends a head, then at most 32 unacked 1 MB chunks.
+const FAKE_STREAMING_EXTENSION = () => {
+  const w = window as any;
+  w.__ext = { sent: 0, cancelled: false, saved: 0, closed: false };
+  w.showSaveFilePicker = async () => ({
+    createWritable: async () => ({
+      write: async (c: Uint8Array) => { w.__ext.saved += c.byteLength; },
+      close: async () => { w.__ext.closed = true; },
+      abort: async () => {},
+    }),
+  });
+  let credits = 32, total = 0, id = '';
+  const post = (type: string, extra: any, transfer: Transferable[] = []) =>
+    window.postMessage({ source: 'reqspace-extension', type, id, ...extra }, '*', transfer);
+  const pump = () => {
+    while (credits > 0 && w.__ext.sent < total && !w.__ext.cancelled) {
+      const bytes = new Uint8Array(total === 1 ? 5 : 1024 * 1024).fill(97);
+      post('REQSPACE_CHUNK', { data: bytes.buffer }, [bytes.buffer]);
+      credits--; w.__ext.sent++;
+    }
+    if (w.__ext.sent === total && !w.__ext.ended) { w.__ext.ended = true; post('REQSPACE_END', {}); }
+  };
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || e.data.source !== 'reqspace-client') return;
+    if (e.data.type === 'REQSPACE_PING') window.postMessage({ source: 'reqspace-extension', type: 'REQSPACE_PONG', version: 'test' }, '*');
+    else if (e.data.type === 'REQSPACE_SEND') {
+      id = e.data.id;
+      total = /huge/.test(e.data.payload.url) ? 250 : 1;
+      post('REQSPACE_RESPONSE', { response: { status: 200, statusText: 'OK', headers: { 'content-type': 'text/plain' }, isBase64: false, time: 1, stream: true, size: 0 } });
+      pump();
+    } else if (e.data.type === 'REQSPACE_ACK') { credits++; pump(); }
+    else if (e.data.type === 'REQSPACE_CANCEL') w.__ext.cancelled = true;
+  });
+};
+
+test.describe('extension streaming transport', () => {
+  test('a small streamed body is assembled and shown as usual', async ({ page }) => {
+    await page.addInitScript(FAKE_STREAMING_EXTENSION);
+    await seedRequest(page, 'extsmall', 'http://example.test/small');
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('response-status')).toContainText('200');
+    await expect(page.getByTestId('response-body-viewer')).toContainText('aaaaa');
+    await expect(page.getByTestId('oversized-response')).toHaveCount(0);
+  });
+
+  test('a 250 MB streamed body stalls the extension at the cap, then streams to disk on Save', async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.addInitScript(FAKE_STREAMING_EXTENSION);
+    await seedRequest(page, 'exthuge', 'http://example.test/huge');
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('oversized-response')).toContainText('over 200 MB', { timeout: 120_000 });
+    await expect(page.getByRole('button', { name: 'Render Anyway' })).toHaveCount(0);
+    // Past the cap nothing is acked, so the sender stops after its window instead of sending all 250 MB.
+    await page.waitForTimeout(500);
+    const stalled = await page.evaluate(() => (window as any).__ext.sent);
+    expect(stalled).toBeGreaterThan(200);
+    expect(stalled).toBeLessThanOrEqual(240);
+
+    await page.getByTestId('oversized-save').click();
+    await expect(page.getByTestId('oversized-result')).toContainText('Saved', { timeout: 120_000 });
+    expect(await page.evaluate(() => (window as any).__ext)).toMatchObject({ sent: 250, saved: 250 * 1024 * 1024, closed: true });
+  });
+
+  test('Discard tells the extension to cancel the download', async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.addInitScript(FAKE_STREAMING_EXTENSION);
+    await seedRequest(page, 'extdiscard', 'http://example.test/huge');
+    await page.getByTestId('request-send-btn').click();
+    await expect(page.getByTestId('oversized-response')).toBeVisible({ timeout: 120_000 });
+    await page.getByTestId('oversized-discard').click();
+    await expect(page.getByTestId('oversized-result')).toContainText('Discarded');
+    expect(await page.evaluate(() => (window as any).__ext.cancelled)).toBe(true);
+  });
+});
+
 // QA-55 / QA-78: dragging the request/response splitter resizes the panes and selects no text.
 test('QA-55: dragging the splitter up makes the response pane taller', async ({ page }) => {
   await scene(page);

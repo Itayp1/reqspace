@@ -17,6 +17,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// The page asks over a port so the body can be streamed in chunks: one huge message
+// (or one huge string) would crash the tab. The page acks every chunk it takes; the
+// service worker stops reading the response while STREAM_WINDOW chunks are unacked.
+const STREAM_WINDOW = 32;
+const STREAM_CHUNK_BYTES = 256 * 1024;
+chrome.runtime.onConnect?.addListener((port) => {
+  if (port.name !== 'reqspace-send') return;
+  port.onMessage.addListener(function onFirst(message) {
+    if (message.type !== 'SEND') return;
+    port.onMessage.removeListener(onFirst);
+    handleRequest(message.payload, port.sender.origin, message.id, port)
+      .then((result) => { if (result) port.postMessage({ type: 'RESULT', response: result }); })
+      .catch((e) => port.postMessage({ type: 'RESULT', response: { error: e.message } }))
+      .finally(() => { try { port.disconnect(); } catch (e) { /* page already left */ } });
+  });
+});
+
+/** Reads the response body and forwards it as base64 chunks, pausing while the page has not acked. */
+async function streamBody(res, port, controller) {
+  let credits = STREAM_WINDOW;
+  let wake = null;
+  port.onMessage.addListener((m) => { if (m.type === 'ACK') { credits++; wake?.(); } });
+  port.onDisconnect.addListener(() => { controller.abort(); wake?.(); });
+  if (!res.body) { port.postMessage({ type: 'END' }); return; }
+  const reader = res.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (let i = 0; i < value.length; i += STREAM_CHUNK_BYTES) {
+      while (credits <= 0 && !controller.signal.aborted) await new Promise((r) => { wake = r; });
+      if (controller.signal.aborted) throw new DOMException('aborted', 'AbortError');
+      credits--;
+      port.postMessage({ type: 'CHUNK', data: toBase64(value.subarray(i, i + STREAM_CHUNK_BYTES)) });
+    }
+  }
+  port.postMessage({ type: 'END' });
+}
+
 let nextRuleId = 1;
 const inflight = new Map(); // request id -> { controller, origin }
 
@@ -107,7 +145,8 @@ function toBase64(buf) {
   return btoa(bin);
 }
 
-async function handleRequest(payload, origin, requestId) {
+/** With `port` the body is streamed to it and nothing is returned on success; without, the whole body is returned. */
+async function handleRequest(payload, origin, requestId, port) {
   const allowlist = await getAllowlist();
   if (!allowlist.includes(origin)) {
     return { error: `Origin ${origin} is not in the extension allowlist. Please add it in the extension options.` };
@@ -188,8 +227,21 @@ async function handleRequest(payload, origin, requestId) {
       responseHeaders[key] = value;
     }
     
-    const buf = await res.arrayBuffer();
     const isBase64 = isBinaryType(res.headers.get('content-type'));
+    if (port) {
+      if (cookies.length) responseHeaders['set-cookie'] = cookies;
+      port.postMessage({
+        type: 'HEAD',
+        response: {
+          status: res.status, statusText: res.statusText, headers: responseHeaders, isBase64, time, stream: true,
+          size: Number(res.headers.get('content-length')) || 0,
+        },
+      });
+      await streamBody(res, port, controller);
+      return null;
+    }
+
+    const buf = await res.arrayBuffer();
     const responseBody = isBase64 ? toBase64(buf) : new TextDecoder('utf-8').decode(buf);
     if (cookies.length) responseHeaders['set-cookie'] = cookies;
     return {
