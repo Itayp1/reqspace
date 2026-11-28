@@ -5,8 +5,8 @@
 - **Single Test**: `pnpm exec playwright test <path-to-test>`
 - **Database**: SQLite, a fresh unique file per run in the OS temp dir (`playwright.config.ts` sets `DB_STORAGE_PATH`). Do NOT use `:memory:` — Sequelize's connection pool gives each connection a private empty DB, which breaks login. Never write SQLite files into the repo.
 - **Ports**: The API port is `process.env.PORT` (default 3005) and the Vite client port is `process.env.CLIENT_PORT` (default 5173), both injected by the orchestrator. Never hardcode ports; use `API_URL` from `tests/e2e/fixtures.ts` or `baseURL`.
-- **Run only the affected world**: after any change, run only the spec folder (`tests/e2e/<world>/`) and the part (spec/test) the change touched, never the whole suite by default.
-- **Full e2e suite requires the user's approval**: before running the full suite (`pnpm exec playwright test` with no path), ask the user with AskUserQuestion and run it only after they approve.
+- **Run the smallest slice that covers the change**: run only the spec(s)/test(s) inside the world that the change touched. If it touched several things in one world, run those several specs. Run a whole world (`tests/e2e/<world>/`) only when that is really needed. Never run more by default.
+- **Full e2e suite needs the user's approval, and only with a really justified reason**: do not run it by default. Before running `pnpm exec playwright test` with no path, ask the user with AskUserQuestion, state the reason, and run it only after they approve.
 - **E2E runs on sqlite only** (locally and in CI). No bug has ever come from a different DB engine, so the Playwright step in `.github/workflows/test.yml` is skipped for postgres/mysql; those matrix jobs still run the server jest tests and `scripts/smoke-core.sh`. Never run `--project=postgres|mysql` locally.
 - Headless only. Every test fails if it leaves new rows in the `fperrors` table (see `tests/e2e/fixtures.ts`).
 
@@ -34,7 +34,7 @@ For every assigned bug, you MUST adhere to the following sequence:
 3. **Step 3 - Verify Fix**:
    - Rerun the reproduction test. Confirm that it passes.
 4. **Step 4 - Regression Guard**:
-   - Run the affected world's specs (`tests/e2e/<world>/`); run the full suite only with the user's approval (see Environment & Commands).
+   - Run the specs the change touched (a whole world only if needed); the full suite only with the user's approval and a justified reason (see Environment & Commands).
    - Confirm all existing tests in them continue to pass.
 5. **Step 5 - Commit**:
    - Stage modified files and the new test only.
